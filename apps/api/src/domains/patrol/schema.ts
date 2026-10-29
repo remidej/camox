@@ -1,6 +1,7 @@
 import type {
   FindingAbout,
   FindingFix,
+  LinkFailure,
   PatrollerId,
   ReportEntity,
   ReportOutcome,
@@ -152,4 +153,26 @@ export const findingDismissals = sqliteTable(
       table.identity,
     ),
   ],
+);
+
+/**
+ * The Link checker's last check of a url outside the website, in a project (ADR 0034): how it
+ * failed, if it did, and how many checks in a row failed, since a link is raised only after two.
+ * Shared by every scope of the project, so a url checked a moment ago isn't fetched again. Not
+ * content: never a change nor a conflict.
+ */
+export const linkChecks = sqliteTable(
+  "link_checks",
+  {
+    rowId: int("row_id").primaryKey(),
+    projectId: int("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    url: text().notNull(),
+    failure: text({ mode: "json" }).$type<LinkFailure>(),
+    // Checks in a row that failed, the last one included: 0 once one succeeds.
+    failures: int().notNull(),
+    checkedAt: int("checked_at").notNull(),
+  },
+  (table) => [uniqueIndex("link_checks_url_idx").on(table.projectId, table.url)],
 );

@@ -58,7 +58,7 @@ const inScope = ({ projectId, draftId }: FindingScope) =>
 export const dismissedIdentities = Effect.fn("patrol.dismissedIdentities")(function* (
   db: Database,
   projectId: number,
-  patroller: Patroller,
+  patroller: Pick<Patroller, "id">,
 ) {
   const rows = yield* Effect.promise(() =>
     db

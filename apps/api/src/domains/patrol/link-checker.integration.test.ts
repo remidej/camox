@@ -6,6 +6,7 @@ import { describe, expect, it } from "vite-plus/test";
 
 import { callSeedingLive, createProjectFixture, createRpcContext } from "../../../test/fixtures";
 import { forgetScheduledChecks, scheduledChecks } from "../../../test/generation";
+import { answerLink, linkFetches, outsideUrl } from "../../../test/link-fetches";
 import { runAiJob } from "../../lib/ai-jobs";
 import { runService } from "../../lib/run-service";
 import { router } from "../../router";
@@ -13,6 +14,7 @@ import { blockDefinitions, pages } from "../../schema";
 import * as overlay from "../drafts/overlay";
 import { RELEASE } from "../drafts/scope";
 import { CHECK_IDLE_MS } from "./checks";
+import { LINK_RECHECK_MS } from "./link-checker";
 
 // The Link checker (ADR 0034) in a draft, through the router: editors edit, the draft's at-publish
 // check runs as its scheduled job would once the draft is idle, and the Patrol says what it found.
@@ -392,5 +394,186 @@ describe("dismissing a Link checker's finding", () => {
     expect(await f.findings(inDraft(other))).toEqual([]);
     expect((await f.linkChecker(inDraft(other))).dismissals).toHaveLength(1);
     expect((await f.linkChecker({})).dismissals).toHaveLength(1);
+  });
+});
+
+/** A Link field's value, leading outside the website. */
+const external = (href: string, text = "Visit") => ({ type: "external", text, href });
+
+/** A broken link finding, in short: where it is, the url and how it failed. */
+const broken = (finding: FindingView) => ({
+  subject: finding.subject.id,
+  field: finding.field,
+  about: finding.about,
+  fix: finding.fix,
+});
+
+describe("the Link checker's checks of links outside the website, in a draft", () => {
+  it("raises a changed link to a failing url after it fails a second check, shortly after the first", async () => {
+    const f = await fixture();
+    const home = await f.createPage("");
+    const url = outsideUrl("gone");
+    await answerLink(url, { status: 404 });
+    const draft = generateUuidv7();
+    const footer = await f.createFooter(home.id, { link: external(url) }, startingDraft(draft));
+
+    await f.idle(draft);
+    expect(await f.findings(inDraft(draft))).toEqual([]);
+    expect(scheduledChecks(draft).map((job) => job.delayMs)).toEqual([LINK_RECHECK_MS]);
+
+    await f.idle(draft);
+    expect((await f.findings(inDraft(draft))).map(broken)).toEqual([
+      {
+        subject: footer.id,
+        field: "link",
+        about: { kind: "brokenLink", url, text: "Visit", failure: { kind: "status", status: 404 } },
+        fix: null,
+      },
+    ]);
+  });
+
+  it("raises nothing for a link that fails once and then works", async () => {
+    const f = await fixture();
+    const home = await f.createPage("");
+    const url = outsideUrl("blip");
+    await answerLink(url, { status: 503 }, { status: 200 });
+    const draft = generateUuidv7();
+    await f.createFooter(home.id, { link: external(url) }, startingDraft(draft));
+
+    await f.idle(draft);
+    await f.idle(draft);
+
+    expect(await f.findings(inDraft(draft))).toEqual([]);
+    expect(scheduledChecks(draft)).toEqual([]);
+  });
+
+  it("says a link that can't be reached can't be reached, in rich text too", async () => {
+    const f = await fixture();
+    const home = await f.createPage("");
+    const url = outsideUrl();
+    await answerLink(url, "unreachable");
+    const draft = generateUuidv7();
+    const footer = await f.createFooter(
+      home.id,
+      { body: richText("See ", url, "our partner") },
+      startingDraft(draft),
+    );
+
+    await f.idle(draft);
+    await f.idle(draft);
+
+    expect((await f.findings(inDraft(draft))).map(broken)).toEqual([
+      {
+        subject: footer.id,
+        field: "body",
+        about: { kind: "brokenLink", url, text: "our partner", failure: { kind: "unreachable" } },
+        fix: null,
+      },
+    ]);
+  });
+
+  it("asks with GET when HEAD isn't allowed", async () => {
+    const f = await fixture();
+    const home = await f.createPage("");
+    const url = outsideUrl("no-head");
+    await answerLink(url, { status: 200, head: 405 });
+    const draft = generateUuidv7();
+    await f.createFooter(home.id, { link: external(url) }, startingDraft(draft));
+
+    await f.idle(draft);
+
+    expect(await linkFetches(url)).toEqual(["HEAD", "GET"]);
+    expect(scheduledChecks(draft)).toEqual([]);
+    await f.idle(draft);
+    expect(await f.findings(inDraft(draft))).toEqual([]);
+  });
+
+  it("never fetches email and phone links", async () => {
+    const f = await fixture();
+    const home = await f.createPage("");
+    const draft = generateUuidv7();
+    await f.createFooter(
+      home.id,
+      {
+        body: richText("Write ", "mailto:hello@example.com", "to us"),
+        link: external("tel:+3312345678"),
+      },
+      startingDraft(draft),
+    );
+
+    await f.idle(draft);
+    await f.idle(draft);
+
+    expect(await f.findings(inDraft(draft))).toEqual([]);
+  });
+
+  it("fetches a url used in several places once per check", async () => {
+    const f = await fixture();
+    const home = await f.createPage("");
+    const url = outsideUrl("everywhere");
+    await answerLink(url, { status: 200 });
+    const draft = generateUuidv7();
+    await f.createFooter(
+      home.id,
+      { body: richText("See ", url, "this"), link: external(url) },
+      startingDraft(draft),
+    );
+    await f.createFooter(home.id, { link: external(url, "Again") }, inDraft(draft));
+
+    await f.idle(draft);
+
+    expect(await linkFetches(url)).toEqual(["HEAD"]);
+  });
+
+  it("leaves out links in content the draft didn't change", async () => {
+    const f = await fixture();
+    const home = await f.createPage("");
+    const url = outsideUrl("old");
+    await answerLink(url, { status: 404 });
+    await f.createFooter(home.id, { link: external(url) });
+    const draft = generateUuidv7();
+    await f.createPage("contact", startingDraft(draft));
+
+    await f.idle(draft);
+    await f.idle(draft);
+
+    expect(await linkFetches(url)).toEqual([]);
+    expect(await f.findings(inDraft(draft))).toEqual([]);
+  });
+});
+
+describe("dismissing a broken link", () => {
+  it("resolves every finding about its url, and it isn't raised again anywhere in the project", async () => {
+    const f = await fixture();
+    const home = await f.createPage("");
+    const url = outsideUrl("crawlers-unwelcome");
+    await answerLink(url, { status: 403 });
+    const draft = generateUuidv7();
+    await f.createFooter(
+      home.id,
+      { body: richText("See ", url, "this"), link: external(url) },
+      startingDraft(draft),
+    );
+    await f.idle(draft);
+    await f.idle(draft);
+    const found = await f.findings(inDraft(draft));
+    expect(found.map((finding) => finding.field).toSorted()).toEqual(["body", "link"]);
+
+    await f.dismiss(found[0]!.id, inDraft(draft));
+
+    expect(await f.findings(inDraft(draft))).toEqual([]);
+    const other = generateUuidv7();
+    await f.createFooter(home.id, { link: external(url, "Elsewhere") }, startingDraft(other));
+    await f.idle(other);
+    await f.idle(other);
+    expect(await f.findings(inDraft(other))).toEqual([]);
+    expect((await f.linkChecker(inDraft(other))).dismissals.map(({ about }) => about)).toEqual([
+      {
+        kind: "brokenLink",
+        url,
+        text: expect.any(String),
+        failure: { kind: "status", status: 403 },
+      },
+    ]);
   });
 });

@@ -30,8 +30,11 @@ import {
 /** Where a patroller is on duty: in drafts, and on Live. */
 export type Duty = { drafts: PatrollerDuty; live: PatrollerDuty };
 
-/** What a check of a draft found, and what it read: its open findings elsewhere stay. */
-export type CheckResult = { found: RaisedFinding[]; checked: Checked };
+/**
+ * What a check of a draft found, and what it read: its open findings elsewhere stay. With
+ * `recheckInMs`, it needs checking again that soon to settle, such as a link that failed once.
+ */
+export type CheckResult = { found: RaisedFinding[]; checked: Checked; recheckInMs?: number };
 
 /** A patroller's check of a draft at publish. */
 export type Checker = (db: Database, draft: Draft) => Effect.Effect<CheckResult>;

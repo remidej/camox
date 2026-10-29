@@ -660,6 +660,36 @@ void test("the popover lists open findings above reports, each with what it's ab
   assert.deepEqual(shown.reports("linkChecker"), ["Removed a link in Footer in English 10m"]);
 });
 
+void test("a broken link reads its url and how it failed, and is dismissed as a link that's fine", () => {
+  const shown = render(
+    {
+      patrollers: [
+        linkChecker({
+          findings: [
+            finding(1, {
+              about: {
+                kind: "brokenLink",
+                url: "https://partner.example.com/",
+                text: "Our partner",
+                failure: { kind: "status", status: 404 },
+              },
+              fix: null,
+            }),
+          ],
+        }),
+      ],
+    },
+    { open: "linkChecker" },
+  );
+
+  assert.deepEqual(shown.findings("linkChecker"), [
+    {
+      says: "\u201cOur partner\u201d in Footer links to https://partner.example.com/, which answers with an error (404)",
+      actions: ["Show", "This link is fine"],
+    },
+  ]);
+});
+
 void test("Live's findings can't be applied: they're fixed in the Patrol Draft", () => {
   const shown = render(
     { patrollers: [linkChecker({ duty: "asYouGo", findings: [finding(1, { live: true })] })] },

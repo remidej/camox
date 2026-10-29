@@ -1731,6 +1731,45 @@ export class ReleaseFakes extends WorkerEntrypoint {
   async listGoogleFonts(families) {
     googleFonts = families;
   }
+
+  /**
+   * Scripts how a URL answers outbound fetches: each answer in turn, the last one from then on.
+   * @param {string} url
+   * @param {LinkAnswer[]} answers
+   */
+  async answerLink(url, answers) {
+    linkAnswers.set(url, [...answers]);
+  }
+
+  /**
+   * The methods a scripted URL was fetched with, in order.
+   * @param {string} url
+   */
+  async linkFetches(url) {
+    return linkFetches.get(url) ?? [];
+  }
+}
+
+/**
+ * @typedef {{ status: number, head?: number } | "unreachable"} LinkAnswer how a scripted URL
+ * answers: with `status` to a GET and `head` (or `status`) to a HEAD, or with no connection.
+ */
+/** @type {Map<string, LinkAnswer[]>} the answers scripted URLs give, in turn; the last repeats */
+const linkAnswers = new Map();
+/** @type {Map<string, string[]>} the methods each scripted URL was fetched with, in order */
+const linkFetches = new Map();
+
+/**
+ * The outside websites links lead to (test/link-fetches.ts): a scripted URL answers as scripted.
+ * @param {Request} request
+ */
+function serveLink(request) {
+  const answers = linkAnswers.get(request.url);
+  linkFetches.set(request.url, [...(linkFetches.get(request.url) ?? []), request.method]);
+  const answer = answers.length > 1 ? answers.shift() : answers[0];
+  if (answer === "unreachable") throw new Error(`${request.url} can't be reached`);
+  const status = request.method === "HEAD" ? (answer.head ?? answer.status) : answer.status;
+  return new Response(request.method === "HEAD" ? null : "A page", { status });
 }
 
 /** The host of a public website the agent reads in tests (web-tools.integration.test.ts). */
@@ -1829,10 +1868,12 @@ export default {
   /**
    * The outbound fetches of the Workers under test: Git remotes reach the fake Git server, the
    * Cloudflare API its fake, the fake public website its pages, the Google Fonts Developer API
-   * its fake, and anything else goes out as it would without the fakes.
+   * its fake, a URL a test scripted its answers, and anything else goes out as it would without
+   * the fakes.
    * @param {Request} request
    */
   fetch: (request) => {
+    if (linkAnswers.has(request.url)) return serveLink(request);
     const { hostname } = new URL(request.url);
     if (hostname === FAKE_GIT_HOST) return serveGit(request);
     if (hostname === "api.cloudflare.com") return serveCloudflareApi(request);

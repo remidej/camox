@@ -129,7 +129,7 @@ export const applyFix = Effect.fn("patrol.applyFix")(function* (
   const url = "url" in finding.about ? finding.about.url : null;
   const fixed = field && url !== null ? withoutLink(field, content[finding.field], url) : undefined;
   if (fixed === undefined) {
-    yield* requestCheck(patroller, draft.id, true);
+    yield* requestCheck(patroller, draft.id, 0);
     return { applied: false } satisfies ApplyResult;
   }
   yield* writeField(ctx, scoped, finding, fixed, project.uuid);

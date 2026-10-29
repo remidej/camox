@@ -49,6 +49,11 @@ export function dismissedSentence(about: FindingAbout): string {
   }
 }
 
+/** What dismissing a finding says, as its button says it: a broken link's is "This link is fine". */
+export function dismissLabel(about: FindingAbout): string {
+  return about.kind === "brokenLink" ? "This link is fine" : "Dismiss";
+}
+
 /** What applying a fix does, as its button says it. */
 export function fixLabel(fix: FindingFix): string {
   switch (fix.kind) {

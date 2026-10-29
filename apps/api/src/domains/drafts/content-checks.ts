@@ -680,6 +680,37 @@ export const missingPageLinks = Effect.fn("drafts.missingPageLinks")(function* (
   return missing;
 });
 
+/** A link in content a draft reads, in a locale. */
+export type LinkInContent = { holder: Holder; locale: string; field: Field; link: ContentLink };
+
+/** The links in content the draft changed, in each locale it reads. */
+export const changedLinks = Effect.fn("drafts.changedLinks")(function* (
+  ctx: ServiceContext,
+  draft: Scope,
+) {
+  const scope = draftOf(draft);
+  const { projectId } = scope;
+  const tags = new Set((yield* rowsIn(ctx, scope, projectId, locales)).map((locale) => locale.tag));
+  const found: LinkInContent[] = [];
+  for (const tag of tags) {
+    const inTag = inLocale(scope, tag);
+    const draftPages = yield* rowsIn(ctx, inTag, projectId, pages);
+    const records = yield* rowsIn(ctx, inTag, projectId, collectionRecords);
+    const holders = yield* holdersIn(
+      ctx,
+      inTag,
+      new Set(draftPages.map((page) => page.id)),
+      records,
+    );
+    for (const holder of holders.filter((candidate) => candidate.changed)) {
+      for (const { field, link } of linksIn(holder.schema, holder.content)) {
+        found.push({ holder, locale: tag, field, link });
+      }
+    }
+  }
+  return found;
+});
+
 /**
  * The content of one block, shared content, repeatable item or record as a draft reads it in a
  * locale, with the definition it's read by: what a patroller's fix edits. Undefined once it's

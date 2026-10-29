@@ -24,7 +24,7 @@ import { useNavigate } from "../../navigation/navigation";
 import { AssetLightbox } from "../../preview/components/AssetLightbox";
 import { BOTTOM_CARD_EDGES, CARD_BODY_EDGES } from "../../preview/components/SidebarStack";
 import { timeAgo } from "../draftLabel";
-import { dismissedSentence, findingSentence, fixLabel } from "../findingSentence";
+import { dismissLabel, dismissedSentence, findingSentence, fixLabel } from "../findingSentence";
 import { moreSentence, reportSentence, shortTimeAgo, whereReportLeads } from "../reportSentence";
 import { editCollectionItemPath } from "../routes";
 import { useShowInCanvas } from "../showInCanvas";
@@ -436,7 +436,7 @@ export function PatrollerDetails({
                   </Button>
                 )}
                 <Button variant="ghost" size="xs" onClick={() => onDismiss(finding)}>
-                  Dismiss
+                  {dismissLabel(finding.about)}
                 </Button>
               </span>
             </li>
