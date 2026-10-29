@@ -249,6 +249,14 @@ const LOCALE_WRITES: Record<keyof Router["locales"], boolean> = {
   addBack: true,
 };
 
+// Applying a finding's fix edits content as the member would; dismissing one is the project's,
+// never content (ADR 0034).
+const PATROL_WRITES: Record<keyof Router["patrol"], boolean> = {
+  get: false,
+  applyFix: true,
+  dismissFinding: false,
+};
+
 // `definitions` is absent: its sync is a release, never a studio content write.
 const CONTENT_WRITES: Partial<Record<keyof Router, Record<string, boolean>>> = {
   blocks: BLOCK_WRITES,
@@ -256,6 +264,7 @@ const CONTENT_WRITES: Partial<Record<keyof Router, Record<string, boolean>>> = {
   collectionDefinitions: COLLECTION_WRITES,
   files: FILE_WRITES,
   pages: PAGE_WRITES,
+  patrol: PATROL_WRITES,
   repeatableItems: ITEM_WRITES,
 };
 

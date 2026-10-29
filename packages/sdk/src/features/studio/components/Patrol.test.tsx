@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import type {
+  DismissalView,
+  FindingView,
   PatrollerId,
   PatrollerView,
   PatrolView,
@@ -12,7 +14,7 @@ import * as React from "react";
 import { renderToString } from "react-dom/server";
 
 Object.assign(globalThis, { React });
-const { PatrolRoster, PatrollerReports, inHeldOrder } = await import("./Patrol");
+const { PatrolRoster, PatrollerDetails, inHeldOrder } = await import("./Patrol");
 
 const now = Date.UTC(2026, 9, 27, 12);
 const minutes = (count: number) => now - count * 60_000;
@@ -55,6 +57,8 @@ const seoManager = (overrides: Partial<PatrollerView> = {}): PatrollerView => ({
     }),
   ],
   more: [],
+  findings: [],
+  dismissals: [],
   ...overrides,
 });
 
@@ -67,7 +71,51 @@ const translator: PatrollerView = {
   lastActivityAt: null,
   reports: [],
   more: [],
+  findings: [],
+  dismissals: [],
 };
+
+const footer = { entity: "block" as const, id: "block-1", name: "Footer" };
+
+const finding = (id: number, overrides: Partial<FindingView> = {}): FindingView => ({
+  id,
+  about: { kind: "missingPage", url: "camox:page:page-2", text: "About us", page: "About" },
+  fix: { kind: "removeLink" },
+  subject: footer,
+  locale: "en",
+  field: "body",
+  raisedAt: minutes(3),
+  live: false,
+  place: { kind: "page", pageId: "page-1", blockId: "block-1", itemId: null },
+  ...overrides,
+});
+
+const dismissal = (id: number, overrides: Partial<DismissalView> = {}): DismissalView => ({
+  id,
+  about: { kind: "missingPage", url: "camox:page:page-3", text: "Team", page: "Team" },
+  by: { id: "user-1", name: "Ada" },
+  at: minutes(60),
+  ...overrides,
+});
+
+const linkChecker = (overrides: Partial<PatrollerView> = {}): PatrollerView => ({
+  id: "linkChecker",
+  role: "Link checker",
+  duty: "atPublish",
+  working: null,
+  lastCheckedAt: minutes(1),
+  lastActivityAt: minutes(1),
+  reports: [
+    report("r1", {
+      at: minutes(10),
+      summary: { kind: "structured", verb: "removedLink", subject: footer, locale: "en" },
+    }),
+  ],
+  more: [],
+  findings: [],
+  dismissals: [],
+  ...overrides,
+});
 
 /** Renders the Patrol into a document, to read it as editors do. */
 function render(
@@ -88,9 +136,18 @@ function render(
         open={options.open ?? null}
         onOpenChange={() => {}}
         onShow={() => {}}
+        onApply={() => {}}
+        onDismiss={() => {}}
       />
       {opened && (
-        <PatrollerReports patroller={opened} now={now} inDraft={inDraft} onShow={() => {}} />
+        <PatrollerDetails
+          patroller={opened}
+          now={now}
+          inDraft={inDraft}
+          onShow={() => {}}
+          onApply={() => {}}
+          onDismiss={() => {}}
+        />
       )}
     </>,
   );
@@ -111,6 +168,28 @@ function render(
       document.querySelector("[data-patroller][data-open]")?.querySelector("[data-patroller-role]"),
     ),
     more: (id: string) => text(document.querySelector(`[data-reports="${id}"] [data-more]`)),
+    // Each row's count of open findings, or "" without one.
+    counts: patrollers.map((patroller) => text(patroller.querySelector("[data-findings-count]"))),
+    // What the open patroller's popover shows, in order: findings, reports, dismissals.
+    sections: [
+      ...document.querySelectorAll("[data-findings], [data-reports], [data-dismissals]"),
+    ].map((section) =>
+      section.hasAttribute("data-findings")
+        ? "findings"
+        : section.hasAttribute("data-reports")
+          ? "reports"
+          : "dismissals",
+    ),
+    // A finding's sentence, tag and time, and its actions, apart.
+    findings: (id: string) =>
+      [...document.querySelectorAll(`[data-findings="${id}"] [data-finding]`)].map((row) => ({
+        says: text(row.querySelector("[data-finding-sentence]")),
+        actions: [...row.querySelectorAll("button")].map((button) => text(button)),
+      })),
+    dismissals: (id: string) =>
+      [...document.querySelectorAll(`[data-dismissals="${id}"] [data-dismissal]`)].map((row) =>
+        [...row.children].map(text).join(" "),
+      ),
     // What each report leads to, by its accessible name, or null for one that leads nowhere.
     leads: (id: string) =>
       [...document.querySelectorAll(`[data-reports="${id}"] [data-report]`)].map((row) => {
@@ -241,6 +320,8 @@ function renderOne(patroller: PatrollerView) {
       open={null}
       onOpenChange={() => {}}
       onShow={() => {}}
+      onApply={() => {}}
+      onDismiss={() => {}}
     />,
   );
   const row = document.querySelector("[data-patroller]")!;
@@ -531,4 +612,72 @@ void test("a Live report seen from a draft leads to Live", () => {
     "Wrote SEO for Pricing in German: show it on the Canvas in German",
     "Described team.png in English: open the file",
   ]);
+});
+
+void test("a patroller that checks at publish says so while idle, and what it's on while working", () => {
+  const idle = render({ patrollers: [linkChecker()] });
+  assert.deepEqual(idle.subtitles, ["Checks when you publish"]);
+
+  const working = render({
+    patrollers: [
+      linkChecker({ working: { subject: footer, locales: [{ locale: "en", count: 1 }] } }),
+    ],
+  });
+  assert.deepEqual(working.subtitles, ["Checking links in Footer in English"]);
+});
+
+void test("a patroller's open findings are counted at the end of its row, and a row without any shows no count", () => {
+  const shown = render({
+    patrollers: [
+      linkChecker({ findings: [finding(1), finding(2, { field: "link" })] }),
+      translator,
+    ],
+  });
+
+  assert.deepEqual(shown.counts, ["2", ""]);
+  assert.deepEqual(render({ patrollers: [linkChecker({ findings: [finding(1)] })] }).counts, ["1"]);
+});
+
+void test("the popover lists open findings above reports, each with what it's about and its actions", () => {
+  const shown = render(
+    {
+      patrollers: [linkChecker({ findings: [finding(1), finding(2, { place: null, fix: null })] })],
+    },
+    { open: "linkChecker" },
+  );
+
+  assert.deepEqual(shown.sections, ["findings", "reports"]);
+  assert.deepEqual(shown.findings("linkChecker"), [
+    {
+      says: "\u201cAbout us\u201d in Footer links to About, a page that no longer exists",
+      actions: ["Show", "Remove the link", "Dismiss"],
+    },
+    {
+      says: "\u201cAbout us\u201d in Footer links to About, a page that no longer exists",
+      actions: ["Dismiss"],
+    },
+  ]);
+  assert.deepEqual(shown.reports("linkChecker"), ["Removed a link in Footer in English 10m"]);
+});
+
+void test("Live's findings can't be applied: they're fixed in the Patrol Draft", () => {
+  const shown = render(
+    { patrollers: [linkChecker({ duty: "asYouGo", findings: [finding(1, { live: true })] })] },
+    { open: "linkChecker", inDraft: false },
+  );
+
+  assert.deepEqual(
+    shown.findings("linkChecker").map(({ actions }) => actions),
+    [["Show", "Dismiss"]],
+  );
+});
+
+void test("the popover shows the history of dismissals: what, who, and when", () => {
+  const shown = render(
+    { patrollers: [linkChecker({ dismissals: [dismissal(1)] })] },
+    { open: "linkChecker" },
+  );
+
+  assert.deepEqual(shown.sections, ["reports", "dismissals"]);
+  assert.deepEqual(shown.dismissals("linkChecker"), ["Links to Team: dismissed by Ada 1h"]);
 });

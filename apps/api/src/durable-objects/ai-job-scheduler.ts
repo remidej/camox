@@ -1,3 +1,4 @@
+import { PATROLLER_IDS } from "@camox/api-contract/patrol";
 import { DurableObject } from "cloudflare:workers";
 import { Effect, Option, Schema } from "effect";
 
@@ -15,6 +16,12 @@ const TranslatedEntity = Schema.Literals(TRANSLATED_ENTITIES);
 
 const StoredJob = Schema.Union([
   Schema.Struct({ id: Schema.String, kind: Schema.Literal("overview"), draftId: Schema.String }),
+  Schema.Struct({
+    id: Schema.String,
+    kind: Schema.Literal("check"),
+    patroller: Schema.Literals(PATROLLER_IDS),
+    draftId: Schema.String,
+  }),
   Schema.Struct({
     // Tells a re-scheduled job from the one an in-flight alarm is running.
     id: Schema.String,

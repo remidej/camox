@@ -1,4 +1,6 @@
 import type {
+  FindingAbout,
+  FindingFix,
   PatrollerId,
   ReportEntity,
   ReportOutcome,
@@ -71,6 +73,9 @@ export const patrolChecks = sqliteTable(
     draftId: text("draft_id").references(() => drafts.id, { onDelete: "cascade" }),
     patroller: text().notNull().$type<PatrollerId>(),
     checkedAt: int("checked_at").notNull(),
+    // The fingerprint of the draft's changes the check read: it's up to date while they're the
+    // same. Null on Live, and for checks that don't read a draft's changes.
+    fingerprint: text(),
   },
   (table) => [
     uniqueIndex("patrol_checks_live_idx")
@@ -79,5 +84,72 @@ export const patrolChecks = sqliteTable(
     uniqueIndex("patrol_checks_draft_idx")
       .on(table.draftId, table.patroller)
       .where(sql`${table.draftId} is not null`),
+  ],
+);
+
+/**
+ * A problem a patroller found in content, open until a check no longer finds it, a fix is
+ * applied, or a member dismisses what it's about (ADR 0034). In a draft (only in what it changed,
+ * ending with it) or on Live (`draftId` null). Keyed by scope, patroller and key: its subject,
+ * field and identity, so a check finding it again keeps it. Not content: never a change nor a
+ * conflict.
+ */
+export const findings = sqliteTable(
+  "findings",
+  {
+    rowId: int("row_id").primaryKey(),
+    projectId: int("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    draftId: text("draft_id").references(() => drafts.id, { onDelete: "cascade" }),
+    patroller: text().notNull().$type<PatrollerId>(),
+    key: text().notNull(),
+    // Its subject: the content it's in, in a locale, and the field.
+    entity: text().notNull().$type<ReportEntity>(),
+    entityId: text("entity_id").notNull(),
+    locale: text().notNull(),
+    field: text().notNull(),
+    // What a dismissal names: no finding of the same patroller and identity is raised again.
+    identity: text().notNull(),
+    about: text({ mode: "json" }).notNull().$type<FindingAbout>(),
+    fix: text({ mode: "json" }).$type<FindingFix>(),
+    raisedAt: int("raised_at").notNull(),
+  },
+  (table) => [
+    uniqueIndex("findings_live_idx")
+      .on(table.projectId, table.patroller, table.key)
+      .where(sql`${table.draftId} is null`),
+    uniqueIndex("findings_draft_idx")
+      .on(table.draftId, table.patroller, table.key)
+      .where(sql`${table.draftId} is not null`),
+    index("findings_identity_idx").on(table.projectId, table.patroller, table.identity),
+  ],
+);
+
+/**
+ * A member's dismissal of a finding's identity, the project's (ADR 0034): it holds in every scope
+ * at once and survives the draft it was made in, so it references no draft. Who dismissed it
+ * isn't a reference either: it stays after they leave. Never content, a change nor a conflict.
+ */
+export const findingDismissals = sqliteTable(
+  "finding_dismissals",
+  {
+    rowId: int("row_id").primaryKey(),
+    projectId: int("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    patroller: text().notNull().$type<PatrollerId>(),
+    identity: text().notNull(),
+    // What the dismissed finding was about, for the history.
+    about: text({ mode: "json" }).notNull().$type<FindingAbout>(),
+    dismissedBy: text("dismissed_by").notNull(),
+    dismissedAt: int("dismissed_at").notNull(),
+  },
+  (table) => [
+    uniqueIndex("finding_dismissals_identity_idx").on(
+      table.projectId,
+      table.patroller,
+      table.identity,
+    ),
   ],
 );

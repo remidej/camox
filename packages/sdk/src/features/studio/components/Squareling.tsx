@@ -150,6 +150,13 @@ const LOOKS: Record<"agent" | PatrollerId, Look> = {
     fill: "fill-amber-500",
     eyes: { x: [44, 63], y: 28 },
   },
+  // A link's round-cornered square, following links from one end to the other.
+  linkChecker: {
+    body: "M32 14H68Q86 14 86 32V68Q86 86 68 86H32Q14 86 14 68V32Q14 14 32 14Z",
+    middle: 50,
+    fill: "fill-sky-500",
+    eyes: { x: [40, 59], y: 32 },
+  },
 };
 
 const EYE_WIDTH = 11;

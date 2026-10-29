@@ -38,14 +38,15 @@ const conflictTarget = (draftId: string | null) =>
       };
 
 /**
- * Writes a patroller's record in a scope with `write`, and refreshes the Patrol of its scope. A
- * draft that ended meanwhile has nowhere to hold it: nothing is written. The catch-up draft's
- * work is Live's in the Patrol, so it refreshes Live's.
+ * Writes a patroller's record in a scope with `write`, and refreshes the Patrol of its scope: as
+ * a report, unless it's findings. A draft that ended meanwhile has nowhere to hold it: nothing is
+ * written. The catch-up draft's work is Live's in the Patrol, so it refreshes Live's.
  */
-const writeInScope = Effect.fn("patrol.writeInScope")(function* (
+export const writeInScope = Effect.fn("patrol.writeInScope")(function* (
   db: Database,
   { projectId, draftId }: { projectId: number; draftId: string | null },
   write: () => Promise<unknown>,
+  kind: "report" | "findings" = "report",
 ) {
   const draftOf = () =>
     draftId === null ? Effect.succeed(null) : Effect.orDie(patrolDraftRow(db, draftId));
@@ -62,7 +63,7 @@ const writeInScope = Effect.fn("patrol.writeInScope")(function* (
   );
   if (!written) return;
   yield* record(db, {
-    kind: "report",
+    kind,
     projectId,
     draftId: draft === null ? null : patrolScopeOf(draft),
   });
@@ -95,24 +96,26 @@ export const writeCheck = Effect.fn("patrol.writeCheck")(function* (
   db: Database,
   patroller: Patroller,
   scope: { projectId: number; draftId: string | null },
+  /** The fingerprint of the draft's changes the check read, if it read them. */
+  fingerprint: string | null = null,
 ) {
   const { projectId, draftId } = scope;
   const checkedAt = Date.now();
   yield* writeInScope(db, scope, () =>
     db
       .insert(patrolChecks)
-      .values({ projectId, draftId, patroller: patroller.id, checkedAt })
+      .values({ projectId, draftId, patroller: patroller.id, checkedAt, fingerprint })
       .onConflictDoUpdate(
         draftId === null
           ? {
               target: [patrolChecks.projectId, patrolChecks.patroller],
               targetWhere: sql`${patrolChecks.draftId} is null`,
-              set: { checkedAt },
+              set: { checkedAt, fingerprint },
             }
           : {
               target: [patrolChecks.draftId, patrolChecks.patroller],
               targetWhere: sql`${patrolChecks.draftId} is not null`,
-              set: { checkedAt },
+              set: { checkedAt, fingerprint },
             },
       ),
   );

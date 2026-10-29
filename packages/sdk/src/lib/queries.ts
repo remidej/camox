@@ -89,6 +89,15 @@ export const draftMutations = {
   revertToLive: () => getOrpc().drafts.revertToLive.mutationOptions(),
 };
 
+/**
+ * What members do with a patroller's finding (ADR 0034): apply its fix in the draft viewed, or
+ * dismiss it for the whole project.
+ */
+export const patrolMutations = {
+  applyFix: () => getOrpc().patrol.applyFix.mutationOptions(),
+  dismissFinding: () => getOrpc().patrol.dismissFinding.mutationOptions(),
+};
+
 /** Adding and removing locales: content writes, so on Live they start a draft (ADR 0015). */
 export const localeMutations = {
   add: () => getOrpc().locales.add.mutationOptions(),

@@ -1,17 +1,22 @@
 import {
+  type FindingView,
   type PatrollerId,
   type PatrollerView,
   type PatrolView,
   reportLocale,
+  type ReportPlace,
   type ReportView,
 } from "@camox/api-contract/patrol";
 import { Badge } from "@camox/ui/badge";
+import { Button } from "@camox/ui/button";
 import { Popover, PopoverContent, PopoverTitle, PopoverTrigger } from "@camox/ui/popover";
+import { useMutation } from "@tanstack/react-query";
 import * as React from "react";
 
 import { AuthContext } from "../../../lib/auth";
 import { useCurrentDraftId } from "../../../lib/draft-scope";
 import { localizedPath } from "../../../lib/locale-path";
+import { patrolMutations } from "../../../lib/queries";
 import { reads, useReadQuery } from "../../../lib/studio-reads";
 import { cn } from "../../../lib/utils";
 import { useViewLocale } from "../../../lib/view-locale-context";
@@ -19,6 +24,7 @@ import { useNavigate } from "../../navigation/navigation";
 import { AssetLightbox } from "../../preview/components/AssetLightbox";
 import { BOTTOM_CARD_EDGES, CARD_BODY_EDGES } from "../../preview/components/SidebarStack";
 import { timeAgo } from "../draftLabel";
+import { dismissedSentence, findingSentence, fixLabel } from "../findingSentence";
 import { moreSentence, reportSentence, shortTimeAgo, whereReportLeads } from "../reportSentence";
 import { editCollectionItemPath } from "../routes";
 import { useShowInCanvas } from "../showInCanvas";
@@ -67,6 +73,8 @@ function ProjectPatrol({ projectId, inDraft }: { projectId: number; inDraft: boo
   const roster = useMovingRows(shown?.patrollers.map(({ id }) => id).join(" "));
   const [openFileId, setOpenFileId] = React.useState<string | null>(null);
   const showReport = useShowReport(inDraft, setOpenFileId);
+  const applyFix = useMutation(patrolMutations.applyFix());
+  const dismissFinding = useMutation(patrolMutations.dismissFinding());
   if (!shown) return null;
   const hold = () => setHeldOrder((held) => held ?? shown.patrollers.map(({ id }) => id));
   const openReports = (id: PatrollerId | null) => {
@@ -94,11 +102,13 @@ function ProjectPatrol({ projectId, inDraft }: { projectId: number; inDraft: boo
         singleLocale={locales?.length === 1}
         open={open}
         onOpenChange={openReports}
-        onShow={(report) => {
+        onShow={(shown) => {
           // Showing it moves the editor on, which leaves the reports.
           openReports(null);
-          showReport(report);
+          showReport(shown);
         }}
+        onApply={(finding) => applyFix.mutate({ projectId, findingId: finding.id })}
+        onDismiss={(finding) => dismissFinding.mutate({ projectId, findingId: finding.id })}
       />
       {openFileId && (
         <AssetLightbox
@@ -113,20 +123,29 @@ function ProjectPatrol({ projectId, inDraft }: { projectId: number; inDraft: boo
   );
 }
 
+/** What the Patrol shows where it is: a report's or a finding's subject, in its locale. */
+export type Shown = { place: ReportPlace | null; live: boolean; locale: string | null };
+
+/** A report, as the Patrol shows its subject. */
+const shownOf = (report: ReportView): Shown => ({
+  ...report,
+  locale: reportLocale(report.summary),
+});
+
 /**
- * Shows a report's subject where it is, in the report's locale, and on Live for a Live report seen
- * from a draft: a page, block or item selected on the Canvas, a record in its collection, or a
- * file, opened over the Canvas.
+ * Shows a report's or a finding's subject where it is, in its locale, and on Live for a Live one
+ * seen from a draft: a page, block or item selected on the Canvas, a record in its collection, or
+ * a file, opened over the Canvas.
  */
 function useShowReport(inDraft: boolean, openFile: (fileId: string) => void) {
   const showInCanvas = useShowInCanvas();
   const navigate = useNavigate();
   const view = useViewLocale();
-  return (report: ReportView) => {
+  return (report: Shown) => {
     const { place } = report;
     if (!place) return;
     const toLive = inDraft && report.live ? { draft: null } : {};
-    const tag = reportLocale(report.summary);
+    const tag = report.locale;
     if (place.kind === "page") {
       const { pageId, blockId, itemId } = place;
       return void showInCanvas({ pageId, locale: tag, blockId, itemId, ...toLive });
@@ -213,6 +232,8 @@ export function PatrolRoster({
   open,
   onOpenChange,
   onShow,
+  onApply,
+  onDismiss,
 }: {
   view: PatrolView;
   now: number;
@@ -221,8 +242,12 @@ export function PatrolRoster({
   /** The patroller whose reports are open, if any. */
   open: PatrollerId | null;
   onOpenChange: (id: PatrollerId | null) => void;
-  /** Shows a report's subject where it is: one with a place only. */
-  onShow: (report: ReportView) => void;
+  /** Shows a report's or a finding's subject where it is: one with a place only. */
+  onShow: (shown: Shown) => void;
+  /** Applies a finding's suggested fix. */
+  onApply: (finding: FindingView) => void;
+  /** Dismisses a finding for the whole project. */
+  onDismiss: (finding: FindingView) => void;
 }) {
   return (
     <ul className="flex flex-col gap-px p-1">
@@ -236,6 +261,8 @@ export function PatrolRoster({
           open={open === patroller.id}
           onOpenChange={(next) => onOpenChange(next ? patroller.id : null)}
           onShow={onShow}
+          onApply={onApply}
+          onDismiss={onDismiss}
         />
       ))}
     </ul>
@@ -277,6 +304,8 @@ function PatrollerRow({
   open,
   onOpenChange,
   onShow,
+  onApply,
+  onDismiss,
 }: {
   patroller: PatrollerView;
   now: number;
@@ -285,14 +314,19 @@ function PatrollerRow({
   idle: string | undefined;
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  onShow: (report: ReportView) => void;
+  onShow: (shown: Shown) => void;
+  onApply: (finding: FindingView) => void;
+  onDismiss: (finding: FindingView) => void;
 }) {
   const statusId = React.useId();
   const working = patroller.working && workingSentence(patroller.id, patroller.working);
+  // One that checks at publish says so: its check is coming.
   const subtitle =
     working ??
     idle ??
+    (patroller.duty === "atPublish" ? "Checks when you publish" : undefined) ??
     (patroller.lastActivityAt === null ? "" : timeAgo(patroller.lastActivityAt, now));
+  const count = patroller.findings.length;
   return (
     <li data-patroller={patroller.id} data-open={open || undefined} className="flex flex-col">
       <Popover open={open} onOpenChange={onOpenChange}>
@@ -321,11 +355,28 @@ function PatrollerRow({
               {subtitle}
             </span>
           </span>
+          {/* Its open findings, counted like unread messages from a colleague. */}
+          {count > 0 && (
+            <span
+              data-findings-count
+              aria-label={`${count} open ${count === 1 ? "finding" : "findings"}`}
+              className="bg-foreground text-background ml-auto flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full px-1.5 text-xs font-medium tabular-nums"
+            >
+              {count}
+            </span>
+          )}
         </PopoverTrigger>
         {/* To the left, over the Canvas, clear of the sidebar's card around the roster. */}
         <PopoverContent side="left" align="start" sideOffset={12} className="w-80 gap-2 p-3">
           <PopoverTitle className="text-sm">{patroller.role}</PopoverTitle>
-          <PatrollerReports patroller={patroller} now={now} inDraft={inDraft} onShow={onShow} />
+          <PatrollerDetails
+            patroller={patroller}
+            now={now}
+            inDraft={inDraft}
+            onShow={onShow}
+            onApply={onApply}
+            onDismiss={onDismiss}
+          />
         </PopoverContent>
       </Popover>
       {/* Announced as it changes, and read with the patroller as its description. Always there,
@@ -334,6 +385,84 @@ function PatrollerRow({
         {working && `Working: ${working.charAt(0).toLowerCase()}${working.slice(1)}`}
       </span>
     </li>
+  );
+}
+
+/**
+ * What a patroller's popover shows: its open findings with their actions, then its reports, then
+ * the history of its dismissals.
+ */
+export function PatrollerDetails({
+  patroller,
+  now,
+  inDraft,
+  onShow,
+  onApply,
+  onDismiss,
+}: {
+  patroller: PatrollerView;
+  now: number;
+  inDraft: boolean;
+  onShow: (shown: Shown) => void;
+  onApply: (finding: FindingView) => void;
+  onDismiss: (finding: FindingView) => void;
+}) {
+  return (
+    <>
+      {patroller.findings.length > 0 && (
+        <ul data-findings={patroller.id} className="flex flex-col gap-2 text-xs">
+          {patroller.findings.map((finding) => (
+            <li key={finding.id} data-finding className="flex flex-col gap-1">
+              <span className="flex items-baseline gap-2">
+                <span data-finding-sentence className="min-w-0 flex-1">
+                  {findingSentence(finding)}
+                </span>
+                {inDraft && finding.live && (
+                  <Badge variant="outline" size="sm">
+                    Live
+                  </Badge>
+                )}
+              </span>
+              <span className="flex flex-wrap gap-1">
+                {finding.place && (
+                  <Button variant="outline" size="xs" onClick={() => onShow(finding)}>
+                    Show
+                  </Button>
+                )}
+                {/* Live's findings are fixed in the Patrol Draft. */}
+                {finding.fix && !finding.live && (
+                  <Button variant="outline" size="xs" onClick={() => onApply(finding)}>
+                    {fixLabel(finding.fix)}
+                  </Button>
+                )}
+                <Button variant="ghost" size="xs" onClick={() => onDismiss(finding)}>
+                  Dismiss
+                </Button>
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
+      <PatrollerReports patroller={patroller} now={now} inDraft={inDraft} onShow={onShow} />
+      {patroller.dismissals.length > 0 && (
+        <ul
+          data-dismissals={patroller.id}
+          aria-label="Dismissed"
+          className="text-muted-foreground flex flex-col gap-1 border-t pt-2 text-xs"
+        >
+          {patroller.dismissals.map((dismissal) => (
+            <li key={dismissal.id} data-dismissal className="flex items-baseline gap-2">
+              <span className="min-w-0 flex-1">
+                {`${dismissedSentence(dismissal.about)}: dismissed by ${dismissal.by.name}`}
+              </span>
+              <time dateTime={new Date(dismissal.at).toISOString()} className="shrink-0">
+                {shortTimeAgo(dismissal.at, now)}
+              </time>
+            </li>
+          ))}
+        </ul>
+      )}
+    </>
   );
 }
 
@@ -350,9 +479,11 @@ export function PatrollerReports({
   patroller: PatrollerView;
   now: number;
   inDraft: boolean;
-  onShow: (report: ReportView) => void;
+  onShow: (shown: Shown) => void;
 }) {
   if (patroller.reports.length === 0 && patroller.more.length === 0) {
+    // Its findings and dismissals say it did something.
+    if (patroller.findings.length > 0 || patroller.dismissals.length > 0) return null;
     return <p className="text-muted-foreground text-xs">Nothing yet.</p>;
   }
   return (
@@ -397,7 +528,7 @@ function ReportSentence({
 }: {
   report: ReportView;
   inDraft: boolean;
-  onShow: (report: ReportView) => void;
+  onShow: (shown: Shown) => void;
 }) {
   const sentence = reportSentence(report.summary, report.outcome);
   const leads = whereReportLeads(report, inDraft);
@@ -406,7 +537,7 @@ function ReportSentence({
     <button
       type="button"
       aria-label={`${sentence}: ${leads}`}
-      onClick={() => onShow(report)}
+      onClick={() => onShow(shownOf(report))}
       className="min-w-0 flex-1 cursor-pointer text-left outline-none after:absolute after:inset-0"
     >
       {sentence}

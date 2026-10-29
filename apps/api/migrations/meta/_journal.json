@@ -337,6 +337,13 @@
       "when": 1793310575286,
       "tag": "0047_patrol_checks_drop_report_attention",
       "breakpoints": true
+    },
+    {
+      "idx": 48,
+      "version": "6",
+      "when": 1793311793861,
+      "tag": "0048_findings",
+      "breakpoints": true
     }
   ]
 }

@@ -1,3 +1,4 @@
+import { PAGE_TEXT_LINK_PREFIX } from "@camox/api-contract/ids";
 import { and, eq } from "drizzle-orm";
 import { Effect } from "effect";
 
@@ -26,6 +27,7 @@ import {
   pointersIn,
   pointersOf,
 } from "../_shared/fields";
+import { type ContentLink, linksIn } from "../_shared/links";
 import type { ServiceContext } from "../_shared/service-context";
 import {
   pageValue,
@@ -54,7 +56,6 @@ export const CONTENT_PROBLEM_CODES = [
   "duplicateRecordPageValue",
   "emptyRequiredReference",
   "danglingReference",
-  "danglingPageLink",
   "wrongKindValue",
   "missingMetaTitle",
   "metaTitlePending",
@@ -226,7 +227,7 @@ const checkDuplicateRecordPageValues = Effect.fn("drafts.checkDuplicateRecordPag
 
 /** Content to check against its definition: a block, shared content, item or record. */
 export type Holder = {
-  entity: Exclude<ContentEntity, "page">;
+  entity: "block" | "sharedContent" | "repeatableItem" | "record";
   id: string;
   /** The locale of the localization holding the content. */
   locale: string;
@@ -372,9 +373,11 @@ export function problemPlaceIn(holder: Holder, field: Field | undefined): Proble
 
 /** What content checks point at: records and pages. Publishing checks files on its own. */
 type ContentPointer = Exclude<Pointer, { to: "file" }>;
+type RecordPointer = Extract<Pointer, { to: "record" }>;
 
 /**
- * References, reference-list entries and page links pointing at nothing. Content the draft
+ * References and reference-list entries pointing at nothing. Links to pages that don't exist are
+ * the Link checker's findings (ADR 0034), not problems. Content the draft
  * changed blocks publishing, and so does untouched Live content pointing at what the draft
  * deletes: the draft fixes it by editing that content. Pointers Live already left dangling are
  * warnings.
@@ -390,9 +393,9 @@ function checkDanglingPointers(
   found: Findings,
 ) {
   for (const holder of holders) {
-    const missingByField = new Map<string, { field: Field; missing: ContentPointer[] }>();
+    const missingByField = new Map<string, { field: Field; missing: RecordPointer[] }>();
     for (const { field, pointer } of pointersIn(holder.schema, holder.content)) {
-      if (pointer.to === "file" || exists.draft(keyOf(holder.projectId, pointer))) continue;
+      if (pointer.to !== "record" || exists.draft(keyOf(holder.projectId, pointer))) continue;
       if (pointer.to === "record" && !isRequiredReference(field) && excludedRecord(pointer.id))
         continue;
       const entry = missingByField.get(field.name) ?? { field, missing: [] };
@@ -404,18 +407,17 @@ function checkDanglingPointers(
       const deletedByDraft = missing.some((pointer) =>
         exists.live(keyOf(holder.projectId, pointer)),
       );
-      const what = missing[0].to === "page" ? "a page" : "a record";
       const blocking = holder.changed || deletedByDraft;
       (blocking ? found.blockers : found.warnings).push({
         entity: holder.entity,
         id: holder.id,
-        code: missing[0].to === "page" ? "danglingPageLink" : "danglingReference",
+        code: "danglingReference",
         field: name,
         ...problemPlaceIn(holder, field),
         message:
           !holder.changed && deletedByDraft
-            ? `"${title}" points at ${what} this draft deletes: edit it in this draft`
-            : `"${title}" points at ${what} that doesn't exist`,
+            ? `"${title}" points at a record this draft deletes: edit it in this draft`
+            : `"${title}" points at a record that doesn't exist`,
       });
     }
   }
@@ -620,4 +622,79 @@ export const checkContentProblems = Effect.fn("drafts.checkContentProblems")(fun
     holders.push(...found.holders);
   }
   return { blockers, warnings, records, holders };
+});
+
+/** A link, in content a draft reads, to a page missing from the draft. */
+export type MissingPageLink = {
+  holder: Holder;
+  /** The tag of the locale the content is in. */
+  locale: string;
+  field: Field;
+  link: ContentLink;
+  /** The missing page's name on Live, if Live has it. */
+  page: string | null;
+};
+
+/**
+ * Links to pages missing from the draft, in each locale it reads: in content the draft changed,
+ * and in untouched Live content linking to a page the draft deletes, since deleting it is the
+ * draft's change. Links Live already left leading nowhere aren't the draft's. A link to a page
+ * missing from its locale leads to the default locale's page, so it isn't missing.
+ */
+export const missingPageLinks = Effect.fn("drafts.missingPageLinks")(function* (
+  ctx: ServiceContext,
+  draft: Scope,
+) {
+  const scope = draftOf(draft);
+  const { projectId } = scope;
+  const tags = new Set((yield* rowsIn(ctx, scope, projectId, locales)).map((locale) => locale.tag));
+  const defaults = {
+    draft: yield* rowsIn(ctx, scope, projectId, pages),
+    live: yield* rowsIn(ctx, null, projectId, pages),
+  };
+  const missing: MissingPageLink[] = [];
+  for (const tag of tags) {
+    const inTag = inLocale(scope, tag);
+    const draftPages = yield* rowsIn(ctx, inTag, projectId, pages);
+    const livePages = yield* rowsIn(ctx, inLocale(null, tag), projectId, pages);
+    const inDraft = new Set([...draftPages, ...defaults.draft].map((page) => page.id));
+    const onLive = new Map([...defaults.live, ...livePages].map((page) => [page.id, page]));
+    const records = yield* rowsIn(ctx, inTag, projectId, collectionRecords);
+    const holders = yield* holdersIn(
+      ctx,
+      inTag,
+      new Set(draftPages.map((page) => page.id)),
+      records,
+    );
+    for (const holder of holders) {
+      for (const { field, link } of linksIn(holder.schema, holder.content)) {
+        if (!link.url.startsWith(PAGE_TEXT_LINK_PREFIX)) continue;
+        const pageId = link.url.slice(PAGE_TEXT_LINK_PREFIX.length);
+        if (inDraft.has(pageId)) continue;
+        const live = onLive.get(pageId);
+        if (!holder.changed && !live) continue;
+        missing.push({ holder, locale: tag, field, link, page: live?.nickname ?? null });
+      }
+    }
+  }
+  return missing;
+});
+
+/**
+ * The content of one block, shared content, repeatable item or record as a draft reads it in a
+ * locale, with the definition it's read by: what a patroller's fix edits. Undefined once it's
+ * gone, or read as nothing.
+ */
+export const holderOf = Effect.fn("drafts.holderOf")(function* (
+  ctx: ServiceContext,
+  draft: Scope,
+  tag: string,
+  subject: { entity: string; id: string },
+) {
+  const scope = inLocale(draftOf(draft), tag);
+  const { projectId } = scope;
+  const visible = (yield* rowsIn(ctx, scope, projectId, pages)).map((page) => page.id);
+  const records = yield* rowsIn(ctx, scope, projectId, collectionRecords);
+  const holders = yield* holdersIn(ctx, scope, new Set(visible), records);
+  return holders.find((holder) => holder.entity === subject.entity && holder.id === subject.id);
 });

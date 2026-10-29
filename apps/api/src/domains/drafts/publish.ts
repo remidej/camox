@@ -1,5 +1,4 @@
 import { CAMOX_ACTOR, type EndedDraft } from "@camox/api-contract/drafts";
-import { env, waitUntil } from "cloudflare:workers";
 import { and, eq, inArray, isNull, sql } from "drizzle-orm";
 import type { SQLiteTable } from "drizzle-orm/sqlite-core";
 import { Effect } from "effect";
@@ -42,6 +41,8 @@ import { homeOf } from "../generated-values/service";
 import { defaultLocaleTag } from "../locales/default-locale";
 import { locales } from "../locales/schema";
 import { deleteUnreferencedOgImageBlobs, ogImageBlobsOf } from "../pages/og-image-blobs";
+import { requestStaleChecks } from "../patrol/checks";
+import * as patrolFindings from "../patrol/findings";
 import * as patrolReports from "../patrol/reports";
 import { reportCatchUpPublished } from "../patrol/translator";
 import { holdPublishPush } from "../publishes/queue";
@@ -53,6 +54,7 @@ import * as translationBookkeeping from "../translations/bookkeeping";
 import { listedChanges } from "../translations/review";
 import * as translations from "../translations/service";
 import { accessTo } from "./access";
+import { camoxContext } from "./camox-context";
 import { isCatchUpDraft } from "./catch-up";
 import {
   checkContentProblems,
@@ -64,7 +66,7 @@ import { type FieldDiff, fieldDiffsOf } from "./field-values";
 import * as overlay from "./overlay";
 import {
   clearStatements as clearOverviewStatements,
-  fingerprintOf,
+  fingerprintOfChanges,
   type Overview,
   overviewOf,
   requestIfOutdated,
@@ -420,18 +422,7 @@ export const computePreview = Effect.fn("drafts.computePreview")(function* (
     change,
   }));
 
-  const fingerprint =
-    stored.length > 0
-      ? yield* fingerprintOf(
-          stored.map(({ entity, row, change }) => ({
-            entity,
-            id: row.id,
-            locale: overlay.localeOfRow(row),
-            change,
-            updatedAt: row.updatedAt,
-          })),
-        )
-      : null;
+  const fingerprint = yield* fingerprintOfChanges(stored);
 
   const translating = yield* translations.translatingLocales(ctx.db, [scope.id]);
   const row = yield* Effect.promise(() =>
@@ -601,9 +592,11 @@ export const previewPublish = Effect.fn("drafts.previewPublish")(function* (
 ) {
   const { projectId } = yield* decodeInput(previewPublishInput, rawInput);
   const scope = yield* requireDraft(ctx, projectId);
-  const { fingerprint: _, ...preview } = yield* computePreview(ctx, scope);
-  // Someone is reviewing the draft: an outdated overview is written now, not after the debounce.
+  const { fingerprint, ...preview } = yield* computePreview(ctx, scope);
+  // Someone is reviewing the draft: an outdated overview is written now, not after the debounce,
+  // and so are the patrollers' checks that read other changes.
   yield* requestIfOutdated(ctx.db, scope.id, preview.overview);
+  yield* requestStaleChecks(ctx.db, scope.id, fingerprint);
   // Publishing it is near: its publish script goes up now, unless it already did.
   if (preview.code?.revision && !preview.code.publishing) {
     ctx.waitUntil(
@@ -723,6 +716,7 @@ const publishChecked = Effect.fn("drafts.publishChecked")(function* (
         ...translationBookkeeping.publishStatements(scope),
         ...translations.endStatements(ctx.db, scope.id),
         ...patrolReports.endStatements(ctx.db, scope.id),
+        ...patrolFindings.endStatements(ctx.db, scope.id),
         ...(options.after ?? []),
       ],
     }),
@@ -978,16 +972,7 @@ function definitionsPublishStatements(db: ServiceContext["db"], scope: Scope): B
   ]);
 }
 
-/** Camox's own context, outside any request: it acts with no session. */
-export const camoxContext = (db: ServiceContext["db"]): ServiceContext => ({
-  db,
-  user: null,
-  env,
-  waitUntil,
-  client: "camox",
-  telemetryDisabled: true,
-  draft: null,
-});
+export { camoxContext };
 
 /**
  * Publishes a catch-up draft once nothing is left to translate in it, as Camox (ADR 0017). It
@@ -1051,6 +1036,7 @@ export const deleteDraft = Effect.fn("drafts.deleteDraft")(function* (
         ...clearOverviewStatements(ctx.db, scope.id),
         ...translations.endStatements(ctx.db, scope.id),
         ...patrolReports.endStatements(ctx.db, scope.id),
+        ...patrolFindings.endStatements(ctx.db, scope.id),
       ],
     }),
   );

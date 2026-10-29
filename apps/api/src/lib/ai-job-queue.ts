@@ -1,3 +1,4 @@
+import type { PatrollerId } from "@camox/api-contract/patrol";
 import { Context, Data, Effect } from "effect";
 
 import type { AiJobScheduler } from "../durable-objects/ai-job-scheduler";
@@ -52,14 +53,22 @@ export type TranslationJob = {
  */
 export type OverviewJob = { kind: "overview"; draftId: string };
 
+/**
+ * A patroller's check of a draft at publish (ADR 0034), keyed by patroller and draft: a newer
+ * request replaces a pending one, so it runs once the draft has been idle.
+ */
+export type CheckJob = { kind: "check"; patroller: PatrollerId; draftId: string };
+
 /** A job the AI job scheduler runs. */
-export type AiJob = GenerationJob | TranslationJob | OverviewJob;
+export type AiJob = GenerationJob | TranslationJob | OverviewJob | CheckJob;
 
 export const isTranslationJob = (job: AiJob): job is TranslationJob =>
   "kind" in job && job.kind === "translation";
 
 export const isOverviewJob = (job: AiJob): job is OverviewJob =>
   "kind" in job && job.kind === "overview";
+
+export const isCheckJob = (job: AiJob): job is CheckJob => "kind" in job && job.kind === "check";
 
 export class ScheduleError extends Data.TaggedError("ScheduleError")<{ readonly cause: unknown }> {}
 
@@ -87,6 +96,7 @@ const NAME_PARTS = {
 /** Names a job: its Durable Object, and its logs. The default locale's jobs keep their names. */
 export const jobName = (job: AiJob) => {
   if (isOverviewJob(job)) return `overview:${job.draftId}`;
+  if (isCheckJob(job)) return `check:${job.patroller}:${job.draftId}`;
   if (isTranslationJob(job)) {
     const name = `translation:${job.entity}:${job.entityId}:${job.locale}:${job.draftId}`;
     return job.source === undefined ? name : `${name}:${job.source}`;

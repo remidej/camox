@@ -107,8 +107,6 @@ function blockerActionLabel(problem: Problem): string {
       return "Choose a record";
     case "danglingReference":
       return "Choose another record";
-    case "danglingPageLink":
-      return "Fix the link";
     case "duplicatePath":
       return "Fix the path";
     case "missingMetaTitle":

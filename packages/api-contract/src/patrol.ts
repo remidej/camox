@@ -4,8 +4,11 @@
  * Live, and names each report's subject, so the studio needs no entity loaded to show it.
  */
 
-/** A patroller's stable id. The registry in the API lists them all. */
-export type PatrollerId = "translator" | "seoManager";
+/** Every patroller's stable id. The registry in the API lists them all. */
+export const PATROLLER_IDS = ["translator", "seoManager", "linkChecker"] as const;
+
+/** A patroller's stable id. */
+export type PatrollerId = (typeof PATROLLER_IDS)[number];
 
 /**
  * What a structured report says was done. Each has a failed form, by the report's outcome. A
@@ -16,7 +19,8 @@ export type ReportVerb =
   | "mergedWithLive"
   | "wroteSeo"
   | "describedFile"
-  | "publishedCatchUp";
+  | "publishedCatchUp"
+  | "removedLink";
 
 /** What a report can be about. */
 export type ReportEntity =
@@ -82,6 +86,63 @@ export type ReportView = {
   place: ReportPlace | null;
 };
 
+/**
+ * What a finding is about (ADR 0034), by its kind:
+ * - `missingPage`: a link to a page that doesn't exist, the page's name as it was last known.
+ * - `brokenLink`: an external link that failed, and how.
+ * - `misspelling`, `grammar`: the flagged text, in the sentence it's in.
+ * A link's `url` is as content stores it: a page link's is `camox:page:<id>`, and `text` is what
+ * the link reads.
+ */
+export type FindingAbout =
+  | { kind: "missingPage"; url: string; text: string; page: string | null }
+  | { kind: "brokenLink"; url: string; text: string; failure: LinkFailure }
+  | { kind: "misspelling" | "grammar"; text: string; sentence: string };
+
+/** How a link failed: an HTTP error status, no connection (DNS included), or no answer in time. */
+export type LinkFailure =
+  | { kind: "status"; status: number }
+  | { kind: "unreachable" }
+  | { kind: "timeout" };
+
+export type FindingKind = FindingAbout["kind"];
+
+/** The fix a finding suggests, which applying makes: removing the link, keeping its text. */
+export type FindingFix = { kind: "removeLink" };
+
+/** A finding, open, in the scope viewed. */
+export type FindingView = {
+  /** What applying or dismissing it names. */
+  id: number;
+  about: FindingAbout;
+  /** The fix it suggests, if any. */
+  fix: FindingFix | null;
+  /** The content it's in, named in its locale. */
+  subject: ReportSubject;
+  /** The locale of the content it's in, by its tag. */
+  locale: string;
+  /** The content field it's in, by name. */
+  field: string;
+  /** When it was first raised, in milliseconds since the epoch. */
+  raisedAt: number;
+  /** Whether it's Live's. Live's are fixed in the Patrol Draft. */
+  live: boolean;
+  /** Where its content shows, as for reports. */
+  place: ReportPlace | null;
+};
+
+/** A member's dismissal of what a finding was about: no finding like it is raised again. */
+export type DismissalView = {
+  id: number;
+  about: FindingAbout;
+  by: { id: string; name: string };
+  /** When it was dismissed, in milliseconds since the epoch. */
+  at: number;
+};
+
+/** What applying a finding's fix did: applied it, or found its content changed and rechecked. */
+export type ApplyResult = { applied: boolean };
+
 /** How many subjects a patroller is on in one locale, a locale's tag. */
 export type LocaleCount = { locale: string; count: number };
 
@@ -116,6 +177,10 @@ export type PatrollerView = {
   reports: ReportView[];
   /** How many more reports it has than `reports` shows, per locale, the most first. */
   more: { locale: string | null; count: number }[];
+  /** Its open findings in the scope viewed, the oldest first. Their count is the row's badge. */
+  findings: FindingView[];
+  /** The project's dismissals of its findings, the newest first. */
+  dismissals: DismissalView[];
 };
 
 /** Every patroller of the registry, the latest activity first; never-worked ones last. */

@@ -159,9 +159,10 @@ describe("the Patrol", () => {
       expect.arrayContaining([
         { id: "translator", role: "Translator" },
         { id: "seoManager", role: "SEO manager" },
+        { id: "linkChecker", role: "Link checker" },
       ]),
     );
-    expect(patrollers).toHaveLength(2);
+    expect(patrollers).toHaveLength(3);
     for (const patroller of patrollers) {
       expect(patroller.lastActivityAt).toBeNull();
       expect(patroller.reports).toEqual([]);
@@ -338,16 +339,24 @@ describe("where each patroller is on duty", () => {
   const duties = (patrollers: PatrollerView[]) =>
     Object.fromEntries(patrollers.map(({ id, duty }) => [id, duty]));
 
-  it("has the Translator and the SEO manager work as you go in a draft", async () => {
+  it("has the Translator and the SEO manager work as you go in a draft, and the Link checker check at publish", async () => {
     const { patrol } = await fixture();
 
-    expect(duties(await patrol())).toEqual({ translator: "asYouGo", seoManager: "asYouGo" });
+    expect(duties(await patrol())).toEqual({
+      translator: "asYouGo",
+      seoManager: "asYouGo",
+      linkChecker: "atPublish",
+    });
   });
 
-  it("has the Translator and the SEO manager off on Live", async () => {
+  it("has the Translator and the SEO manager off on Live, and the Link checker patrol it", async () => {
     const { patrol } = await fixture();
 
-    expect(duties(await patrol({}))).toEqual({ translator: "off", seoManager: "off" });
+    expect(duties(await patrol({}))).toEqual({
+      translator: "off",
+      seoManager: "off",
+      linkChecker: "asYouGo",
+    });
   });
 });
 
@@ -654,6 +663,7 @@ describe("a patroller at work", () => {
     expect((await f.patrol()).map(({ id, working }) => ({ id, working }))).toEqual([
       { id: "seoManager", working: null },
       { id: "translator", working: null },
+      { id: "linkChecker", working: null },
     ]);
     await new Promise((resolve) => setTimeout(resolve, 5));
 
@@ -689,10 +699,10 @@ describe("a patroller at work", () => {
 
     await catchingUp(f);
 
-    expect(await onLive()).toEqual({ translator: "asYouGo", seoManager: "asYouGo" });
+    expect(await onLive()).toMatchObject({ translator: "asYouGo", seoManager: "asYouGo" });
     // Once its translations settle, the catch-up draft is published, and they're off again.
     await runTranslations(f);
-    expect(await onLive()).toEqual({ translator: "off", seoManager: "off" });
+    expect(await onLive()).toMatchObject({ translator: "off", seoManager: "off" });
   });
 
   it("refreshes the Patrol of the draft whose SEO is requested", async () => {

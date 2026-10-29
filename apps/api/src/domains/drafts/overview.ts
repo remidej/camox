@@ -65,6 +65,23 @@ export const fingerprintOf = Effect.fn("drafts.overviewFingerprint")(function* (
 });
 
 /**
+ * The fingerprint of a draft's listed changes, or null while it changes nothing: its overview and
+ * its patrollers' checks at publish record the one they read.
+ */
+export const fingerprintOfChanges = (stored: readonly overlay.StoredChange[]) =>
+  stored.length > 0
+    ? fingerprintOf(
+        stored.map(({ entity, row, change }) => ({
+          entity,
+          id: row.id,
+          locale: overlay.localeOfRow(row),
+          change,
+          updatedAt: row.updatedAt,
+        })),
+      )
+    : Effect.succeed(null);
+
+/**
  * A draft's overview as its row stores it, given the fingerprint of the draft's changes (null
  * while it changes nothing).
  */
