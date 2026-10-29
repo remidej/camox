@@ -9,6 +9,7 @@ import {
   callSeedingLive,
   createProjectFixture,
   createRpcContext,
+  seedLive,
   syncDefinitionSet,
 } from "../../../test/fixtures";
 import { answerEvery, answerNext, forgetScheduled, scheduled } from "../../../test/generation";
@@ -18,7 +19,7 @@ import { runAiJob } from "../../lib/ai-jobs";
 import { AiCallError } from "../../lib/retry-ai-call";
 import { runService } from "../../lib/run-service";
 import { router } from "../../router";
-import { files } from "../../schema";
+import { blocks, files, pages } from "../../schema";
 import { runOverviewJob } from "../drafts/overview-job";
 import { runGenerationJob } from "../generated-values/generation";
 
@@ -326,7 +327,7 @@ describe("drafts and Live", () => {
     expect((await seoManager(inDraft)).reports).toHaveLength(1);
 
     const { token } = await call(router.drafts.previewPublish, { projectId }, member(inDraft));
-    await call(router.drafts.publish, { projectId, token, publishAnyway: true }, member(inDraft));
+    await call(router.drafts.publish, { projectId, token }, member(inDraft));
 
     expect((await seoManager({})).reports).toEqual([]);
   });
@@ -417,30 +418,31 @@ describe("a patroller at work", () => {
     await call(router.locales.add, { projectId: f.projectId, tag: "de" }, f.member(f.inDraft));
     await runTranslations(f);
   };
-  const publishAnyway = async (f: Fixture, headers: Headers) => {
+  const publish = async (f: Fixture, headers: Headers) => {
     const { token } = await call(
       router.drafts.previewPublish,
       { projectId: f.projectId },
       f.member(headers),
     );
-    await call(
-      router.drafts.publish,
-      { projectId: f.projectId, token, publishAnyway: true },
-      f.member(headers),
-    );
+    await call(router.drafts.publish, { projectId: f.projectId, token }, f.member(headers));
   };
-  /** `f` with German on Live, and the page renamed in a draft published before its translation. */
-  const catchingUp = async (f: Fixture, before?: () => void) => {
+  /** A page a release adds to Live, which the catch-up draft translates. */
+  const releasePage = (f: Fixture, nickname: string) =>
+    seedLive(f.db, pages, {
+      projectId: f.projectId,
+      layoutId: f.layout.layoutId,
+      pathSegment: nickname.toLowerCase(),
+      fullPath: `/${nickname.toLowerCase()}`,
+      nickname,
+      contentUpdatedAt: Date.now(),
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    });
+  /** `f` with German on Live, and a page a release added, translating in the catch-up draft. */
+  const catchingUp = async (f: Fixture) => {
     await withGerman(f);
-    await publishAnyway(f, f.inDraft);
-    const next = generateUuidv7();
-    await call(
-      router.pages.update,
-      { id: f.page.id, nickname: "Plans" },
-      f.member({ [DRAFT_HEADER]: next, [DRAFT_CREATE_HEADER]: "1" }),
-    );
-    before?.();
-    await publishAnyway(f, { [DRAFT_HEADER]: next });
+    await publish(f, f.inDraft);
+    return releasePage(f, "Plans");
   };
   const patrolKey = (f: Fixture) => [...queryKeys.patrol.get, f.projectId];
 
@@ -591,10 +593,10 @@ describe("a patroller at work", () => {
   it("shows the Translator working on Live while the catch-up draft translates", async () => {
     const f = await fixture();
 
-    await catchingUp(f);
+    const released = await catchingUp(f);
 
     expect((await translator(f, {})).working).toEqual({
-      subject: { entity: "page", id: f.page.id, name: "Plans" },
+      subject: { entity: "page", id: released.id, name: "Plans" },
       locales: [{ locale: "de", count: 1 }],
     });
     await runTranslations(f);
@@ -651,31 +653,22 @@ describe("a patroller at work", () => {
   it("refreshes Live's Patrol when one of the catch-up draft's translations settles", async () => {
     const f = await fixture();
     await withGerman(f);
-    const block = await call(
-      router.blocks.create,
-      { pageId: f.page.id, type: "hero", content: { title: "Plans" } },
-      f.member(f.inDraft),
-    );
-    await runTranslations(f);
-    await publishAnyway(f, f.inDraft);
-    // A draft publishing anyway leaves the block and the page to translate in the catch-up draft.
-    const next = generateUuidv7();
-    await call(
-      router.blocks.updateContent,
-      { id: block.id, content: { title: "Our plans" } },
-      f.member({ [DRAFT_HEADER]: next, [DRAFT_CREATE_HEADER]: "1" }),
-    );
-    await call(
-      router.pages.update,
-      { id: f.page.id, nickname: "Plans" },
-      f.member({ [DRAFT_HEADER]: next }),
-    );
-    await publishAnyway(f, { [DRAFT_HEADER]: next });
+    await publish(f, f.inDraft);
+    // A release adds a page with a block, which the catch-up draft translates.
+    const page = await releasePage(f, "Plans");
+    const block = await seedLive(f.db, blocks, {
+      projectId: f.projectId,
+      pageId: page.id,
+      type: "hero",
+      content: { title: "Our plans" },
+      position: "a0",
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    });
     expect((await translator(f, {})).working!.locales).toEqual([{ locale: "de", count: 2 }]);
     forgetSent(f.projectId);
 
-    // The catch-up draft's job: the published draft's ended with it.
-    const job = translationJobs().find((job) => job.entityId === block.id && job.draftId !== next)!;
+    const job = translationJobs().find((job) => job.entityId === block.id)!;
     forgetScheduled(block.id);
     await runService(runAiJob(f.db, job));
 

@@ -475,11 +475,10 @@ function StatusLine({ done, children }: { done: boolean; children: React.ReactNo
 }
 
 /** What Publish sends: the review's token, and the revision a draft with code shows. */
-const publishInput = (projectId: number, shown: PublishPreview, publishAnyway?: boolean) => ({
+const publishInput = (projectId: number, shown: PublishPreview) => ({
   projectId,
   token: shown.token,
   ...(shown.code?.revision && { revision: shown.code.revision }),
-  ...(publishAnyway && { publishAnyway }),
 });
 
 /** Why a publish with code went back to the review, as the review says it. */
@@ -503,13 +502,10 @@ const PUBLISH_ABORTED: Record<string, string> = {
 function StatusLines({
   preview,
   locales,
-  waiting,
 }: {
   preview: PublishPreview;
   /** The website's locales, to tell a multilingual website. */
   locales: { tag: string; isDefault: boolean }[];
-  /** Whether publishing was asked for while translating, and runs once they're done. */
-  waiting: boolean;
 }) {
   const { conflicts, translating, warnings, code } = preview;
   const translations = locales.filter((locale) => !locale.isDefault).map((locale) => locale.tag);
@@ -533,8 +529,8 @@ function StatusLines({
       )}
       {translating.length > 0 ? (
         <StatusLine done={false}>
-          Translating into {listFormat.format(translating.map(localeLabel))}.{" "}
-          {waiting ? "Publishing once translated." : "Publishing waits for it."}
+          Translating into {listFormat.format(translating.map(localeLabel))}. Publishing waits for
+          it.
         </StatusLine>
       ) : (
         translations.length > 0 && (
@@ -749,7 +745,7 @@ export function ReviewDraftSheet({
   };
 
   // The draft's summary follows its pending translations: the preview is read again as they
-  // settle, so publishing stops waiting once they're done.
+  // settle, so Publish becomes available once they're done.
   const pending = draft.data?.translatingLocales.join(",");
   const seenPending = React.useRef(pending);
   const { refetch } = preview;
@@ -786,7 +782,7 @@ export function ReviewDraftSheet({
         return;
       }
       if ((error as { code?: string }).code === TRANSLATIONS_PENDING_ERROR) {
-        toast.info("Translations are still running. Wait for them, or publish anyway.");
+        toast.info("Translations are still running. Publishing waits for them.");
         void preview.refetch();
         return;
       }
@@ -798,40 +794,16 @@ export function ReviewDraftSheet({
   const data = preview.data;
   const headline = data?.overview.status === "ready" ? data.overview.headline : null;
   const busy = publish.isPending;
-  // Publishing waits for the draft's latest code changes to build, so they're previewed first.
+  // Publishing waits for the draft's latest code changes to build, so they're previewed first,
+  // and for its pending translations, so every locale goes live together (ADR 0033).
   const ready =
     !!data &&
     data.blockers.length === 0 &&
+    data.translating.length === 0 &&
     !data.code?.building &&
     !data.code?.publishing &&
     !busy &&
     !preview.isFetching;
-
-  // Publishing waits for pending translations, so every locale goes live together (ADR 0017).
-  const translating = data?.translating ?? [];
-
-  // Publish while translations run waits for them, then publishes the preview as it is by
-  // then. A blocker or a conflict not shown when asked stops waiting: the sheet shows them as
-  // usual, for the member to review before publishing.
-  const [waiting, setWaiting] = React.useState<{ conflicts: Set<string> } | null>(null);
-  const translated = !!data && !preview.isFetching && data.translating.length === 0;
-  if (waiting && translated) {
-    const appeared = data.conflicts.some(
-      (conflict) => !waiting.conflicts.has(conflictKey(conflict)),
-    );
-    if (data.blockers.length > 0 || appeared) setWaiting(null);
-  }
-  const { mutate } = publish;
-  React.useEffect(() => {
-    if (!waiting || !translated || !data || busy) return;
-    mutate(publishInput(projectId, data), { onSettled: () => setWaiting(null) });
-  }, [waiting, translated, data, busy, mutate, projectId]);
-
-  const publishWhole = () => {
-    if (!data) return;
-    if (translating.length === 0) return publish.mutate(publishInput(projectId, data));
-    setWaiting({ conflicts: new Set(data.conflicts.map(conflictKey)) });
-  };
 
   return (
     <>
@@ -898,7 +870,7 @@ export function ReviewDraftSheet({
                   previewStore.send({ type: "showCanvas" });
                 }}
               />
-              <StatusLines preview={data} locales={locales.data ?? []} waiting={!!waiting} />
+              <StatusLines preview={data} locales={locales.data ?? []} />
             </div>
           ) : (
             <div className="flex flex-1 items-center justify-center">
@@ -916,22 +888,12 @@ export function ReviewDraftSheet({
                 <Trash2 />
                 Delete draft
               </Button>
-              {translating.length > 0 && (
-                <Button
-                  variant="outline"
-                  className="ml-auto"
-                  disabled={!ready}
-                  onClick={() => data && publish.mutate(publishInput(projectId, data, true))}
-                >
-                  Publish anyway
-                </Button>
-              )}
               <Button
-                className={cn(translating.length === 0 && "ml-auto")}
-                disabled={!ready || !!waiting}
-                onClick={publishWhole}
+                className="ml-auto"
+                disabled={!ready}
+                onClick={() => data && publish.mutate(publishInput(projectId, data))}
               >
-                {publish.isPending || waiting ? <Spinner /> : null}
+                {publish.isPending ? <Spinner /> : null}
                 Publish
               </Button>
             </div>

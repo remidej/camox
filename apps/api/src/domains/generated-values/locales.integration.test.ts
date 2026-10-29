@@ -7,6 +7,7 @@ import {
   callSeedingLive,
   createProjectFixture,
   createRpcContext,
+  runTranslations,
   syncDefinitionSet,
 } from "../../../test/fixtures";
 import { answerNext, forgetScheduled, modelCalls, scheduledFor } from "../../../test/generation";
@@ -109,13 +110,15 @@ async function fixture() {
     call(router.files.setAlt, { id: file.id, alt }, member(headers));
   const preview = (id = draft) =>
     call(router.drafts.previewPublish, { projectId }, member({ [DRAFT_HEADER]: id }));
-  const publish = async (id: string) =>
-    call(
+  const publish = async (id: string) => {
+    // These tests script no translations: the ones adding a locale queues settle untranslated.
+    await runTranslations(db);
+    return call(
       router.drafts.publish,
-      // These tests don't run the translations adding a locale queues.
-      { projectId, token: (await preview(id)).token, publishAnyway: true },
+      { projectId, token: (await preview(id)).token },
       member({ [DRAFT_HEADER]: id }),
     );
+  };
 
   return {
     ...base,

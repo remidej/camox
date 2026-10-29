@@ -53,7 +53,7 @@ import * as translationBookkeeping from "../translations/bookkeeping";
 import { listedChanges } from "../translations/review";
 import * as translations from "../translations/service";
 import { accessTo } from "./access";
-import { catchUpPending, isCatchUpDraft } from "./catch-up";
+import { isCatchUpDraft } from "./catch-up";
 import {
   checkContentProblems,
   CONTENT_PROBLEM_CODES,
@@ -153,7 +153,7 @@ export type PublishPreview = {
   changes: Change[];
   /**
    * The tags of the locales the draft still has pending translations into, sorted. Publishing
-   * waits for them unless it's asked to publish anyway (ADR 0017).
+   * waits for them (ADR 0033).
    */
   translating: string[];
   /** The tag of the default locale, which the others are translated from (null: none yet). */
@@ -170,11 +170,6 @@ export const previewPublishInput = z.object({ projectId: z.number() });
 export const publishInput = z.object({
   projectId: z.number(),
   token: z.string(),
-  /**
-   * Publishes while translations are pending: Camox finishes them in a draft of its own, which it
-   * publishes once they're done (ADR 0017).
-   */
-  publishAnyway: z.boolean().optional(),
   /**
    * The revision the review showed (`code.revision`), for a draft with code: publishing ships it,
    * and is refused once the agent left a newer one.
@@ -686,9 +681,9 @@ const endedAs = (ended: EndedDraft | null): PublishResult => ({ empty: false, en
 
 /**
  * Publishes a draft whose preview was checked, by `publishedBy`, if Live's conflicts are still
- * those `shown`, and, when `translated`, while it still has nothing left to translate. Whether it
- * applied, and how the draft ended: when it didn't apply, a concurrent publish or delete may have
- * ended it; otherwise Live changed, or a translation was requested.
+ * those `shown`, while it still has nothing left to translate (ADR 0033). Whether it applied, and
+ * how the draft ended: when it didn't apply, a concurrent publish or delete may have ended it;
+ * otherwise Live changed, or a translation was requested.
  *
  * Once it applied, its follow-ups end the draft's thread, delete the files no one uses anymore
  * and request Live's generated values and merges. With `followUpsApart`, they're returned to
@@ -702,8 +697,6 @@ const publishChecked = Effect.fn("drafts.publishChecked")(function* (
     shown: overlay.ConflictKey[];
     publishedBy: string;
     stored: overlay.StoredChange[];
-    /** Whether a translation requested since the check stops publishing, rather than dropping. */
-    translated?: boolean;
     /** Statements of the batch's own, run once Live holds what the draft publishes. */
     after?: BatchItem[];
     followUpsApart?: boolean;
@@ -723,7 +716,7 @@ const publishChecked = Effect.fn("drafts.publishChecked")(function* (
       publishedBy: options.publishedBy,
       now: Date.now(),
       after: [
-        ...(options.translated ? [translations.noPendingTranslationsGuard(scope.id)] : []),
+        translations.noPendingTranslationsGuard(scope.id),
         ...generatedValueStatements.publishStatements(ctx.db, scope),
         ...clearOverviewStatements(ctx.db, scope.id),
         ...filePublishStatements(scope.projectId),
@@ -755,8 +748,7 @@ const publishChecked = Effect.fn("drafts.publishChecked")(function* (
 
 /**
  * Publishes the request's draft whole, once it has no blockers and no pending translations, if
- * its conflicts are still those the token was given for. Published anyway, the translations
- * still pending carry on in Camox's catch-up draft, against the new Live.
+ * its conflicts are still those the token was given for (ADR 0033).
  *
  * A draft with code is published by a publish Workflow instead (`../publishes/workflow.ts`), once
  * the revision the review showed, `revision`, is still the one the draft previews: the request
@@ -767,7 +759,7 @@ export const publishDraft = Effect.fn("drafts.publishDraft")(function* (
   ctx: ServiceContext,
   rawInput: z.input<typeof publishInput>,
 ) {
-  const { projectId, token, publishAnyway, revision } = yield* decodeInput(publishInput, rawInput);
+  const { projectId, token, revision } = yield* decodeInput(publishInput, rawInput);
   const startedAt = Date.now();
   const { draft: scope, ended: earlier } = yield* draftOrEnded(ctx, projectId);
   if (!scope) return endedAs(earlier);
@@ -802,12 +794,7 @@ export const publishDraft = Effect.fn("drafts.publishDraft")(function* (
       message: `The draft has ${preview.blockers.length} blocker(s) to fix before publishing`,
     });
   }
-  if (preview.translating.length > 0 && !publishAnyway) {
-    return yield* new TranslationsPendingError({
-      message: `Translations into ${preview.translating.join(", ")} are still running: wait for them, or publish anyway`,
-      translating: preview.translating,
-    });
-  }
+  if (preview.translating.length > 0) return yield* translationsPending(preview.translating);
 
   const user = yield* requireUser(ctx);
   if (preview.code) {
@@ -832,7 +819,7 @@ export const publishDraft = Effect.fn("drafts.publishDraft")(function* (
     return publishingStarted;
   }
 
-  const { applied, ended } = yield* publishWhole(ctx, scope, {
+  const { applied, ended } = yield* publishChecked(ctx, scope, {
     shown,
     publishedBy: user.id,
     stored,
@@ -840,6 +827,9 @@ export const publishDraft = Effect.fn("drafts.publishDraft")(function* (
   logSpan("publish.request", Date.now() - startedAt, { ...span, withCode: false, applied });
   if (!applied) {
     if (ended) return endedAs(ended);
+    // A translation requested since the preview holds publishing too.
+    const translating = (yield* translations.translatingLocales(ctx.db, [scope.id])).get(scope.id);
+    if (translating) return yield* translationsPending(translating);
     return yield* new ConflictsChangedError({
       message: "Live changed since the preview. Review the new preview before publishing.",
     });
@@ -847,27 +837,12 @@ export const publishDraft = Effect.fn("drafts.publishDraft")(function* (
   return endedAs(ended);
 });
 
-/**
- * Applies a checked draft to Live, as `publishChecked` does, and carries the translations still
- * pending on in Camox's catch-up draft, against the new Live.
- */
-const publishWhole = Effect.fn("drafts.publishWhole")(function* (
-  ctx: ServiceContext,
-  scope: Scope,
-  options: {
-    shown: overlay.ConflictKey[];
-    publishedBy: string;
-    stored: overlay.StoredChange[];
-    after?: BatchItem[];
-    followUpsApart?: boolean;
-  },
-) {
-  // Read before the batch drops them with the draft's other translation state.
-  const remaining = yield* translations.pendingRequestsOf(ctx.db, scope.id);
-  const result = yield* publishChecked(ctx, scope, options);
-  if (result.applied) yield* catchUpPending(ctx.db, scope.projectId, remaining);
-  return result;
-});
+/** Publishing waits for the translations into `translating` (ADR 0033). */
+const translationsPending = (translating: readonly string[]) =>
+  new TranslationsPendingError({
+    message: `Translations into ${translating.join(", ")} are still running: publishing waits for them`,
+    translating,
+  });
 
 /**
  * Puts a draft with code in its publishing state, pinned to `revision`, and starts its publish
@@ -963,7 +938,7 @@ export const publishWithCode = Effect.fn("drafts.publishWithCode")(function* (
   const scope = draftOf(row);
   const shown = yield* decodeToken(token);
   const stored = yield* overlay.changesOf(db, scope);
-  const result = yield* publishWhole(camoxContext(db), scope, {
+  const result = yield* publishChecked(camoxContext(db), scope, {
     shown,
     publishedBy,
     stored,
@@ -1046,7 +1021,6 @@ export const publishWhenTranslated = Effect.fn("drafts.publishWhenTranslated")(f
     shown: [],
     publishedBy: CAMOX_ACTOR,
     stored,
-    translated: true,
   });
   // The Translator reports on Live that Live's translations caught up (ADR 0024).
   if (applied) yield* reportCatchUpPublished(db, scope);

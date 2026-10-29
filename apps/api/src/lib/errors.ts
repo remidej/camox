@@ -80,8 +80,8 @@ export class PublishBlockedError extends Data.TaggedError("PublishBlockedError")
 }> {}
 
 /**
- * The draft still has pending translations, and the caller didn't ask to publish anyway: every
- * locale goes live together (ADR 0017).
+ * The draft still has pending translations, which publishing waits for: every locale goes live
+ * together (ADR 0033).
  */
 export class TranslationsPendingError extends Data.TaggedError("TranslationsPendingError")<{
   readonly message: string;

@@ -20,13 +20,6 @@ import { defineTool, type ToolDefinition, type ToolProvider } from "../types";
 const previewInput = z.object({});
 const publishToolInput = z.object({
   token: z.string().min(1).describe("The token previewPublish returned with the list it showed."),
-  publishAnyway: z
-    .boolean()
-    .optional()
-    .describe(
-      "Publish while translations are still running, only when the user asks to: Camox " +
-        "finishes them in a draft of its own and publishes it once they're done.",
-    ),
   revision: z
     .string()
     .optional()
@@ -125,9 +118,9 @@ export const draftsProvider: ToolProvider = (ctx): ToolDefinition[] => [
       "`{ published: false, reason: 'conflictsChanged' | 'blocked', message, preview }` with a " +
       "fresh preview and token: show the new list and ask again before retrying. While " +
       "translations are still running, nothing is published and it returns " +
-      "`{ published: false, reason: 'translating', message, preview }`: wait and retry, or pass " +
-      "`publishAnyway: true` if the user wants to publish now, and Camox finishes the " +
-      "translations in a draft of its own that it publishes once they're done. When the draft " +
+      "`{ published: false, reason: 'translating', message, preview }`: publishing waits for " +
+      "every translation, with no way around it, so tell the user which locales it waits for " +
+      "rather than retry at once. When the draft " +
       "has no changes, nothing is published and it returns " +
       "`{ published: false, reason: 'empty', message }`. When the draft was already deleted, " +
       "nothing is published and it returns `{ published: false, reason: 'deleted', message, " +
@@ -136,13 +129,13 @@ export const draftsProvider: ToolProvider = (ctx): ToolDefinition[] => [
     outputSchema: publishResultSchema,
     meta: { kind: "write", surfaces: ["cli"] },
     handler: async (input) => {
-      const { token, publishAnyway, revision } = publishToolInput.parse(input);
+      const { token, revision } = publishToolInput.parse(input);
       const notPublished = (reason: NotPublishedReason, message: string) =>
         previewPublish(ctx, { projectId: ctx.projectId }).pipe(
           Effect.map((preview) => ({ published: false as const, reason, message, preview })),
         );
       return runService(
-        publishDraft(ctx, { projectId: ctx.projectId, token, publishAnyway, revision }).pipe(
+        publishDraft(ctx, { projectId: ctx.projectId, token, revision }).pipe(
           Effect.map(({ empty, ended }) => {
             if (empty)
               return { published: false as const, reason: "empty" as const, message: EMPTY };

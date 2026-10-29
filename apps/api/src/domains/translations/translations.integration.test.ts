@@ -573,8 +573,10 @@ describe("a translation job", () => {
       const jobs = f.translationJobs();
 
       if (outcome === "published") {
+        // Publishing waits for the translations, so the jobs run again after it, as a retry does.
+        await f.runTranslations();
         const { token } = await f.tool("previewPublish");
-        await f.tool("publishDraft", { token, publishAnyway: true });
+        await f.tool("publishDraft", { token });
       } else {
         await call(router.drafts.delete, { projectId: f.projectId }, f.member(f.inDraft));
       }
@@ -1417,13 +1419,14 @@ describe("localization conflicts", () => {
 
   it("keeps a hand edit on Live's localization that Camox never translated, merging it with the model", async () => {
     const f = await fixture();
-    translateWithDictionaries();
-    // Published anyway before its translations ran: Live's German copies were never translated,
-    // and their translations wait in Camox's catch-up draft.
+    // The model was down when German was added: Live's German copies were never translated.
+    answerEvery("translate", () => new AiCallError({ cause: "OpenRouter 503" }));
     await f.tool("addLocale", { tag: "de" }, f.starting);
+    await f.runTranslations();
     const { token } = await f.tool("previewPublish");
-    await f.tool("publishDraft", { token, publishAnyway: true });
+    await f.tool("publishDraft", { token });
     forgetAllScheduled();
+    translateWithDictionaries();
     answerEvery("merge", ({ texts }) =>
       Object.fromEntries(texts.map(({ key, current }) => [key, current])),
     );
