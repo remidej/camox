@@ -30,6 +30,8 @@ import { Route as AppDashboardOrgSlugIndexRouteImport } from './routes/_app._das
 import { Route as AppDashboardOrgSlugMembersRouteImport } from './routes/_app._dashboard/$orgSlug.members'
 import { Route as AppDashboardOrgSlugSettingsRouteImport } from './routes/_app._dashboard/$orgSlug.settings'
 import { Route as AppDashboardOrgSlugTeamRouteImport } from './routes/_app._dashboard/$orgSlug.team'
+import { Route as AppAuthAuthorizeConnectAgentIndexRouteImport } from './routes/_app._auth/_authorize.connect-agent.index'
+import { Route as AppAuthAuthorizeConnectAgentConsentRouteImport } from './routes/_app._auth/_authorize.connect-agent.consent'
 
 const AppRoute = AppRouteImport.update({
   id: '/_app',
@@ -139,6 +141,18 @@ const AppDashboardOrgSlugTeamRoute = AppDashboardOrgSlugTeamRouteImport.update({
   path: '/team',
   getParentRoute: () => AppDashboardOrgSlugRoute,
 } as any)
+const AppAuthAuthorizeConnectAgentIndexRoute =
+  AppAuthAuthorizeConnectAgentIndexRouteImport.update({
+    id: '/connect-agent/',
+    path: '/connect-agent/',
+    getParentRoute: () => AppAuthAuthorizeRoute,
+  } as any)
+const AppAuthAuthorizeConnectAgentConsentRoute =
+  AppAuthAuthorizeConnectAgentConsentRouteImport.update({
+    id: '/connect-agent/consent',
+    path: '/connect-agent/consent',
+    getParentRoute: () => AppAuthAuthorizeRoute,
+  } as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof AppDashboardIndexRoute
@@ -158,6 +172,8 @@ export interface FileRoutesByFullPath {
   '/$orgSlug/settings': typeof AppDashboardOrgSlugSettingsRoute
   '/$orgSlug/team': typeof AppDashboardOrgSlugTeamRoute
   '/$orgSlug/': typeof AppDashboardOrgSlugIndexRoute
+  '/connect-agent/consent': typeof AppAuthAuthorizeConnectAgentConsentRoute
+  '/connect-agent/': typeof AppAuthAuthorizeConnectAgentIndexRoute
 }
 export interface FileRoutesByTo {
   '/': typeof AppDashboardIndexRoute
@@ -176,6 +192,8 @@ export interface FileRoutesByTo {
   '/$orgSlug/settings': typeof AppDashboardOrgSlugSettingsRoute
   '/$orgSlug/team': typeof AppDashboardOrgSlugTeamRoute
   '/$orgSlug': typeof AppDashboardOrgSlugIndexRoute
+  '/connect-agent/consent': typeof AppAuthAuthorizeConnectAgentConsentRoute
+  '/connect-agent': typeof AppAuthAuthorizeConnectAgentIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -200,6 +218,8 @@ export interface FileRoutesById {
   '/_app/_dashboard/$orgSlug/settings': typeof AppDashboardOrgSlugSettingsRoute
   '/_app/_dashboard/$orgSlug/team': typeof AppDashboardOrgSlugTeamRoute
   '/_app/_dashboard/$orgSlug/': typeof AppDashboardOrgSlugIndexRoute
+  '/_app/_auth/_authorize/connect-agent/consent': typeof AppAuthAuthorizeConnectAgentConsentRoute
+  '/_app/_auth/_authorize/connect-agent/': typeof AppAuthAuthorizeConnectAgentIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -221,6 +241,8 @@ export interface FileRouteTypes {
     | '/$orgSlug/settings'
     | '/$orgSlug/team'
     | '/$orgSlug/'
+    | '/connect-agent/consent'
+    | '/connect-agent/'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -239,6 +261,8 @@ export interface FileRouteTypes {
     | '/$orgSlug/settings'
     | '/$orgSlug/team'
     | '/$orgSlug'
+    | '/connect-agent/consent'
+    | '/connect-agent'
   id:
     | '__root__'
     | '/_app'
@@ -262,6 +286,8 @@ export interface FileRouteTypes {
     | '/_app/_dashboard/$orgSlug/settings'
     | '/_app/_dashboard/$orgSlug/team'
     | '/_app/_dashboard/$orgSlug/'
+    | '/_app/_auth/_authorize/connect-agent/consent'
+    | '/_app/_auth/_authorize/connect-agent/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -417,6 +443,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppDashboardOrgSlugTeamRouteImport
       parentRoute: typeof AppDashboardOrgSlugRoute
     }
+    '/_app/_auth/_authorize/connect-agent/': {
+      id: '/_app/_auth/_authorize/connect-agent/'
+      path: '/connect-agent'
+      fullPath: '/connect-agent/'
+      preLoaderRoute: typeof AppAuthAuthorizeConnectAgentIndexRouteImport
+      parentRoute: typeof AppAuthAuthorizeRoute
+    }
+    '/_app/_auth/_authorize/connect-agent/consent': {
+      id: '/_app/_auth/_authorize/connect-agent/consent'
+      path: '/connect-agent/consent'
+      fullPath: '/connect-agent/consent'
+      preLoaderRoute: typeof AppAuthAuthorizeConnectAgentConsentRouteImport
+      parentRoute: typeof AppAuthAuthorizeRoute
+    }
   }
 }
 
@@ -425,6 +465,8 @@ interface AppAuthAuthorizeRouteChildren {
   AppAuthAuthorizeCliAuthorizedRoute: typeof AppAuthAuthorizeCliAuthorizedRoute
   AppAuthAuthorizeDevAuthorizeRoute: typeof AppAuthAuthorizeDevAuthorizeRoute
   AppAuthAuthorizeStudioAuthorizeRoute: typeof AppAuthAuthorizeStudioAuthorizeRoute
+  AppAuthAuthorizeConnectAgentConsentRoute: typeof AppAuthAuthorizeConnectAgentConsentRoute
+  AppAuthAuthorizeConnectAgentIndexRoute: typeof AppAuthAuthorizeConnectAgentIndexRoute
 }
 
 const AppAuthAuthorizeRouteChildren: AppAuthAuthorizeRouteChildren = {
@@ -432,6 +474,10 @@ const AppAuthAuthorizeRouteChildren: AppAuthAuthorizeRouteChildren = {
   AppAuthAuthorizeCliAuthorizedRoute: AppAuthAuthorizeCliAuthorizedRoute,
   AppAuthAuthorizeDevAuthorizeRoute: AppAuthAuthorizeDevAuthorizeRoute,
   AppAuthAuthorizeStudioAuthorizeRoute: AppAuthAuthorizeStudioAuthorizeRoute,
+  AppAuthAuthorizeConnectAgentConsentRoute:
+    AppAuthAuthorizeConnectAgentConsentRoute,
+  AppAuthAuthorizeConnectAgentIndexRoute:
+    AppAuthAuthorizeConnectAgentIndexRoute,
 }
 
 const AppAuthAuthorizeRouteWithChildren =
