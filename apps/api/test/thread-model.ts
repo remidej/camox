@@ -80,13 +80,17 @@ const hold = (message: AssistantMessage) => {
 
 /**
  * Scripts the model's next answer as a failure: `retryable` like an overloaded provider, which Pi
- * retries, or otherwise like a request the provider turned down, which ends the turn.
+ * retries, or otherwise like a request the provider turned down, which ends the turn, with
+ * `errorMessage` when given.
  */
-export const failNext = ({ retryable = false }: { retryable?: boolean } = {}) =>
+export const failNext = ({
+  retryable = false,
+  errorMessage,
+}: { retryable?: boolean; errorMessage?: string } = {}) =>
   faux.appendResponses([
     fauxAssistantMessage([], {
       stopReason: "error",
-      errorMessage: retryable ? "Provider overloaded" : "Invalid request",
+      errorMessage: errorMessage ?? (retryable ? "Provider overloaded" : "Invalid request"),
     }),
   ]);
 

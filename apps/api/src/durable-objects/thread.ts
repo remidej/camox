@@ -35,6 +35,7 @@ import {
   reduceThreadEvents,
   threadViewOf,
 } from "@camox/api-contract/threads";
+import type { AssistantMessage } from "@earendil-works/pi-ai";
 import { RemoteCodemodeSandbox } from "@earendil-works/pi-codemode/portable";
 import {
   type AgentEventStream,
@@ -98,6 +99,7 @@ import { reconcileTurn } from "../domains/revisions/reconcile";
 import type { BuildResult } from "../domains/revisions/result";
 import { warmSandbox } from "../domains/revisions/sandbox";
 import { buildTool, conflictsTool } from "../domains/revisions/tool";
+import { accountProblemOf, sendModelAccountAlert } from "../domains/threads/model-alert";
 import { draftCardsOf, startDraftFromLive } from "../domains/threads/service";
 import { type DraftHandOff, startDraftTool } from "../domains/threads/start-draft";
 import {
@@ -209,6 +211,14 @@ const turnTimingSchema = z.object({
   operationId: z.string(),
   revisions: z.number(),
 });
+
+/**
+ * The key recording when the thread last alerted that its model calls fail for a reason of
+ * Camox's OpenRouter account, so a thread retrying them doesn't alert on each.
+ */
+const ACCOUNT_ALERTED_AT_KEY = "camox.account-alerted-at";
+/** How long a thread waits before alerting about Camox's OpenRouter account again. */
+const ACCOUNT_ALERT_INTERVAL_MS = 60 * 60_000;
 
 /** Code mode's tool, which runs the model's scripts: wrapped by its name. */
 const CODEMODE_TOOL = { name: "codemode" } as ToolRegistration;
@@ -602,9 +612,11 @@ export class Thread extends DurableObject<Bindings> {
           ),
         ],
         // A turn doesn't end with code changes that don't build, and a round of tool calls
-        // ending on startDraft's card hands the messages sent meanwhile off with it.
+        // ending on startDraft's card hands the messages sent meanwhile off with it. A failed
+        // model call is logged, and alerted when no retry can fix it.
         hooks: [
           hook(GenerationTask, {
+            afterResponse: (message) => this.#onModelResponse(message),
             onYield: async (_answer, api, context) => {
               await this.#recordTurnPage({ api, context });
               const next = await this.#onYield(api, context);
@@ -1244,6 +1256,39 @@ export class Thread extends DurableObject<Bindings> {
       { type: "write", entry: { kind: BUILD_STATUS_ENTRY, data: { status } } },
       BACKGROUND,
     );
+  }
+
+  /**
+   * Logs a model call that failed, with its error: the thread only shows that the turn failed.
+   * A failure of Camox's OpenRouter account rather than of the call, which fails every turn until
+   * someone fixes it, also emails the alerts address, at most once an hour per thread.
+   */
+  async #onModelResponse(message: AssistantMessage) {
+    if (message.stopReason !== "error") return;
+    try {
+      const identity = await this.#knownIdentity();
+      const threadId = this.#threadId();
+      console.error("A thread's model call failed", {
+        threadId,
+        projectId: identity?.projectId,
+        draftId: identity?.draftId,
+        error: message.errorMessage,
+      });
+      const problem = accountProblemOf(message.errorMessage);
+      if (!problem || !identity) return;
+      const alertedAt = await this.ctx.storage.get<number>(ACCOUNT_ALERTED_AT_KEY);
+      if (alertedAt !== undefined && Date.now() - alertedAt < ACCOUNT_ALERT_INTERVAL_MS) return;
+      await this.ctx.storage.put(ACCOUNT_ALERTED_AT_KEY, Date.now());
+      await sendModelAccountAlert(this.env, {
+        problem,
+        projectId: await this.#projectUuidOf(identity.projectId),
+        draftId: identity.draftId,
+        threadId,
+        error: message.errorMessage ?? "",
+      });
+    } catch (error) {
+      console.error("A thread couldn't report a failed model call", error);
+    }
   }
 
   async #projectUuidOf(projectId: number) {
