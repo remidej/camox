@@ -53,6 +53,29 @@ const PAGE_TARGET = Type.Object({
 });
 
 /**
+ * A Block Definition's block, placed nowhere, captured alone in the site's shell: up to two
+ * screens of it.
+ */
+const BLOCK_DEFINITION_TARGET = Type.Object({
+  blockDefinition: Type.String({
+    description:
+      "The Block Definition's name. Its default content and Block Settings show, with the " +
+      "overrides below merged on. Nothing editors see changes.",
+  }),
+  content: Type.Optional(
+    Type.Unknown({
+      description:
+        "Content overrides, as `createBlock` takes a block's content: fields by name, " +
+        "Repeatable Items as arrays, Files and Collection Records of the draft by id.",
+    }),
+  ),
+  settings: Type.Optional(
+    Type.Unknown({ description: "Block Setting overrides, by name, such as a Color Scheme." }),
+  ),
+  ...CAPTURE_OPTIONS,
+});
+
+/**
  * What one result says beside its image, as a line of JSON: the target it captured, at which
  * size, and whether its image was cut, or why it failed.
  */
@@ -92,13 +115,17 @@ export const lookTool = (
     name: LOOK_TOOL,
     description:
       "See pages of the draft as visitors will, in a real browser: each target's first screen, " +
-      "or one block of it, at each of its sizes. The draft's content shows as it is now; code shows as the draft's " +
+      "or one block of it, at each of its sizes. A target can also be a Block Definition, " +
+      "alone, to try its variants and edge cases with overrides. The draft's content shows as " +
+      "it is now; code shows as the draft's " +
       "preview has it, so after code changes call `build` first. Returns, for each target and " +
       "size, a line of JSON naming it, followed by what the page reported that the image can't " +
       "show (console and page errors, horizontal overflow, failed requests) and its image, or " +
       "with the `error` that target alone hit. `cut` says a block was taller than two screens " +
       `and shows its top only. At most ${LOOK_IMAGE_CAP} images per call.`,
-    parameters: Type.Object({ targets: Type.Array(PAGE_TARGET, { minItems: 1 }) }),
+    parameters: Type.Object({
+      targets: Type.Array(Type.Union([PAGE_TARGET, BLOCK_DEFINITION_TARGET]), { minItems: 1 }),
+    }),
     async execute({ targets }, api, context) {
       const looked = await look(targets as LookTarget[], { api, context });
       return {

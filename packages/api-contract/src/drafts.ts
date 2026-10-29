@@ -49,6 +49,23 @@ export const LOOK_PATH_PARAM = "path";
 export const LOOK_LOCALE_PARAM = "locale";
 
 /**
+ * The look document's Block Definition mode: instead of a page, the block of the Block Definition
+ * `LOOK_BLOCK_DEFINITION_PARAM` names, alone in the site's shell, with its default content and
+ * Block Settings and the overrides `LOOK_CONTENT_PARAM` and `LOOK_SETTINGS_PARAM` give as JSON, in
+ * the shape the content tools take.
+ */
+export const LOOK_BLOCK_DEFINITION_PARAM = "blockDefinition";
+export const LOOK_CONTENT_PARAM = "content";
+export const LOOK_SETTINGS_PARAM = "settings";
+
+/**
+ * The id of a block shown without being placed, as the look document's Block Definition mode
+ * shows it: never a stored block's, which are UUIDs. Its element is
+ * `[data-camox-viewport-block="unplaced"]`.
+ */
+export const UNPLACED_BLOCK_ID = "unplaced";
+
+/**
  * Request header asking the API to create the draft named by `DRAFT_HEADER` if it doesn't
  * exist yet. Its value is `"1"`.
  */
@@ -156,6 +173,7 @@ const BLOCK_WRITES: Record<keyof Router["blocks"], boolean> = {
   getUsageCounts: false,
   getPagesUsing: false,
   getSyncedContent: false,
+  getUnplaced: false,
   create: true,
   updateContent: true,
   updateSettings: true,

@@ -50,7 +50,83 @@ const hero = createBlock({
   toMarkdown: ({ content }: { content: { title: string } }) => [content.title],
   toTitle: () => "Hero",
 });
-const camoxApp = createApp({ blocks: [hero as unknown as Block] });
+const banner = createBlock({
+  id: "banner",
+  title: "Banner",
+  description: "A banner with points",
+  content: (field) => ({
+    title: field.string({ default: "Welcome" }),
+    points: field.repeater({
+      content: (item) => ({ label: item.string({ default: "Point" }) }),
+      minItems: 1,
+      maxItems: 3,
+      toMarkdown: ({ content }) => [content.label],
+      toTitle: () => "Point",
+    }),
+    visual: field.artifact({ size: "fill" }),
+  }),
+  settings: (setting) => ({
+    colorScheme: setting.enum({ default: "light", options: { light: "Light", dark: "Dark" } }),
+  }),
+  toReact: ({ settings }): React.ReactElement => (
+    <section className={`scheme-${settings.colorScheme}`}>
+      <banner.Field name="title">{(props) => <h2 {...props} />}</banner.Field>
+      <ul>
+        <banner.Repeater name="points">
+          {(item) => <item.Field name="label">{(props) => <li {...props} />}</item.Field>}
+        </banner.Repeater>
+      </ul>
+      <banner.Artifact name="visual">{(props) => <iframe {...props} />}</banner.Artifact>
+    </section>
+  ),
+  toMarkdown: ({ content }) => [content.title],
+  toTitle: () => "Banner",
+});
+const camoxApp = createApp({ blocks: [hero as unknown as Block, banner as unknown as Block] });
+
+/**
+ * The banner as the API shows it unplaced, its overrides merged on its defaults: a dark scheme,
+ * its own title and two points, and its Artifact.
+ */
+const unplacedBanner = {
+  block: {
+    id: "unplaced",
+    pageId: null,
+    layoutId: null,
+    type: "banner",
+    content: {
+      title: "Spring sale",
+      points: [{ _itemId: "seed_1" }, { _itemId: "seed_2" }],
+      visual: ARTIFACT,
+    },
+    settings: { colorScheme: "dark" },
+    position: "a0",
+    references: {},
+  },
+  repeatableItems: [
+    {
+      id: "seed_1",
+      blockId: "unplaced",
+      parentItemId: null,
+      fieldName: "points",
+      content: { label: "Free shipping" },
+      settings: null,
+      position: "a0",
+      references: {},
+    },
+    {
+      id: "seed_2",
+      blockId: "unplaced",
+      parentItemId: null,
+      fieldName: "points",
+      content: { label: "Ends Sunday" },
+      settings: null,
+      position: "a1",
+      references: {},
+    },
+  ],
+  files: [],
+};
 
 /**
  * An API where only the look token `TOKEN` reads the draft `DRAFT`, as the API checks it: a
@@ -69,6 +145,36 @@ function mockApi(t: { mock: { method: typeof test.mock.method } }) {
       );
     const source = draft ? "Draft title" : "Live title";
     if (url.pathname.endsWith("/locales/list")) return localesResponse();
+    if (url.pathname.endsWith("/blocks/getUnplaced")) {
+      const { json } = (await request.clone().json()) as {
+        json: { type: string; settings?: { colorScheme?: string } };
+      };
+      if (json.type !== "banner")
+        return Response.json(
+          {
+            json: {
+              defined: true,
+              code: "NOT_FOUND",
+              status: 404,
+              message: 'There\'s no Block Definition named "pricing".',
+            },
+          },
+          { status: 404 },
+        );
+      if (json.settings?.colorScheme === "purple")
+        return Response.json(
+          {
+            json: {
+              defined: true,
+              code: "BAD_REQUEST",
+              status: 400,
+              message: "settings.colorScheme must be one of light, dark",
+            },
+          },
+          { status: 400 },
+        );
+      return Response.json({ json: unplacedBanner });
+    }
     if (url.pathname.endsWith("/listBySlug"))
       return pageListResponse([
         { id: pageId, fullPath: "/", pathSegment: "", updatedAt: 1, layoutId: null },
@@ -106,11 +212,13 @@ function mockApi(t: { mock: { method: typeof test.mock.method } }) {
   return received;
 }
 
-async function look({ token = TOKEN as string | null, draft = DRAFT } = {}) {
+const PAGE_TARGET = "path=/";
+
+async function look({ token = TOKEN as string | null, draft = DRAFT, target = PAGE_TARGET } = {}) {
   Object.assign(globalThis, { __CAMOX_TELEMETRY_DISABLED__: true, React });
   const { renderPageWithApp } = await import("./pageServer");
   const response = await handleCamoxRequest(
-    new Request(`https://site.test/_camox/look?camox-draft=${draft}&path=/`, {
+    new Request(`https://site.test/_camox/look?camox-draft=${draft}&${target}`, {
       headers: token ? { Cookie: `other=1; camox_look=${token}` } : {},
     }),
     {
@@ -121,7 +229,10 @@ async function look({ token = TOKEN as string | null, draft = DRAFT } = {}) {
       renderPage: (input) => renderPageWithApp({ ...input, camoxApp }),
       stylesheetUrl: "/site.css",
       studioStylesheetUrl: "/studio.css",
-      blockPreloads: { modulePaths: { hero: "/src/blocks/hero.tsx" }, chunks: null },
+      blockPreloads: {
+        modulePaths: { hero: "/src/blocks/hero.tsx", banner: "/src/blocks/banner.tsx" },
+        chunks: null,
+      },
     },
   );
   assert.ok(response);
@@ -172,10 +283,18 @@ void test("shows no draft content for a draft its token isn't for", async (t) =>
 });
 
 void test("marks itself ready only once it hydrated and its Artifacts loaded", async (t) => {
+  await assertHydratesThenReady(t, PAGE_TARGET);
+});
+
+/**
+ * Hydrates the look document of `target` without errors, then marks itself ready once its
+ * Artifacts loaded.
+ */
+async function assertHydratesThenReady(t: test.TestContext, target: string) {
   mockApi(t);
-  const { html } = await look();
+  const { html } = await look({ target });
   const window = new Window({
-    url: `https://site.test/_camox/look?camox-draft=${DRAFT}&path=/`,
+    url: `https://site.test/_camox/look?camox-draft=${DRAFT}&${target}`,
     settings: { enableJavaScriptEvaluation: true },
   });
   Object.assign(globalThis, {
@@ -232,4 +351,85 @@ void test("marks itself ready only once it hydrated and its Artifacts loaded", a
   } finally {
     await window.happyDOM.close();
   }
+}
+
+// The Block Definition mode: one block of a Block Definition, placed nowhere, alone in the site's
+// shell, with its default content and Block Settings and overrides merged on.
+
+const query = (params: Record<string, unknown>) =>
+  new URLSearchParams(
+    Object.entries(params).map(([key, value]) => [
+      key,
+      typeof value === "string" ? value : JSON.stringify(value),
+    ]),
+  ).toString();
+
+const BANNER_TARGET = query({
+  blockDefinition: "banner",
+  content: { title: "Spring sale", points: [{ label: "Free shipping" }, { label: "Ends Sunday" }] },
+  settings: { colorScheme: "dark" },
+});
+
+void test("renders a Block Definition's block alone in the site's shell, as the draft shows it with the overrides", async (t) => {
+  const received = mockApi(t);
+  const { response, html } = await look({ target: BANNER_TARGET });
+
+  assert.equal(response.status, 200);
+  assert.match(
+    html,
+    /<div class="group visual-editing-block" data-camox-viewport-block="unplaced"/,
+  );
+  assert.match(html, /<section class="scheme-dark"><h2><span>Spring sale<\/span><\/h2>/);
+  assert.match(html, /<li><span>Free shipping<\/span><\/li><li><span>Ends Sunday<\/span><\/li>/);
+  // No page around it: neither the hero nor the page's title.
+  assert.doesNotMatch(html, /Draft title|Live title/);
+  assert.match(html, /<link rel="stylesheet" href="\/site.css">/);
+  assert.ok(html.includes('<link rel="modulepreload" href="/src/blocks/banner.tsx">'));
+  assert.match(response.headers.get("Cache-Control") ?? "", /no-store/);
+
+  // The overrides reach the draft as the URL gives them, read with the look token.
+  const [asked, ...others] = received.filter((request) =>
+    new URL(request.url).pathname.endsWith("/blocks/getUnplaced"),
+  );
+  assert.equal(others.length, 0);
+  assert.equal(asked!.headers.get(DRAFT_HEADER), DRAFT);
+  assert.equal(asked!.headers.get(LOOK_TOKEN_HEADER), TOKEN);
+  const { json } = (await asked!.json()) as { json: Record<string, unknown> };
+  assert.deepEqual(json, {
+    projectUuid: "test",
+    type: "banner",
+    content: {
+      title: "Spring sale",
+      points: [{ label: "Free shipping" }, { label: "Ends Sunday" }],
+    },
+    settings: { colorScheme: "dark" },
+  });
+});
+
+void test("answers an override the schema refuses with the schema's message, and an unknown Block Definition with nothing", async (t) => {
+  mockApi(t);
+  const refused = await look({
+    target: query({ blockDefinition: "banner", settings: { colorScheme: "purple" } }),
+  });
+  assert.equal(refused.response.status, 422);
+  assert.match(refused.html, /settings.colorScheme must be one of light, dark/);
+
+  const unknown = await look({ target: query({ blockDefinition: "pricing" }) });
+  assert.equal(unknown.response.status, 404);
+
+  const malformed = await look({ target: "blockDefinition=banner&content=%7Bnope" });
+  assert.equal(malformed.response.status, 422);
+});
+
+void test("shows no Block Definition without a look token the API accepts", async (t) => {
+  mockApi(t);
+  for (const token of [null, "expired-or-for-another-draft"]) {
+    const { response, html } = await look({ token, target: BANNER_TARGET });
+    assert.equal(response.status, 404);
+    assert.doesNotMatch(html, /Spring sale/);
+  }
+});
+
+void test("hydrates a Block Definition's block, then marks itself ready once its Artifacts loaded", async (t) => {
+  await assertHydratesThenReady(t, BANNER_TARGET);
 });

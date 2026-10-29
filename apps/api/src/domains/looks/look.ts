@@ -1,9 +1,13 @@
 import {
   DRAFT_SEARCH_PARAM,
+  LOOK_BLOCK_DEFINITION_PARAM,
+  LOOK_CONTENT_PARAM,
   LOOK_DOCUMENT_PATH,
   LOOK_LOCALE_PARAM,
   LOOK_PATH_PARAM,
+  LOOK_SETTINGS_PARAM,
   LOOK_TOKEN_COOKIE,
+  UNPLACED_BLOCK_ID,
 } from "@camox/api-contract/drafts";
 import { projectWebsiteUrl } from "@camox/api-contract/projects";
 import { ORPCError } from "@orpc/server";
@@ -14,6 +18,7 @@ import { runService } from "../../lib/run-service";
 import type { SpanFields } from "../../lib/timing";
 import type { Bindings } from "../../types";
 import { agentServiceContext } from "../_shared/service-context";
+import { getUnplacedBlock } from "../blocks/service";
 import { signLookToken } from "../drafts/look-token";
 import { getPageStructure } from "../pages/service";
 import { projects } from "../projects/schema";
@@ -34,10 +39,21 @@ export const DEFAULT_SIZES: readonly LookSize[] = ["desktop", "mobile"];
 export type PageTarget = { path: string; locale?: string };
 
 /**
+/**
  * The longest a target may have the browser wait, once its document is ready and settled, before
  * it captures: enough to see an animation at a later moment.
  */
 export const LOOK_MAX_DELAY_MS = 5000;
+
+/**
+ * A Block Definition, unplaced: its default content and Block Settings with overrides merged on,
+ * in the shape the content tools take.
+ */
+export type BlockDefinitionTarget = {
+  blockDefinition: string;
+  content?: unknown;
+  settings?: unknown;
+};
 
 /** One Placement on a page of the draft, by the page's path and the block's ID. */
 export type PlacementTarget = PageTarget & { block: string };
@@ -46,7 +62,10 @@ export type PlacementTarget = PageTarget & { block: string };
  * What the agent asks `look` to capture, with the sizes it wants and how long to wait before
  * capturing, in milliseconds.
  */
-export type LookTarget = (PageTarget | PlacementTarget) & { sizes?: LookSize[]; delay?: number };
+export type LookTarget = (PageTarget | PlacementTarget | BlockDefinitionTarget) & {
+  sizes?: LookSize[];
+  delay?: number;
+};
 
 /** One result: a target at one size, with its image, or why it failed. */
 export type Looked = { target: LookTarget; size: LookSize } & Captured;
@@ -146,7 +165,8 @@ function delayRefused({ delay }: LookTarget): { error: string } | undefined {
 
 /**
  * What `target` is captured as: the lightweight document of its page, once it's in the draft,
- * and for a Placement, its block's element there.
+ * and for a Placement, its block's element there; or of its Block Definition's block, once the
+ * draft has the definition and its schemas accept the overrides.
  */
 async function resolve(
   env: Bindings,
@@ -155,10 +175,20 @@ async function resolve(
   origin: string,
   target: LookTarget,
 ): Promise<Resolved> {
-  const structure = await pageStructure(env, where, projectUuid, target);
-  if ("error" in structure) return structure;
   const url = new URL(LOOK_DOCUMENT_PATH, origin);
   url.searchParams.set(DRAFT_SEARCH_PARAM, where.draftId);
+  if ("blockDefinition" in target) {
+    const refused = await blockRefused(env, where, projectUuid, target);
+    if (refused) return { error: refused };
+    url.searchParams.set(LOOK_BLOCK_DEFINITION_PARAM, target.blockDefinition);
+    if (target.content !== undefined)
+      url.searchParams.set(LOOK_CONTENT_PARAM, JSON.stringify(target.content));
+    if (target.settings !== undefined)
+      url.searchParams.set(LOOK_SETTINGS_PARAM, JSON.stringify(target.settings));
+    return { url: url.href, element: `[data-camox-viewport-block="${UNPLACED_BLOCK_ID}"]` };
+  }
+  const structure = await pageStructure(env, where, projectUuid, target);
+  if ("error" in structure) return structure;
   url.searchParams.set(LOOK_PATH_PARAM, target.path);
   if (target.locale) url.searchParams.set(LOOK_LOCALE_PARAM, target.locale);
   if (!("block" in target)) return { url: url.href };
@@ -175,6 +205,25 @@ async function resolve(
   return { url: url.href, element: `[data-camox-viewport-block="${target.block}"]` };
 }
 
+/** A service context reading the draft as the browser will, with the draft's look token. */
+const lookContext = (env: Bindings, where: LookIn, locale?: string) => ({
+  ...agentServiceContext({
+    db: createDb(env.DB),
+    env,
+    user: null,
+    waitUntil: (promise) => void promise.catch(console.error),
+    draftId: where.draftId,
+  }),
+  look: { projectId: where.projectId, draftId: where.draftId },
+  locale,
+});
+
+/** The message of an API error, or the error itself when it isn't one: a bug, which throws. */
+function messageOf(error: unknown) {
+  if (!(error instanceof ORPCError)) throw error;
+  return error.message;
+}
+
 /**
  * The structure of the page `target` names, read as the browser will, with the draft's look
  * token, or why it can't be looked at.
@@ -185,26 +234,43 @@ async function pageStructure(
   projectUuid: string,
   { path, locale }: PageTarget,
 ) {
-  const ctx = {
-    ...agentServiceContext({
-      db: createDb(env.DB),
-      env,
-      user: null,
-      waitUntil: (promise) => void promise.catch(console.error),
-      draftId: where.draftId,
-    }),
-    look: { projectId: where.projectId, draftId: where.draftId },
-    locale,
-  };
   try {
-    return await runService(getPageStructure(ctx, { projectUuid, path }));
+    return await runService(
+      getPageStructure(lookContext(env, where, locale), { projectUuid, path }),
+    );
   } catch (error) {
-    if (!(error instanceof ORPCError)) throw error;
+    const message = messageOf(error);
     return {
       error:
-        error.code === "NOT_FOUND"
+        (error as ORPCError<string, unknown>).code === "NOT_FOUND"
           ? `The draft has no page at ${path}${locale ? ` in ${locale}` : ""}.`
-          : error.message,
+          : message,
     };
+  }
+}
+
+/**
+ * Why the Block Definition `target` names can't be looked at with its overrides, or undefined when
+ * it can: the draft has no such definition, or its Content Schema or Settings Schema refuses an
+ * override. Read as the browser will, with the draft's look token.
+ */
+async function blockRefused(
+  env: Bindings,
+  where: LookIn,
+  projectUuid: string,
+  { blockDefinition, content, settings }: BlockDefinitionTarget,
+) {
+  try {
+    await runService(
+      getUnplacedBlock(lookContext(env, where), {
+        projectUuid,
+        type: blockDefinition,
+        content,
+        settings,
+      }),
+    );
+    return undefined;
+  } catch (error) {
+    return messageOf(error);
   }
 }
