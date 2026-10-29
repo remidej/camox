@@ -38,6 +38,10 @@ Agent-written code may make outbound requests, from the server and the browser. 
 - Lint is for code quality only. `vp lint` runs in the revision's Container after the build, its errors go back to the agent in the same turn, and they never block publishing. Its config ships in the Template's `vite.config.ts`, without type-aware linting, since tsrs type checks.
 - The build checks and the lint step run only in hosted projects' builds, revisions and releases alike, turned on by a Camox-internal flag. `apps/landing` and self-hosters never see them. An Upgrade whose new rule breaks existing code fails like any other that doesn't build.
 
+## Amendment: lint problems keep the turn going
+
+Lint problems are fixed in the turn that made them, as build and type errors are: they're rare, and when they come up they're mostly bugs. The end of a turn lints the files the turn changed, beside its build, and sends the agent back with the findings until they're gone. Lint problems count toward the same limit of tries as build errors; once it's reached, the turn ends with them. They still never block publishing: an editor can't act on them, and the agent can turn a rule off with a comment. Files the turn didn't change aren't linted, so a rule an Upgrade adds never sends the agent to fix code it didn't touch. The revision's Container runs Oxlint with the `lint` config of the Template's `vite.config.ts` rather than `vp lint`, which loads the config's plugins each time ([#740](https://github.com/remidej/camox/issues/740)).
+
 ## Amendment: the line applies to pushed code
 
 `apps/landing` becomes a hosted project (ADR 0026), so the build checks apply to it. Code a member pushes from their own checkout follows the same line as the agent's: the API refuses a push that changes a platform-owned file, so only Upgrades change them, whoever writes the website's code.

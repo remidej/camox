@@ -17,10 +17,11 @@ import { camoxVersionInLockfile } from "../releases/lockfile";
 import { deleteRevisionBuild, revisionArchiveKey } from "./archive";
 import { buildErrorsOf } from "./build-log";
 import type { PreparedRevision, RevisionToLoad } from "./dispatch";
-import { type BuildResult, ERRORS_SHOWN } from "./result";
+import { type BuildResult, ERRORS_SHOWN, type LintError } from "./result";
 import {
   buildInSandbox,
   checkTypesInSandbox,
+  lintInSandbox,
   type SandboxBuild,
   type SandboxTypeCheck,
 } from "./sandbox";
@@ -116,6 +117,17 @@ function withTypeErrors(result: BuildResult, typeErrors: RevisionTypeErrors | nu
   };
 }
 
+/** `result` with the findings of the lint of its code, when it found some. */
+function withLint(result: BuildResult, found: LintError[] | null): BuildResult {
+  if (!found || found.length === 0) return result;
+  const { shown, total } = capped(found);
+  return {
+    ...result,
+    lint: shown,
+    ...(total === undefined ? {} : { truncated: { ...result.truncated, lint: total } }),
+  };
+}
+
 /** What a type check records on its revision: its status, and its errors when it failed. */
 function typeCheckRecord(check: SandboxTypeCheck) {
   if (check.ok) return { typeCheckStatus: "passed" as const, typeErrors: null };
@@ -147,6 +159,11 @@ export type RevisionOrigin = {
   built?: Extract<SandboxBuild, { ok: true }>;
   /** For a member's pushed head, the newest commit of `main` it holds. */
   mergedMain?: string;
+  /**
+   * The files whose lint findings the result lists, linted beside the build. A lint Camox can't
+   * run finds nothing: it never fails the build.
+   */
+  lint?: string[];
 };
 
 /** The draft a build is of, with what announcing its revisions needs. */
@@ -382,6 +399,7 @@ export async function buildRevision(
       built: built.ok,
       buildErrors: built.build.length,
       typeErrors: built.types.length,
+      lintErrors: origin.lint ? built.lint.length : undefined,
     }),
   );
   // Code that builds without errors and holds the `main` that clashed no longer clashes.
@@ -392,7 +410,7 @@ export async function buildRevision(
 async function buildAndPreview(
   env: Bindings,
   draftId: string,
-  { leftBy, run, prepared: given, built: prebuilt, mergedMain }: RevisionOrigin,
+  { leftBy, run, prepared: given, built: prebuilt, mergedMain, lint = [] }: RevisionOrigin,
   buildSpan: SpanFields,
 ): Promise<BuildResult> {
   const db = createDb(env.DB);
@@ -455,6 +473,14 @@ async function buildAndPreview(
     existing.archiveKey &&
     existing.typeCheckStatus !== "pending"
   ) {
+    // Nothing builds: the lint runs beside the commit and the preview.
+    const linting =
+      lint.length === 0
+        ? Promise.resolve(null)
+        : lintInSandbox(env, draftId, prepared, lint, span).catch((error: unknown) => {
+            console.error("A revision's code wasn't linted", error);
+            return null;
+          });
     // Code back to an earlier revision's tree, such as a reverted change, is that revision
     // again, committed on top of the branch. A merge of `main` changing no file is committed too.
     if (draft.headRevisionId !== existing.id || given) {
@@ -479,17 +505,17 @@ async function buildAndPreview(
             },
             span,
           );
-    return withTypeErrors(previewed, existing.typeErrors);
+    return withLint(withTypeErrors(previewed, existing.typeErrors), await linting);
   }
 
   const outcome =
     prebuilt ??
-    (await retried(() => buildInSandbox(env, draftId, prepared, span), {
+    (await retried(() => buildInSandbox(env, draftId, prepared, span, lint), {
       name: "revision.build.sandbox",
       fields: span,
       after: (built) => ({ built: built.ok }),
     }));
-  if (!outcome.ok) return failedBuild(outcome.log);
+  if (!outcome.ok) return withLint(failedBuild(outcome.log), await outcome.lint);
 
   const revisionId = existing?.id ?? generateUuidv7();
   const archiveKey = revisionArchiveKey({
@@ -583,7 +609,9 @@ async function buildAndPreview(
   );
   const record = typeCheckRecord(typeCheck);
   await db.update(revisions).set(record).where(eq(revisions.id, recorded!.id));
-  if (previewed) return withTypeErrors(previewed, record.typeErrors);
-  if (record.typeErrors) return withTypeErrors(passed(recorded!.id), record.typeErrors);
-  return preview();
+  let result: BuildResult;
+  if (previewed) result = withTypeErrors(previewed, record.typeErrors);
+  else if (record.typeErrors) result = withTypeErrors(passed(recorded!.id), record.typeErrors);
+  else result = await preview();
+  return withLint(result, await outcome.lint);
 }

@@ -496,6 +496,20 @@ export class DraftCode extends DurableObject<Bindings> {
   }
 
   /**
+   * The paths of the working copy's files that differ from the commit `since`, added or changed
+   * since, without those deleted: since the branch's head when the working copy doesn't hold it,
+   * or without `since`.
+   */
+  changedFiles({ since }: { since?: string } = {}): Promise<string[]> {
+    return this.#serially(async () => {
+      const fs = await this.#workingCopy();
+      const ref = since && (await holds(fs, since)) ? since : "HEAD";
+      const matrix = await git.statusMatrix({ fs, dir: CODE_ROOT, ref });
+      return matrix.filter(([, , workdir]) => workdir === 2).map(([filepath]) => filepath);
+    });
+  }
+
+  /**
    * The working copy's files that installing its dependencies reads, as a tar archive, with its
    * lockfile: what its sandbox needs to install ahead of a build, which `prepareCommit` would
    * give only once it staged and committed every change.

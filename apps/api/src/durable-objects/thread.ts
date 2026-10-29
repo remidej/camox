@@ -196,10 +196,11 @@ const TURN_PAGE_PREFIX = "camox.turn-page:";
  * the run's first input, which names it for as long as it goes.
  */
 const TURN_BUILD_FAILURES_PREFIX = "camox.turn-build-failures:";
-/** The prefix of the keys recording that a run's agent was sent its lint findings, as above. */
-const TURN_LINTED_PREFIX = "camox.turn-linted:";
-/** The prefix of the keys recording that a run's agent called `build`, as above. */
-const TURN_BUILT_PREFIX = "camox.turn-built:";
+/**
+ * The prefix of the keys holding the commit a run's draft code was at as it first wrote code, as
+ * above: the end of its turn lints the files changed since.
+ */
+const TURN_BASE_PREFIX = "camox.turn-base:";
 
 /**
  * The key timing the turn going, for its timing logs: when the editor's message that started it
@@ -727,8 +728,34 @@ export class Thread extends DurableObject<Bindings> {
       ? (await this.#knownIdentity())!.draftId!
       : await this.#codeAccess(invocation);
     await this.#merging;
+    await this.#noteTurnBase(invocation, draftId);
     await this.#warmSandbox(invocation, draftId);
     return this.#workingCopyEnv(draftId);
+  }
+
+  /** The turn whose base `#noteTurnBase` noted. */
+  #baseNotedFor: string | undefined;
+
+  /**
+   * Notes the commit the draft's code is at as a turn first writes it, before the write lands:
+   * the end of the turn lints the files changed since. Never fails the write: a turn without
+   * its base lints the files changed since the draft's last revision.
+   */
+  async #noteTurnBase(invocation: ToolInvocation, draftId: string) {
+    try {
+      const { api, context } = invocation;
+      const live = await api.snapshot(LiveDoc, api.conversationId, context);
+      const turn = live?.run?.inputs[0] === undefined ? undefined : String(live.run.inputs[0]);
+      if (turn === undefined || this.#baseNotedFor === turn) return;
+      const key = `${TURN_BASE_PREFIX}${turn}`;
+      if ((await this.ctx.storage.get<string>(key)) === undefined) {
+        const { head } = await this.env.DRAFT_CODE.getByName(draftId).merges();
+        await this.ctx.storage.put(key, head);
+      }
+      this.#baseNotedFor = turn;
+    } catch (error) {
+      console.warn("A turn's first code write didn't note its base", error);
+    }
   }
 
   /** The turn whose first code write started the draft's sandbox (`#warmSandbox`). */
@@ -838,8 +865,6 @@ export class Thread extends DurableObject<Bindings> {
     const { api, context } = invocation;
     const live = await api.snapshot(LiveDoc, api.conversationId, context);
     const run = live?.run && { threadId: this.#threadId(), runId: String(live.run.taskId) };
-    // The end of the turn lints what the agent built, even when its build covered the changes.
-    await this.ctx.storage.put(`${TURN_BUILT_PREFIX}${live?.run?.inputs[0] ?? ""}`, true);
     const result = await this.#buildingSerially(draftId, () =>
       buildRevision(this.env, draftId, { leftBy: "build", run }),
     );
@@ -1077,9 +1102,11 @@ export class Thread extends DurableObject<Bindings> {
    * last `build` covered it without errors. A build with errors, its own or its type check's,
    * hands the agent them, and its turn goes on, until the end of the turn failed
    * `END_OF_TURN_BUILD_FAILURES` times in a row: the changes are then committed anyway, and the
-   * agent explains the problem, which ends its turn, even if it changed code again. Code that
-   * builds is linted, and its findings sent to the agent once per turn. Editors see a status line
-   * rather than these messages. A build Camox's infrastructure keeps failing lets the turn end.
+   * agent explains the problem, which ends its turn, even if it changed code again. The files
+   * the turn changed are linted beside the build: findings in code that builds are handed to the
+   * agent too, and count as a failure, though the turn ends with them once they're one too many.
+   * Editors see a status line rather than these messages. A build Camox's infrastructure keeps
+   * failing lets the turn end.
    */
   async #onYield(api: HookApi, context: Parameters<GenerationHooks["onYield"]>[2]) {
     if (api.conversationId !== ROOT_CONVERSATION_ID) return undefined;
@@ -1089,17 +1116,14 @@ export class Thread extends DurableObject<Bindings> {
     const run = live?.run && { threadId: this.#threadId(), runId: String(live.run.taskId) };
     const failures = `${TURN_BUILD_FAILURES_PREFIX}${live?.run?.inputs[0] ?? ""}`;
     const failedInARow = (await this.ctx.storage.get<number>(failures)) ?? 0;
-    const linted = `${TURN_LINTED_PREFIX}${live?.run?.inputs[0] ?? ""}`;
-    const built = `${TURN_BUILT_PREFIX}${live?.run?.inputs[0] ?? ""}`;
+    const baseKey = `${TURN_BASE_PREFIX}${live?.run?.inputs[0] ?? ""}`;
     // The agent was told to explain the errors it couldn't fix, and did: its turn ends.
     if (failedInARow >= END_OF_TURN_BUILD_FAILURES) {
-      await this.ctx.storage.delete([failures, linted, built]);
+      await this.ctx.storage.delete([failures, baseKey]);
       await this.#mergeAfterTheTurn(draftId);
       return undefined;
     }
-    const lint = (await this.ctx.storage.get<boolean>(linted))
-      ? undefined
-      : { covered: (await this.ctx.storage.get<boolean>(built)) ?? false };
+    const base = await this.ctx.storage.get<string>(baseKey);
     let turn: TurnBuild;
     try {
       turn = await this.#buildingSerially(draftId, () =>
@@ -1107,7 +1131,7 @@ export class Thread extends DurableObject<Bindings> {
           run,
           failedInARow,
           building: () => this.#showBuildStatus("building"),
-          lint,
+          base,
         }),
       );
     } catch (error) {
@@ -1133,12 +1157,12 @@ export class Thread extends DurableObject<Bindings> {
       await this.ctx.storage.put(failures, END_OF_TURN_BUILD_FAILURES);
       return { continue: explainFailures(turn) };
     }
-    await this.ctx.storage.delete(failures);
     if (turn.outcome === "linted") {
-      await this.ctx.storage.put(linted, true);
+      await this.ctx.storage.put(failures, failedInARow + 1);
+      await this.#showBuildStatus("fixing");
       return { continue: fixLint(turn.result) };
     }
-    await this.ctx.storage.delete([linted, built]);
+    await this.ctx.storage.delete([failures, baseKey]);
     await this.#mergeAfterTheTurn(draftId);
     return undefined;
   }
