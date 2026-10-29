@@ -1,10 +1,11 @@
 import { LOOK_TOKEN_COOKIE, UNPLACED_BLOCK_ID } from "@camox/api-contract/drafts";
+import { call } from "@orpc/server";
 import { abortAllDurableObjects } from "cloudflare:test";
 import { env } from "cloudflare:workers";
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 
 import { browserRunFakes } from "../../../test/browser-run";
-import { startDraft, syncDefinitionSet } from "../../../test/fixtures";
+import { createRpcContext, startDraft, syncDefinitionSet } from "../../../test/fixtures";
 import { PRICING, revisionFakes, websiteWithCode } from "../../../test/revision-builds";
 import {
   answerFrom,
@@ -23,6 +24,7 @@ import {
   type Website,
 } from "../../../test/threads";
 import { verifyLookToken } from "../drafts/look-token";
+import { pageProcedures } from "../pages/routes";
 import { END_OF_TURN_BUILD_FAILURES } from "../revisions/end-of-turn";
 import { LOOK_IMAGE_CAP } from "./look";
 
@@ -102,6 +104,16 @@ async function look(
       .map((line) => JSON.parse(line) as Record<string, unknown>),
     images: seen!.lastToolImages,
   };
+}
+
+/** The ID of the first Placement on the website's page at `path`, as the studio reads it. */
+async function placementOn({ db, memberUser, project }: Website, path: string) {
+  const { page } = await call(
+    pageProcedures.getStructure,
+    { projectUuid: project.uuid, path },
+    { context: createRpcContext(db, memberUser) },
+  );
+  return page.blockIds[0]!;
 }
 
 const pathOf = (url: string) => new URL(url).searchParams.get("path");
@@ -187,6 +199,37 @@ describe("the agent's look", () => {
     expect(images).toEqual([
       { data: await browserRunFakes.capturedImage(), mimeType: "image/jpeg" },
     ]);
+  });
+
+  it("returns, as text with each image, the errors, failed requests and overflow its page reported, or says briefly there were none", async () => {
+    const { draftId, thread, host } = await draftThread();
+    await browserRunFakes.scriptChecksOf(
+      draftId,
+      {
+        errors: ["Uncaught TypeError: price is undefined", "Minified React error #418"],
+        failedRequests: [`404 https://${host}/hero.jpg`],
+        overflow: true,
+      },
+      "mobile",
+    );
+
+    const { text, images } = await look(thread, { targets: [{ path: "/home" }] });
+    thread.close();
+
+    expect(text).toBe(
+      [
+        JSON.stringify({ path: "/home", size: "desktop" }),
+        "No console or page errors, overflow or failed requests.",
+        JSON.stringify({ path: "/home", size: "mobile" }),
+        "Console and page errors:",
+        "- Uncaught TypeError: price is undefined",
+        "- Minified React error #418",
+        "Content overflows horizontally at this width.",
+        "Failed requests:",
+        `- 404 https://${host}/hero.jpg`,
+      ].join("\n"),
+    );
+    expect(images).toHaveLength(2);
   });
 
   it("refuses a call over the image cap, capturing nothing", async () => {
@@ -297,6 +340,69 @@ describe("the agent's look", () => {
     expect(told).toContain("Carry on without looking");
     expect(lastAnswer(view)).toBe("I couldn't check the design.");
     expect(view.running).toBe(false);
+  });
+
+  describe("a Placement target", () => {
+    it("captures the block's element from its whole page, at each size", async () => {
+      const { website, draftId, thread } = await draftThread();
+      const block = await placementOn(website, "/home");
+
+      const { results, images } = await look(thread, { targets: [{ path: "/home", block }] });
+      thread.close();
+
+      expect(results).toEqual([
+        { path: "/home", block, size: "desktop" },
+        { path: "/home", block, size: "mobile" },
+      ]);
+      expect(images).toHaveLength(2);
+      const captures = await browserRunFakes.captures(draftId);
+      expect(captures.map(({ url, size, element }) => [pathOf(url), size, element])).toEqual([
+        ["/home", "desktop", `[data-camox-viewport-block="${block}"]`],
+        ["/home", "mobile", `[data-camox-viewport-block="${block}"]`],
+      ]);
+    });
+
+    it("says when the block was taller than two screens, so its image was cut", async () => {
+      const { website, thread } = await draftThread();
+      const block = await placementOn(website, "/home");
+      await browserRunFakes.cutCapturesOf(block, "mobile");
+
+      const { results, images } = await look(thread, { targets: [{ path: "/home", block }] });
+      thread.close();
+
+      expect(results).toEqual([
+        { path: "/home", block, size: "desktop" },
+        { path: "/home", block, size: "mobile", cut: true },
+      ]);
+      expect(images).toHaveLength(2);
+    });
+
+    it("fails alone when the block isn't on that page, leaving the other targets' images", async () => {
+      const { draftId, thread } = await draftThread();
+      const elsewhere = crypto.randomUUID();
+
+      const { results, images } = await look(thread, {
+        targets: [
+          { path: "/home", block: elsewhere, sizes: ["desktop"] },
+          { path: "/home", sizes: ["desktop"] },
+        ],
+      });
+      thread.close();
+
+      expect(results).toEqual([
+        {
+          path: "/home",
+          block: elsewhere,
+          size: "desktop",
+          error: expect.stringContaining(elsewhere),
+        },
+        { path: "/home", size: "desktop" },
+      ]);
+      expect(images).toHaveLength(1);
+      expect((await browserRunFakes.captures(draftId)).map(({ element }) => element)).toEqual([
+        undefined,
+      ]);
+    });
   });
 });
 

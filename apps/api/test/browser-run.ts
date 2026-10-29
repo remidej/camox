@@ -1,6 +1,6 @@
 import { env } from "cloudflare:workers";
 
-import type { CaptureBatch, Captured, Capturer } from "../src/domains/looks/capture";
+import type { CaptureBatch, CaptureChecks, Captured, Capturer } from "../src/domains/looks/capture";
 
 // Stands in for Browser Run's Chromium in integration tests that `vi.mock` the API's adapter
 // (src/domains/looks/browser-run.ts): each batch goes to the fake Browser Run of the release
@@ -26,7 +26,10 @@ export type BrowserRunFakes = {
   captures(pattern: string): Promise<RecordedCapture[]>;
   capturedImage(): Promise<string>;
   failCapturesOf(pattern: string, error: string, size?: string): Promise<void>;
+  scriptChecksOf(pattern: string, checks: Partial<CaptureChecks>, size?: string): Promise<void>;
   takeBrowserRunDownFor(host: string): Promise<void>;
+  /** Makes captures of an element whose selector holds `pattern` cut, at `size` only when given. */
+  cutCapturesOf(pattern: string, size?: string): Promise<void>;
 };
 
 export const browserRunFakes = (env as unknown as { RELEASE_FAKES: BrowserRunFakes }).RELEASE_FAKES;

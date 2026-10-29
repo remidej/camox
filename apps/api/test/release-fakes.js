@@ -1178,6 +1178,18 @@ const captures = [];
  */
 const failingCaptures = [];
 
+/**
+ * @type {{ pattern: string, checks: object, size?: string }[]} what the page reports beside the
+ * image of a URL holding `pattern`, at `size` only when given
+ */
+const scriptedChecks = [];
+
+/**
+ * @type {{ pattern: string, size?: string }[]} element captures whose selector holds `pattern`
+ * come back cut, at `size` only when given, as an element taller than two screens
+ */
+const cutCaptures = [];
+
 /** @type {Set<string>} the website hosts whose captures find Browser Run unreachable */
 const unreachableBrowserHosts = new Set();
 
@@ -1198,10 +1210,16 @@ export class FakeBrowserRun extends WorkerEntrypoint {
         ({ pattern, size }) => capture.url.includes(pattern) && (!size || size === capture.size),
       );
       if (failing) return { error: failing.error };
+      const scripted = scriptedChecks.find(
+        ({ pattern, size }) => capture.url.includes(pattern) && (!size || size === capture.size),
+      );
       return {
         image: { data: FAKE_CAPTURE_JPEG, mimeType: "image/jpeg" },
-        cut: false,
-        checks: { errors: [], failedRequests: [], overflow: false },
+        cut: cutCaptures.some(
+          ({ pattern, size }) =>
+            capture.element?.includes(pattern) && (!size || size === capture.size),
+        ),
+        checks: { errors: [], failedRequests: [], overflow: false, ...scripted?.checks },
       };
     });
   }
@@ -1461,6 +1479,27 @@ export class ReleaseFakes extends WorkerEntrypoint {
    */
   async failCapturesOf(pattern, error, size) {
     failingCaptures.push({ pattern, error, size });
+  }
+
+  /**
+   * Makes the page of every capture of a URL holding `pattern` report `checks` beside its image,
+   * such as console errors or failed requests, or only its captures at `size` when given.
+   * @param {string} pattern
+   * @param {{ errors?: string[], failedRequests?: string[], overflow?: boolean }} checks
+   * @param {string} [size]
+   */
+  async scriptChecksOf(pattern, checks, size) {
+    scriptedChecks.push({ pattern, checks, size });
+  }
+
+  /**
+   * Makes every element capture whose selector holds `pattern` come back cut, as an element
+   * taller than two screens, or only its captures at `size` when given.
+   * @param {string} pattern
+   * @param {string} [size]
+   */
+  async cutCapturesOf(pattern, size) {
+    cutCaptures.push({ pattern, size });
   }
 
   /**
