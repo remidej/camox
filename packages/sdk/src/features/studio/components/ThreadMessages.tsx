@@ -197,6 +197,7 @@ const SQUARELING_STATUSES: Record<AgentActivity, SquarelingStatus> = {
   exploring: "exploring",
   changing: "changing",
   building: "building",
+  checking: "checking",
   fixing: "fixing",
   startingDraft: "changing",
 };
@@ -206,6 +207,7 @@ const ACTIVITY_LINES: Record<AgentActivity, string> = {
   exploring: "Looking around…",
   changing: "Making changes…",
   building: "Building…",
+  checking: "Checking the design…",
   fixing: "Fixing the build…",
   startingDraft: "Starting a draft…",
 };
