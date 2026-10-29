@@ -14,8 +14,17 @@ import {
   organizationTable,
   member,
   invitation,
+  jwks,
+  oauthAccessToken,
+  oauthClient,
+  oauthClientAssertion,
+  oauthClientResource,
+  oauthConsent,
+  oauthRefreshToken,
+  oauthResource,
 } from "../../schema";
 import type { AppEnv, Bindings } from "../../types";
+import { connectedAgentPlugins } from "../connected-agents/oauth";
 import { crossDomain } from "./cross-domain";
 import {
   sendOrganizationInvitationEmail,
@@ -34,6 +43,14 @@ const authSchema = {
   organization: organizationTable,
   member,
   invitation,
+  jwks,
+  oauthClient,
+  oauthResource,
+  oauthClientResource,
+  oauthRefreshToken,
+  oauthAccessToken,
+  oauthConsent,
+  oauthClientAssertion,
 };
 
 function generateSlug(name: string): string {
@@ -139,6 +156,7 @@ export function createAuth(
         isStudioHost: (callback, userId) => isStudioHostOf(db, env.PROJECT_SLUGS, callback, userId),
       }),
       bearer(),
+      ...connectedAgentPlugins(env, baseURL),
     ],
     databaseHooks: {
       user: {

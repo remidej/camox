@@ -9,6 +9,7 @@ import { isProjectMember } from "./authorization";
 import { createDb } from "./db";
 import { artifactSourceRoutes } from "./domains/artifact-sources/routes";
 import { authRoutes, createAuth } from "./domains/auth/routes";
+import { mcpRoutes, wellKnownRoutes } from "./domains/connected-agents/routes";
 import { fileHonoRoutes } from "./domains/files/routes";
 import { iconRoutes } from "./domains/icons/routes";
 import { pageHonoRoutes } from "./domains/pages/og-image-routes";
@@ -60,13 +61,18 @@ app.use(
       LOCALE_HEADER,
     ],
     allowMethods: ["POST", "GET", "DELETE", "OPTIONS"],
-    exposeHeaders: ["Content-Length", "Set-Better-Auth-Cookie"],
+    exposeHeaders: ["Content-Length", "Set-Better-Auth-Cookie", "WWW-Authenticate"],
     maxAge: 600,
     credentials: true,
   }),
 );
 
 app.route("/icons", iconRoutes);
+
+// Connected Agents (ADR 0030) authenticate with their own access tokens, never a session, so
+// their routes come before the session middleware.
+app.route("/mcp", mcpRoutes);
+app.route("/.well-known", wellKnownRoutes);
 
 // Session middleware — populates c.var.user/session
 app.use("*", async (c, next) => {

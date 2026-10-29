@@ -2,7 +2,13 @@ import { generateUuidv7 } from "@camox/api-contract/ids";
 import {
   BRIEF_ENTRY,
   BUILD_STATUS_ENTRY,
+  CONNECTED_AGENT_MESSAGE_ENTRY,
+  type ConnectedAgentClient,
+  type ConnectedAgentMessageData,
+  connectedAgentMessageDataSchema,
   DRAFT_ENDED_ENTRY,
+  EMPTY_THREAD_STATE,
+  EMPTY_THREAD_VIEW,
   type BuildStatus,
   EDITOR_MESSAGE_ENTRY,
   editorMessageDataSchema,
@@ -23,14 +29,18 @@ import {
   type ThreadClientMessage,
   type ThreadSender,
   type ThreadServerMessage,
+  type ThreadView,
   type Touch,
   type TouchedBatch,
+  reduceThreadEvents,
+  threadViewOf,
 } from "@camox/api-contract/threads";
 import { RemoteCodemodeSandbox } from "@earendil-works/pi-codemode/portable";
 import {
   type AgentEventStream,
   createRegistry,
   type EntryRecord,
+  type InputEntry,
   GenerationTask,
   Harness,
   hook,
@@ -96,6 +106,14 @@ import {
   type ToolInvocation,
   type ToolKind,
 } from "../domains/threads/tools";
+import {
+  entriesOfEvents,
+  entryIdOf,
+  operationIdOf,
+  type TurnOutcome,
+  type TurnPage,
+  turnEndIn,
+} from "../domains/threads/turn-end";
 import { webTools } from "../domains/threads/web-tools";
 import type { MemoryFs } from "../lib/memory-fs";
 import { runService } from "../lib/run-service";
@@ -153,7 +171,13 @@ const TOUCHES_PREFIX = "camox.touches:";
 
 /** The operation ids of the editors' messages among a run's entries. */
 const operationIdsOf = (entries: EntryRecord[]) =>
-  entries.flatMap((entry) => editorMessageDataSchema.safeParse(entry.data).data?.operationId ?? []);
+  entries.flatMap((entry) => operationIdOf(entry) ?? []);
+
+/**
+ * The prefix of the keys recording the page a turn's writes touched last, by the operation id of
+ * each message of the turn's run, for the link a Connected Agent gets as the turn ends.
+ */
+const TURN_PAGE_PREFIX = "camox.turn-page:";
 
 /**
  * The prefix of the keys counting a run's end-of-turn builds that failed in a row, followed by
@@ -248,16 +272,75 @@ const participantSchema = z.object({
 });
 
 /**
+ * Who sent a message a draft's thread opens with, and their kind, which sets how the transcript
+ * records it, how studios show it and how the model reads it: an editor, or a member's Connected
+ * Agent, in its client (ADR 0030).
+ */
+export type OpeningSender =
+  | { kind: "editor"; editor: ThreadSender }
+  | { kind: "connectedAgent"; member: ThreadSender; client: ConnectedAgentClient };
+
+/** A message a draft's thread opens with: its text, the operation id it was sent with, and who sent it. */
+export type OpeningMessage = { operationId: string; text: string; from: OpeningSender };
+
+/**
  * How the API opens a draft's thread with no studio connected (`Thread.open`): what it belongs
- * to, the API's public origin, the Brief from Camox, and the messages the editor sent, oldest
- * first, each with the operation id it was sent with.
+ * to, the API's public origin, the Brief from Camox if any, and the opening messages, oldest
+ * first, the last starting the agent's run.
  */
 export type ThreadOpening = {
   identity: ThreadIdentity;
   apiOrigin: string;
-  brief: string;
-  editor: ThreadSender;
-  messages: { operationId: string; text: string }[];
+  brief?: string;
+  messages: OpeningMessage[];
+};
+
+/**
+ * What the model reads after a Connected Agent's message, so it tells it from an editor's: who
+ * sent it. Its text stays a user message, as an editor's does.
+ */
+const CONNECTED_AGENT_NOTE =
+  "\n\n<sender>The member's Connected Agent sent this message: their own AI, outside the studio, not an editor.</sender>";
+
+/**
+ * What the model reads of a message sent from the API: its text, and after a Connected Agent's,
+ * who sent it. Studios show the text alone, the first part.
+ */
+const modelInputOf = ({ text, from }: OpeningMessage) =>
+  from.kind === "connectedAgent"
+    ? [
+        { type: "text" as const, text },
+        { type: "text" as const, text: CONNECTED_AGENT_NOTE },
+      ]
+    : [{ type: "text" as const, text }];
+
+/** The transcript entry recording an opening message, by its sender's kind, without its content. */
+const openingEntryOf = ({ operationId, from }: OpeningMessage): InputEntry => {
+  switch (from.kind) {
+    case "editor":
+      return { kind: EDITOR_MESSAGE_ENTRY, data: { ...from.editor, operationId } };
+    case "connectedAgent":
+      return {
+        kind: CONNECTED_AGENT_MESSAGE_ENTRY,
+        data: {
+          member: from.member,
+          client: from.client,
+          operationId,
+        } satisfies ConnectedAgentMessageData,
+      };
+  }
+};
+
+/**
+ * The member a message entry acts for: the editor who sent it, or the member whose Connected
+ * Agent did. None for any other entry.
+ */
+const memberOfEntry = (entry: EntryRecord | undefined) => {
+  if (entry?.kind === EDITOR_MESSAGE_ENTRY && isSender(entry.data)) return entry.data.id;
+  if (entry?.kind === CONNECTED_AGENT_MESSAGE_ENTRY) {
+    return connectedAgentMessageDataSchema.safeParse(entry.data).data?.member.id;
+  }
+  return undefined;
 };
 
 /** The text of an entry's user message, as an editor's message entry records it. */
@@ -266,16 +349,22 @@ const textOfEntry = (entry: EntryRecord) => {
   return message ? editorTextOf(message.content) : "";
 };
 
+/** An editor as an opening message's sender, of what their message entry records. */
+const editorFrom = ({ id, name, image }: ThreadSender): OpeningSender => ({
+  kind: "editor",
+  editor: { id, name, image },
+});
+
 /** `messages`, then those of `more` it doesn't hold yet. */
 const mergeMessages = (messages: ThreadOpening["messages"], more: ThreadOpening["messages"]) => [
   ...messages,
   ...more.filter(({ operationId }) => !messages.some((known) => known.operationId === operationId)),
 ];
 
-/** A user message of `text`, as Pi places an input. */
-const userMessage = (text: string) => ({
+/** A user message of `text`, or of its parts, as Pi places an input. */
+const userMessage = (text: string | { type: "text"; text: string }[]) => ({
   role: "user" as const,
-  content: [{ type: "text" as const, text }],
+  content: typeof text === "string" ? [{ type: "text" as const, text }] : text,
   timestamp: Date.now(),
 });
 
@@ -336,7 +425,14 @@ const workplace = (identity: ThreadIdentity | undefined) =>
 it as you make it. You can't publish or delete the draft: an editor reviews it and decides.
 
 A thread the agent on Live handed a request off to opens with its Brief, from Camox: the context \
-the request depends on, written by that agent, not by the editor. The editor's messages follow.`
+the request depends on, written by that agent, not by the editor. The editor's messages follow.
+
+A message marked as sent by the member's Connected Agent, opening the thread or later in it, \
+comes from the member's own AI, such as Claude or ChatGPT, not from an editor. It knows their \
+business from their docs, notes and code, can answer questions about it, and reads your final \
+message. Its message holds the request and the context it depends on. When you lack a fact the \
+change needs, about the product, its audience or its claims, never invent it: ask for it in \
+your final message, and the Connected Agent will answer.`
     : `This is the editor's own thread on Live, which you only read: you change nothing here. \
 Answer questions about the website yourself. For every request that would change anything, \
 content or code, call startDraft: it starts a draft where Camox's agent does the work, and ends \
@@ -499,6 +595,7 @@ export class Thread extends DurableObject<Bindings> {
         hooks: [
           hook(GenerationTask, {
             onYield: async (_answer, api, context) => {
+              await this.#recordTurnPage({ api, context });
               const next = await this.#onYield(api, context);
               if (!next && api.conversationId === ROOT_CONVERSATION_ID) {
                 await this.#endTurnTiming(api, context);
@@ -1209,9 +1306,8 @@ export class Thread extends DurableObject<Bindings> {
         "This turn only reconciles the website's code with Live's: leave its content as it is.",
       );
     }
-    if (entry?.kind !== EDITOR_MESSAGE_ENTRY || !isSender(entry.data)) {
-      throw new Error("The thread's run wasn't started by an editor's message");
-    }
+    const userId = memberOfEntry(entry);
+    if (!userId) throw new Error("The thread's run wasn't started by an editor's message");
     if (!identity.draftId && kind === "write") {
       throw new Error(
         "You change nothing on Live: hand the request off to a draft with startDraft instead.",
@@ -1220,7 +1316,7 @@ export class Thread extends DurableObject<Bindings> {
     return {
       projectId: identity.projectId,
       draftId: identity.draftId,
-      userId: entry.data.id,
+      userId,
       apiOrigin: await this.ctx.storage.get<string>(API_ORIGIN_KEY),
     };
   }
@@ -1271,11 +1367,12 @@ export class Thread extends DurableObject<Bindings> {
       identity: { projectId: identity.projectId, draftId, ownerId: null },
       apiOrigin,
       brief,
-      editor: { id: editor.id, name: editor.name, image: editor.image },
-      messages: entries.flatMap((entry) => {
-        const operationId = editorMessageDataSchema.safeParse(entry.data).data?.operationId;
+      messages: entries.flatMap((entry): OpeningMessage[] => {
+        const data = editorMessageDataSchema.safeParse(entry.data).data;
         const text = textOfEntry(entry);
-        return operationId && text ? [{ operationId, text }] : [];
+        return data?.operationId && text
+          ? [{ operationId: data.operationId, text, from: editorFrom(data) }]
+          : [];
       }),
     };
     const opening: ThreadOpening = {
@@ -1356,7 +1453,7 @@ export class Thread extends DurableObject<Bindings> {
         },
         context,
       );
-      withdrawn.push({ operationId: data.operationId, text });
+      withdrawn.push({ operationId: data.operationId, text, from: editorFrom(data) });
     }
     return withdrawn;
   }
@@ -1397,13 +1494,41 @@ export class Thread extends DurableObject<Bindings> {
     }
   }
 
-  /** Sends what a script, or a write of it, touched, as `#reportTouches` says. */
+  /**
+   * Sends what a script, or a write of it, touched, as `#reportTouches` says, and records the
+   * page it touched last for the turn's messages, which the turn's end names (`turnOf`).
+   */
   async #sendTouches(invocation: ToolInvocation, touches: Touch[]) {
     const entries = await this.#entriesOfRun(invocation);
     const touched: TouchedBatch = { operationIds: operationIdsOf(entries), touches };
+    const page = touches.findLast((touch) => touch.entity === "page" && touch.kind !== "deleted");
+    if (page?.entity === "page") {
+      const turnPage: TurnPage = { pageId: page.pageId, locale: page.locale };
+      await this.ctx.storage.put(
+        Object.fromEntries(
+          touched.operationIds.map((id) => [`${TURN_PAGE_PREFIX}${id}`, turnPage]),
+        ),
+      );
+    }
     for (const connection of this.webSockets.getConnections()) {
       send(connection, { type: "touched", touched });
     }
+  }
+
+  /**
+   * Records the page the run changed last for every message of the run, as its turn ends: a
+   * message that steered in after the run's last page write has it too. The message that started
+   * the run was there for every write, so it has the run's last page.
+   */
+  async #recordTurnPage(invocation: InConversation) {
+    if (invocation.api.conversationId !== ROOT_CONVERSATION_ID) return;
+    const [first, ...joined] = operationIdsOf(await this.#entriesOfRun(invocation));
+    if (!first || joined.length === 0) return;
+    const page = await this.ctx.storage.get<TurnPage>(`${TURN_PAGE_PREFIX}${first}`);
+    if (!page) return;
+    await this.ctx.storage.put(
+      Object.fromEntries(joined.map((id) => [`${TURN_PAGE_PREFIX}${id}`, page])),
+    );
   }
 
   /**
@@ -1411,7 +1536,7 @@ export class Thread extends DurableObject<Bindings> {
    * message that started the run first, then those that steered it.
    */
   async #entriesOfRun(
-    { api, context }: ToolInvocation,
+    { api, context }: InConversation,
     limit = Number.POSITIVE_INFINITY,
   ): Promise<EntryRecord[]> {
     const live = await api.snapshot(LiveDoc, api.conversationId, context);
@@ -1490,17 +1615,17 @@ export class Thread extends DurableObject<Bindings> {
   }
 
   /**
-   * Opens the thread from the API, with no studio connected, as a Live thread handing a request
-   * off to a draft does (ADR 0025): records what it belongs to and the API's origin, adds the
-   * Brief, which the model reads and studios show as from Camox, then the editor's messages
-   * under their name, and starts the agent's run, which acts as that editor. Every message but
-   * the last goes in before the run, the last starting it, so the model reads them all on its
-   * first call. Repeating it changes nothing.
+   * Opens the thread from the API, with no studio connected: records what it belongs to and the
+   * API's origin, adds the Brief if any, which the model reads and studios show as from Camox
+   * (ADR 0025), then the opening messages, each recorded as its sender's kind has it, and starts
+   * the agent's run, which acts as the last message's sender. Every message but the last goes in
+   * before the run, the last starting it, so the model reads them all on its first call.
+   * Repeating it changes nothing.
    */
-  async open({ identity, apiOrigin, brief, editor, messages }: ThreadOpening): Promise<void> {
+  async open({ identity, apiOrigin, brief, messages }: ThreadOpening): Promise<void> {
     const [first] = messages;
     const last = messages.at(-1);
-    if (!first || !last) throw new Error("A thread opens with at least one editor's message");
+    if (!first || !last) throw new Error("A thread opens with at least one message");
     if (await this.#hasEnded()) throw new Error("The thread ended with its draft");
     if (!(await this.#start(identity))) {
       throw new Error("The thread belongs to another project, draft or owner");
@@ -1508,33 +1633,59 @@ export class Thread extends DurableObject<Bindings> {
     await this.#recordApiOrigin(apiOrigin);
     const root = await (await this.harness.pi()).conversation(ROOT_CONVERSATION_ID, BACKGROUND);
     if (!root) throw new Error("The thread has no conversation to open");
-    const entryOf = (operationId: string) => ({
-      kind: EDITOR_MESSAGE_ENTRY,
-      data: { ...editor, operationId },
-    });
     // Request ids keep each entry to one write, however many times the thread is opened.
-    await root.submit(
-      {
-        type: "write",
-        requestId: `${BRIEF_ENTRY}:${first.operationId}`,
-        entry: { kind: BRIEF_ENTRY, model: [userMessage(brief)] },
-      },
-      BACKGROUND,
-    );
-    for (const { operationId, text } of messages.slice(0, -1)) {
+    if (brief !== undefined) {
       await root.submit(
         {
           type: "write",
-          requestId: operationId,
-          entry: { ...entryOf(operationId), model: [userMessage(text)] },
+          requestId: `${BRIEF_ENTRY}:${first.operationId}`,
+          entry: { kind: BRIEF_ENTRY, model: [userMessage(brief)] },
         },
         BACKGROUND,
       );
     }
-    await this.harness.submit(last.text, {
+    for (const message of messages.slice(0, -1)) {
+      await root.submit(
+        {
+          type: "write",
+          requestId: message.operationId,
+          entry: { ...openingEntryOf(message), model: [userMessage(modelInputOf(message))] },
+        },
+        BACKGROUND,
+      );
+    }
+    await this.harness.submit(modelInputOf(last), {
       whenBusy: "steer",
       operationId: last.operationId,
-      entry: entryOf(last.operationId),
+      entry: openingEntryOf(last),
+    });
+  }
+
+  /**
+   * Sends a message into the thread from the API, with no studio connected, as an editor's
+   * message from the studio is sent: it starts the agent's run, or steers the one going, and the
+   * run acts as its sender. It's recorded as its sender's kind has it, as opening messages are.
+   * Repeating it changes nothing.
+   */
+  async send({
+    identity,
+    apiOrigin,
+    message,
+  }: {
+    identity: ThreadIdentity;
+    apiOrigin: string;
+    message: OpeningMessage;
+  }): Promise<void> {
+    if (await this.#hasEnded()) throw new Error("The thread ended with its draft");
+    if (!(await this.#start(identity))) {
+      throw new Error("The thread belongs to another project, draft or owner");
+    }
+    await this.#recordApiOrigin(apiOrigin);
+    await this.#startTurnTiming(message.operationId);
+    await this.harness.submit(modelInputOf(message), {
+      whenBusy: "steer",
+      operationId: message.operationId,
+      entry: openingEntryOf(message),
     });
   }
 
@@ -1642,6 +1793,52 @@ export class Thread extends DurableObject<Bindings> {
         await this.#stop(participant.data.sender);
         return;
     }
+  }
+
+  /**
+   * The thread as studios show it now: its messages, and whether a run is going. Empty for a
+   * thread nobody messaged yet, without opening Pi, which would store, or one that ended.
+   */
+  async view(): Promise<ThreadView> {
+    if ((await this.#hasEnded()) || !(await this.#knownIdentity())) return EMPTY_THREAD_VIEW;
+    const stream = await this.harness.session().events();
+    await stream.stop();
+    return threadViewOf(reduceThreadEvents(EMPTY_THREAD_STATE, [stream.snapshot]));
+  }
+
+  /**
+   * Waits for the turn the message sent with `operationId` started or joined to end, for up to
+   * `waitMs`: how it ended, with the page it changed last, if any. Still working once the wait
+   * gives up, the turn carrying on; or the thread ended with its draft. Watching the thread's own
+   * events, as studios do, it sees the turn end as they do.
+   */
+  async turnOf(operationId: string, waitMs: number): Promise<TurnOutcome> {
+    if (await this.#hasEnded()) return { turn: "threadEnded" };
+    if (!(await this.#knownIdentity())) throw new Error("The thread has no message to wait on");
+    const stream = await this.harness.session().events();
+    let state = reduceThreadEvents(EMPTY_THREAD_STATE, [stream.snapshot]);
+    let entryId = entryIdOf(stream.snapshot.entries, operationId);
+    const end = await new Promise<TurnOutcome>((resolve) => {
+      const timer = setTimeout(() => resolve({ turn: "working" }), waitMs);
+      const settle = () => {
+        const ended = entryId && turnEndIn(threadViewOf(state), entryId);
+        if (!ended) return false;
+        clearTimeout(timer);
+        resolve(ended);
+        return true;
+      };
+      if (settle()) return;
+      stream.start(async (events) => {
+        state = reduceThreadEvents(state, events);
+        entryId ??= entryIdOf(entriesOfEvents(events), operationId);
+        settle();
+      });
+    });
+    await stream.stop();
+    if (end.turn === "working" && (await this.#hasEnded())) return { turn: "threadEnded" };
+    if (end.turn === "working" || end.turn === "threadEnded") return end;
+    const page = await this.ctx.storage.get<TurnPage>(`${TURN_PAGE_PREFIX}${operationId}`);
+    return page ? { ...end, page } : end;
   }
 
   /**

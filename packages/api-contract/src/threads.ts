@@ -16,6 +16,15 @@ import type { DraftOutcome } from "./drafts.ts";
  */
 export const EDITOR_MESSAGE_ENTRY = "camox.editor-message";
 
+/**
+ * The kind of the transcript entry recording a Connected Agent's message (ADR 0030), with its
+ * member and client as data (`connectedAgentMessageDataSchema`). The model reads it as a user
+ * message, as it does an editor's: its first text part is what the Connected Agent wrote, and a
+ * second one, which only the model reads, says who sent it. Studios show it as the member's AI,
+ * never as the member.
+ */
+export const CONNECTED_AGENT_MESSAGE_ENTRY = "camox.connected-agent-message";
+
 /** The kind of the transcript entry recording that an editor stopped a run, with them as data. */
 export const RUN_STOPPED_ENTRY = "camox.run-stopped";
 
@@ -132,6 +141,24 @@ export type ThreadSender = z.infer<typeof threadSenderSchema>;
 export const isSender = (data: unknown): data is ThreadSender =>
   threadSenderSchema.safeParse(data).success;
 
+/**
+ * The app a Connected Agent runs in, by the name it gave: verified when it comes from a Client ID
+ * Metadata Document, self-asserted otherwise.
+ */
+export const connectedAgentClientSchema = z.object({ name: z.string(), verified: z.boolean() });
+export type ConnectedAgentClient = z.infer<typeof connectedAgentClientSchema>;
+
+/**
+ * What a Connected Agent's message entry records: the member it acts as, its client, and the
+ * operation id it was sent with.
+ */
+export const connectedAgentMessageDataSchema = z.object({
+  member: threadSenderSchema,
+  client: connectedAgentClientSchema,
+  operationId: z.string().optional(),
+});
+export type ConnectedAgentMessageData = z.infer<typeof connectedAgentMessageDataSchema>;
+
 /** What a push's entry records: who pushed, their commits' subjects, oldest first, and the build. */
 export const pushDataSchema = z.object({
   pusher: threadSenderSchema,
@@ -205,6 +232,17 @@ export type TouchedBatch = z.infer<typeof touchedBatchSchema>;
 /** A message the studio shows in a thread. */
 export type ThreadMessage =
   | { id: string; from: "editor"; sender: ThreadSender; text: string }
+  /**
+   * A member's Connected Agent's message: the member's own AI, in its client, writing as itself.
+   * Never shown as the member's own words.
+   */
+  | {
+      id: string;
+      from: "connectedAgent";
+      member: ThreadSender;
+      client: ConnectedAgentClient;
+      text: string;
+    }
   /** Camox's own message, starting a turn it began itself: why it did. */
   | { id: string; from: "camox"; text: string }
   /** The agent's final message of a turn, in Markdown. */
@@ -290,6 +328,7 @@ type ThreadStep = { id: string } & (
       /** The draft the message went to, as the agent on Live handed the request off. */
       handedOffTo?: string;
     }
+  | { type: "connectedAgent"; member: ThreadSender; client: ConnectedAgentClient; text: string }
   /** Camox starting a turn of its own, saying why. */
   | { type: "camox"; text: string }
   | { type: "answer"; text: string }
@@ -461,6 +500,18 @@ function threadStepOf(entry: EntryRecord): ThreadStep | undefined {
         }
       );
     }
+    if (entry.kind === CONNECTED_AGENT_MESSAGE_ENTRY) {
+      const data = connectedAgentMessageDataSchema.safeParse(entry.data).data;
+      return (
+        data && {
+          id,
+          type: "connectedAgent",
+          member: senderOf(data.member)!,
+          client: { name: data.client.name, verified: data.client.verified },
+          text: editorTextOf(message.content),
+        }
+      );
+    }
     if (entry.kind === BRIEF_ENTRY) return { id, type: "camox", text: textOf(message.content) };
     if (entry.kind === RECONCILE_ENTRY) {
       const reconcile = reconcileDataSchema.safeParse(entry.data).data;
@@ -547,6 +598,18 @@ export function threadViewOf({
         waiting = step.id;
         break;
       }
+      case "connectedAgent":
+        // Like an editor's message: it starts a turn, or steers the one going.
+        if (unfinished) fail();
+        messages.push({
+          id: step.id,
+          from: "connectedAgent",
+          member: step.member,
+          client: step.client,
+          text: step.text,
+        });
+        waiting = step.id;
+        break;
       case "camox":
         if (unfinished) fail();
         messages.push({ id: step.id, from: "camox", text: step.text });

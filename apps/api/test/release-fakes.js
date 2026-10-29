@@ -1613,16 +1613,37 @@ export class ReleaseFakes extends WorkerEntrypoint {
 
 /** The host of a public website the agent reads in tests (web-tools.integration.test.ts). */
 const FAKE_WEB_HOST = "website.camox.test";
+/** A private host, which outbound fetches can reach in tests (test/connected-agents.ts). */
+const FAKE_PRIVATE_HOST = "agent.internal";
 
 /**
  * The fake public website (web-tools.integration.test.ts, upload.integration.test.ts): under
  * `/media/`, a file whose bytes name its path, typed by `?type=`; at `/redirect?to=`, a redirect
- * there; at `/bytes?count=`, that many bytes, streamed with no length; and anywhere else a page,
- * served as Markdown, so reading it needs no Workers AI.
+ * there; at `/bytes?count=`, that many bytes, streamed with no length; under `/clients/`, the
+ * Client ID Metadata Document of a Connected Agent named by the rest of the path
+ * (test/connected-agents.ts), and under `/moved/`, a redirect to such a document that claims the
+ * URL redirecting to it; and anywhere else a page, served as Markdown, so reading it needs no
+ * Workers AI.
  * @param {Request} request
  */
 function serveWebsite(request) {
   const url = new URL(request.url);
+  if (url.pathname.startsWith("/moved/")) {
+    const name = url.pathname.slice("/moved/".length);
+    const document = new URL(`/clients/${name}`, url);
+    document.searchParams.set("client_id", url.href);
+    return new Response(null, { status: 302, headers: { location: document.href } });
+  }
+  if (url.pathname.startsWith("/clients/")) {
+    return Response.json({
+      client_id: url.searchParams.get("client_id") ?? url.href,
+      client_name: decodeURIComponent(url.pathname.slice("/clients/".length)),
+      redirect_uris: [`https://${FAKE_WEB_HOST}/callback`],
+      grant_types: ["authorization_code", "refresh_token"],
+      response_types: ["code"],
+      token_endpoint_auth_method: "none",
+    });
+  }
   if (url.pathname.startsWith("/media/")) {
     const type = url.searchParams.get("type");
     return new Response(
@@ -1693,7 +1714,8 @@ export default {
     const { hostname } = new URL(request.url);
     if (hostname === FAKE_GIT_HOST) return serveGit(request);
     if (hostname === "api.cloudflare.com") return serveCloudflareApi(request);
-    if (hostname === FAKE_WEB_HOST) return serveWebsite(request);
+    // A private host serves the fake website too, so only the API's own checks keep it out.
+    if (hostname === FAKE_WEB_HOST || hostname === FAKE_PRIVATE_HOST) return serveWebsite(request);
     if (hostname === "www.googleapis.com") return serveGoogleFonts(request);
     return fetch(request);
   },

@@ -1,0 +1,1 @@
+ALTER TABLE `oauthConsent` ADD `lastUsedAt` integer;

@@ -5,9 +5,9 @@
  */
 
 import { LOCALE_HEADER } from "@camox/api-contract/drafts";
-import { localePrefix, type LocalePath, type LocaleView } from "@camox/api-contract/locales";
+import type { LocalePath, LocaleView } from "@camox/api-contract/locales";
 
-export { localePrefix, parseLocalePath } from "@camox/api-contract/locales";
+export { localePrefix, localizedPath, parseLocalePath } from "@camox/api-contract/locales";
 export type { LocalePath, LocaleView };
 
 /**
@@ -41,11 +41,4 @@ export interface AlternatePath {
  */
 export interface RequestLocale extends LocalePath {
   locales: LocaleView[];
-}
-
-/** A locale-relative path under its locale's prefix, keeping its search and hash: `/` is `/de`. */
-export function localizedPath(path: string, locale: LocaleView): string {
-  const prefix = localePrefix(locale);
-  if (!prefix) return path;
-  return path === "/" || /^\/[?#]/.test(path) ? `${prefix}${path.slice(1)}` : `${prefix}${path}`;
 }

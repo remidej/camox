@@ -316,6 +316,20 @@
       "when": 1793268828934,
       "tag": "0044_ai_usage_records",
       "breakpoints": true
+    },
+    {
+      "idx": 45,
+      "version": "6",
+      "when": 1793275862203,
+      "tag": "0045_connected_agents_oauth",
+      "breakpoints": true
+    },
+    {
+      "idx": 46,
+      "version": "6",
+      "when": 1793275863221,
+      "tag": "0046_connected_agents_last_used",
+      "breakpoints": true
     }
   ]
 }

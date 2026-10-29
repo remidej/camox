@@ -15,6 +15,13 @@ export function localePrefix(locale: LocaleView): string {
   return locale.isDefault ? "" : `/${locale.tag.toLowerCase()}`;
 }
 
+/** A locale-relative path under its locale's prefix, keeping its search and hash: `/` is `/de`. */
+export function localizedPath(path: string, locale: LocaleView): string {
+  const prefix = localePrefix(locale);
+  if (!prefix) return path;
+  return path === "/" || /^\/[?#]/.test(path) ? `${prefix}${path.slice(1)}` : `${prefix}${path}`;
+}
+
 /**
  * The locale a runtime path names, and the path after its prefix, without search or hash. A first
  * segment that isn't a non-default locale's prefix leaves the path the default locale's. A
