@@ -2,7 +2,12 @@ import { generateUuidv7 } from "@camox/api-contract/ids";
 import {
   BRIEF_ENTRY,
   BUILD_STATUS_ENTRY,
+  CONNECTED_AGENT_MESSAGE_ENTRY,
+  type ConnectedAgentClient,
+  type ConnectedAgentMessageData,
+  connectedAgentMessageDataSchema,
   DRAFT_ENDED_ENTRY,
+  EMPTY_THREAD_STATE,
   type BuildStatus,
   EDITOR_MESSAGE_ENTRY,
   editorMessageDataSchema,
@@ -25,12 +30,15 @@ import {
   type ThreadServerMessage,
   type Touch,
   type TouchedBatch,
+  reduceThreadEvents,
+  threadViewOf,
 } from "@camox/api-contract/threads";
 import { RemoteCodemodeSandbox } from "@earendil-works/pi-codemode/portable";
 import {
   type AgentEventStream,
   createRegistry,
   type EntryRecord,
+  type InputEntry,
   GenerationTask,
   Harness,
   hook,
@@ -96,6 +104,14 @@ import {
   type ToolInvocation,
   type ToolKind,
 } from "../domains/threads/tools";
+import {
+  entriesOfEvents,
+  entryIdOf,
+  operationIdOf,
+  type TurnOutcome,
+  type TurnPage,
+  turnEndIn,
+} from "../domains/threads/turn-end";
 import { webTools } from "../domains/threads/web-tools";
 import type { MemoryFs } from "../lib/memory-fs";
 import { runService } from "../lib/run-service";
@@ -153,7 +169,13 @@ const TOUCHES_PREFIX = "camox.touches:";
 
 /** The operation ids of the editors' messages among a run's entries. */
 const operationIdsOf = (entries: EntryRecord[]) =>
-  entries.flatMap((entry) => editorMessageDataSchema.safeParse(entry.data).data?.operationId ?? []);
+  entries.flatMap((entry) => operationIdOf(entry) ?? []);
+
+/**
+ * The prefix of the keys recording the page a turn's writes touched last, by the operation id of
+ * each message of the turn's run, for the link a Connected Agent gets as the turn ends.
+ */
+const TURN_PAGE_PREFIX = "camox.turn-page:";
 
 /**
  * The prefix of the keys counting a run's end-of-turn builds that failed in a row, followed by
@@ -249,9 +271,12 @@ const participantSchema = z.object({
 
 /**
  * Who sent a message a draft's thread opens with, and their kind, which sets how the transcript
- * records it, how studios show it and how the model reads it. Editors are the only kind for now.
+ * records it, how studios show it and how the model reads it: an editor, or a member's Connected
+ * Agent, in its client (ADR 0030).
  */
-export type OpeningSender = { kind: "editor"; editor: ThreadSender };
+export type OpeningSender =
+  | { kind: "editor"; editor: ThreadSender }
+  | { kind: "connectedAgent"; member: ThreadSender; client: ConnectedAgentClient };
 
 /** A message a draft's thread opens with: its text, the operation id it was sent with, and who sent it. */
 export type OpeningMessage = { operationId: string; text: string; from: OpeningSender };
@@ -269,11 +294,32 @@ export type ThreadOpening = {
 };
 
 /** The transcript entry recording an opening message, by its sender's kind, without its content. */
-const openingEntryOf = ({ operationId, from }: OpeningMessage) => {
+const openingEntryOf = ({ operationId, from }: OpeningMessage): InputEntry => {
   switch (from.kind) {
     case "editor":
       return { kind: EDITOR_MESSAGE_ENTRY, data: { ...from.editor, operationId } };
+    case "connectedAgent":
+      return {
+        kind: CONNECTED_AGENT_MESSAGE_ENTRY,
+        data: {
+          member: from.member,
+          client: from.client,
+          operationId,
+        } satisfies ConnectedAgentMessageData,
+      };
   }
+};
+
+/**
+ * The member a message entry acts for: the editor who sent it, or the member whose Connected
+ * Agent did. None for any other entry.
+ */
+const memberOfEntry = (entry: EntryRecord | undefined) => {
+  if (entry?.kind === EDITOR_MESSAGE_ENTRY && isSender(entry.data)) return entry.data.id;
+  if (entry?.kind === CONNECTED_AGENT_MESSAGE_ENTRY) {
+    return connectedAgentMessageDataSchema.safeParse(entry.data).data?.member.id;
+  }
+  return undefined;
 };
 
 /** The text of an entry's user message, as an editor's message entry records it. */
@@ -358,7 +404,13 @@ const workplace = (identity: ThreadIdentity | undefined) =>
 it as you make it. You can't publish or delete the draft: an editor reviews it and decides.
 
 A thread the agent on Live handed a request off to opens with its Brief, from Camox: the context \
-the request depends on, written by that agent, not by the editor. The editor's messages follow.`
+the request depends on, written by that agent, not by the editor. The editor's messages follow.
+
+A thread may also open with a message from a member's Connected Agent: the member's own AI, \
+such as Claude or ChatGPT, which knows their business from their docs, notes and code, and \
+reads your final message. Its message holds the request and the context it depends on. When \
+you lack a fact the change needs, about the product, its audience or its claims, never invent \
+it: ask for it in your final message, and the Connected Agent will answer.`
     : `This is the editor's own thread on Live, which you only read: you change nothing here. \
 Answer questions about the website yourself. For every request that would change anything, \
 content or code, call startDraft: it starts a draft where Camox's agent does the work, and ends \
@@ -1231,9 +1283,8 @@ export class Thread extends DurableObject<Bindings> {
         "This turn only reconciles the website's code with Live's: leave its content as it is.",
       );
     }
-    if (entry?.kind !== EDITOR_MESSAGE_ENTRY || !isSender(entry.data)) {
-      throw new Error("The thread's run wasn't started by an editor's message");
-    }
+    const userId = memberOfEntry(entry);
+    if (!userId) throw new Error("The thread's run wasn't started by an editor's message");
     if (!identity.draftId && kind === "write") {
       throw new Error(
         "You change nothing on Live: hand the request off to a draft with startDraft instead.",
@@ -1242,7 +1293,7 @@ export class Thread extends DurableObject<Bindings> {
     return {
       projectId: identity.projectId,
       draftId: identity.draftId,
-      userId: entry.data.id,
+      userId,
       apiOrigin: await this.ctx.storage.get<string>(API_ORIGIN_KEY),
     };
   }
@@ -1420,10 +1471,22 @@ export class Thread extends DurableObject<Bindings> {
     }
   }
 
-  /** Sends what a script, or a write of it, touched, as `#reportTouches` says. */
+  /**
+   * Sends what a script, or a write of it, touched, as `#reportTouches` says, and records the
+   * page it touched last for the turn's messages, which the turn's end names (`turnOf`).
+   */
   async #sendTouches(invocation: ToolInvocation, touches: Touch[]) {
     const entries = await this.#entriesOfRun(invocation);
     const touched: TouchedBatch = { operationIds: operationIdsOf(entries), touches };
+    const page = touches.findLast((touch) => touch.entity === "page" && touch.kind !== "deleted");
+    if (page?.entity === "page") {
+      const turnPage: TurnPage = { pageId: page.pageId, locale: page.locale };
+      await this.ctx.storage.put(
+        Object.fromEntries(
+          touched.operationIds.map((id) => [`${TURN_PAGE_PREFIX}${id}`, turnPage]),
+        ),
+      );
+    }
     for (const connection of this.webSockets.getConnections()) {
       send(connection, { type: "touched", touched });
     }
@@ -1663,6 +1726,41 @@ export class Thread extends DurableObject<Bindings> {
         await this.#stop(participant.data.sender);
         return;
     }
+  }
+
+  /**
+   * Waits for the turn the message sent with `operationId` started or joined to end, for up to
+   * `waitMs`: how it ended, with the page it changed last, if any. Still working once the wait
+   * gives up, the turn carrying on; or the thread ended with its draft. Watching the thread's own
+   * events, as studios do, it sees the turn end as they do.
+   */
+  async turnOf(operationId: string, waitMs: number): Promise<TurnOutcome> {
+    if (await this.#hasEnded()) return { turn: "threadEnded" };
+    if (!(await this.#knownIdentity())) throw new Error("The thread has no message to wait on");
+    const stream = await this.harness.session().events();
+    let state = reduceThreadEvents(EMPTY_THREAD_STATE, [stream.snapshot]);
+    let entryId = entryIdOf(stream.snapshot.entries, operationId);
+    const end = await new Promise<TurnOutcome>((resolve) => {
+      const timer = setTimeout(() => resolve({ turn: "working" }), waitMs);
+      const settle = () => {
+        const ended = entryId && turnEndIn(threadViewOf(state), entryId);
+        if (!ended) return false;
+        clearTimeout(timer);
+        resolve(ended);
+        return true;
+      };
+      if (settle()) return;
+      stream.start(async (events) => {
+        state = reduceThreadEvents(state, events);
+        entryId ??= entryIdOf(entriesOfEvents(events), operationId);
+        settle();
+      });
+    });
+    await stream.stop();
+    if (end.turn === "working" && (await this.#hasEnded())) return { turn: "threadEnded" };
+    if (end.turn === "working" || end.turn === "threadEnded") return end;
+    const page = await this.ctx.storage.get<TurnPage>(`${TURN_PAGE_PREFIX}${operationId}`);
+    return page ? { ...end, page } : end;
   }
 
   /**

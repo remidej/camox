@@ -59,6 +59,37 @@ void test("a turn Camox started itself opens with its message, from no editor", 
   assert.equal(html.match(/>AL</g)?.length, 1);
 });
 
+void test("a Connected Agent's message reads as the member's AI, never as the member", () => {
+  const message = (client: { name: string; verified: boolean }) => ({
+    id: "1",
+    from: "connectedAgent" as const,
+    member: editor,
+    client,
+    text: "Add a page about our export feature",
+  });
+
+  const verified = renderToString(
+    <ThreadMessages
+      view={{ running: true, messages: [message({ name: "Claude", verified: true })] }}
+    />,
+  );
+  const unverified = renderToString(
+    <ThreadMessages
+      view={{ running: true, messages: [message({ name: "Claude", verified: false })] }}
+    />,
+  );
+
+  assert.match(verified, /Add a page about our export feature/);
+  assert.match(verified, />Ada Lovelace’s Claude</);
+  // An unverified client's name is only what it says it is: shown on hover, never as the label.
+  assert.match(unverified, />Ada Lovelace’s agent</);
+  assert.match(unverified, /title="Claude"/);
+  assert.doesNotMatch(unverified, />Ada Lovelace’s Claude</);
+  // Not under the member's avatar, as their own message would be.
+  assert.doesNotMatch(verified, />AL</);
+  assert.doesNotMatch(unverified, />AL</);
+});
+
 void test("a thread shows who sent each message by their avatar, without their name", () => {
   const teammate = { id: "user-2", name: "Grace Hopper", image: null };
   const view: ThreadView = {
