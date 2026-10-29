@@ -111,7 +111,7 @@ async function studioLinkOf(
 }
 
 /** The draft's Blockers, as the member reads them, each with the page it's on, if any. */
-async function blockersOf(ctx: ServiceContext, projectId: number) {
+export async function blockersOf(ctx: ServiceContext, projectId: number) {
   const { blockers } = await runService(
     Effect.gen(function* () {
       return yield* computePreview(ctx, yield* requireDraft(ctx, projectId));

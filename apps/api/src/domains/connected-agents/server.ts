@@ -1,6 +1,7 @@
 import { McpServer } from "@modelcontextprotocol/server";
 
 import { registerDraftTools } from "./drafts";
+import { registerGetDraft } from "./get-draft";
 import { WORKING_WITH_CAMOX } from "./guidance";
 import { projectInstructions, registerNoProjectTool } from "./projects";
 import { registerReadPage } from "./read-page";
@@ -23,6 +24,7 @@ export function connectedAgentServer(call: ConnectedAgentCall) {
   registerWebsiteTools(server, call);
   registerReadPage(server, call);
   registerDraftTools(server, call);
+  registerGetDraft(server, call);
   return server;
 }
 
