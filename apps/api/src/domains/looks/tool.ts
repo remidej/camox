@@ -3,7 +3,7 @@ import { Type } from "@earendil-works/pi-ai";
 import { defineTool } from "@earendil-works/pi-durable";
 
 import type { ToolInvocation } from "../threads/tools";
-import { LOOK_SIZES } from "./capture";
+import { type CaptureChecks, LOOK_SIZES } from "./capture";
 import { LOOK_IMAGE_CAP, type Looked, type LookTarget } from "./look";
 
 const SIZE = Type.Union(
@@ -33,6 +33,24 @@ const PAGE_TARGET = Type.Object({
 const describe = ({ target: { sizes: _sizes, ...target }, size, ...captured }: Looked) =>
   JSON.stringify({ ...target, size, ...("error" in captured ? { error: captured.error } : {}) });
 
+const listed = (heading: string, items: string[]) =>
+  items.length ? [`${heading}:`, ...items.map((item) => `- ${item}`)] : [];
+
+/**
+ * What the page reported beside its image, which the image can't show, as text: only what it
+ * found, or one line saying it found nothing.
+ */
+const reportChecks = ({ errors, failedRequests, overflow }: CaptureChecks) => {
+  const lines = [
+    ...listed("Console and page errors", errors),
+    ...(overflow ? ["Content overflows horizontally at this width."] : []),
+    ...listed("Failed requests", failedRequests),
+  ];
+  return lines.length
+    ? lines.join("\n")
+    : "No console or page errors, overflow or failed requests.";
+};
+
 /**
  * The agent's `look`, which captures pages of its draft in a real browser and returns the images,
  * which the model reads. `look` runs it for the call: the thread knows its draft and run.
@@ -46,15 +64,21 @@ export const lookTool = (
       "See pages of the draft as visitors will, in a real browser: each target's first screen, " +
       "at each of its sizes. The draft's content shows as it is now; code shows as the draft's " +
       "preview has it, so after code changes call `build` first. Returns, for each target and " +
-      "size, a line of JSON naming it, followed by its image, or with the `error` that target " +
-      `alone hit. At most ${LOOK_IMAGE_CAP} images per call.`,
+      "size, a line of JSON naming it, followed by what the page reported that the image can't " +
+      "show (console and page errors, horizontal overflow, failed requests) and its image, or " +
+      `with the \`error\` that target alone hit. At most ${LOOK_IMAGE_CAP} images per call.`,
     parameters: Type.Object({ targets: Type.Array(PAGE_TARGET, { minItems: 1 }) }),
     async execute({ targets }, api, context) {
       const looked = await look(targets as LookTarget[], { api, context });
       return {
         output: looked.flatMap((result) => [
           { type: "text" as const, text: describe(result) },
-          ...("image" in result ? [{ type: "image" as const, ...result.image }] : []),
+          ...("image" in result
+            ? [
+                { type: "text" as const, text: reportChecks(result.checks) },
+                { type: "image" as const, ...result.image },
+              ]
+            : []),
         ]),
       };
     },
