@@ -4,9 +4,10 @@ import { eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { drafts } from "../drafts/schema";
-import { draftArgument, seeDraft } from "./draft-ref";
-import { memberServiceContext, toolAnswer, toolRefusal } from "./projects";
+import { draftArgument, openOrEndedDraft } from "./draft-ref";
+import { WEBSITE_SCOPE } from "./oauth";
 import type { ConnectedAgentCall } from "./routes";
+import { memberServiceContext, requireScope, toolAnswer, toolRefusal } from "./tools";
 import { blockersOf } from "./turn";
 
 /**
@@ -48,12 +49,13 @@ export function registerGetDraft(server: McpServer, call: ConnectedAgentCall) {
     {
       title: "Get a draft",
       description:
-        "Reads how a draft stands: its name, whether it's open, published or deleted, whether Camox's agent is working on it, what blocks publishing it, and the messages its thread holds, including feedback teammates left in the studio. Use it to follow up after Camox's agent said it was still working.",
+        "Reads how a draft stands: its name, whether it's open, published or deleted, whether Camox's agent is working on it, what stands in the way of publishing it, and the messages its thread holds, including feedback teammates left in the studio. Use it to follow up after Camox's agent said it was still working.",
       inputSchema: z.object({ draft: draftArgument }),
       annotations: { readOnlyHint: true, openWorldHint: false },
+      scopeChallenge: requireScope(WEBSITE_SCOPE),
     },
     async ({ draft: ref }) => {
-      const seen = await seeDraft(call, ref);
+      const seen = await openOrEndedDraft(call, ref);
       if ("refusal" in seen) return toolRefusal(seen.refusal);
       const { draft, ended } = seen;
       if (ended) {
@@ -70,10 +72,9 @@ export function registerGetDraft(server: McpServer, call: ConnectedAgentCall) {
         .from(drafts)
         .where(eq(drafts.id, draft.id))
         .get();
-      const ctx = { ...memberServiceContext(call), draft: { id: draft.id, create: false } };
       const [view, blockers] = await Promise.all([
         row?.threadId ? call.env.THREAD.getByName(row.threadId).view() : undefined,
-        blockersOf(ctx, draft.project.project.id),
+        blockersOf(memberServiceContext(call, draft.id), draft.project.id),
       ]);
       return toolAnswer({
         draft: draft.id,

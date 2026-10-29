@@ -36,6 +36,16 @@ describe("the consent screen", () => {
     for (const { description } of screen.scopes) expect(description).toBeTruthy();
   });
 
+  it("grants both scopes to a Connected Agent that asks for only one of them", async () => {
+    const asked = { clientName: "Claude", scope: "website:read offline_access" };
+    const screen = await consentScreen(asked);
+    const { memberUser } = await createProjectFixture(crypto.randomUUID());
+    const { scope } = await connectAgent(memberUser.id, asked);
+
+    expect(screen.scopes.map(({ scope }) => scope)).toEqual(["website:read", "drafts:write"]);
+    expect(scope.split(" ")).toEqual(expect.arrayContaining(["website:read", "drafts:write"]));
+  });
+
   it("marks the name of a client registered through Dynamic Client Registration as not verified", async () => {
     const screen = await consentScreen({ clientName: "Claude", registration: "dynamic" });
 

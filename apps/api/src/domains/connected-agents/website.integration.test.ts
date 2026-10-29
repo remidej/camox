@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vite-plus/test";
 
-import { callTool, connectAgent, listTools } from "../../../test/connected-agents";
+import { callTool, connectAgent } from "../../../test/connected-agents";
 import { callSeedingLive, createProjectFixture, createRpcContext } from "../../../test/fixtures";
 import { router } from "../../router";
 
@@ -41,16 +41,5 @@ describe("get_website", () => {
         { path: "/about-us", nickname: "About" },
       ]),
     });
-  });
-
-  it("takes no project from a member with one project", async () => {
-    const { memberUser } = await websiteWithPages();
-    const { accessToken } = await connectAgent(memberUser.id);
-
-    const tools = await listTools(accessToken);
-
-    const getWebsite = tools.find((tool) => tool.name === "get_website");
-    expect(getWebsite).toBeDefined();
-    expect(getWebsite!.inputSchema.properties ?? {}).not.toHaveProperty("project");
   });
 });

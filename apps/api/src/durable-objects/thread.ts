@@ -295,6 +295,25 @@ export type ThreadOpening = {
   messages: OpeningMessage[];
 };
 
+/**
+ * What the model reads after a Connected Agent's message, so it tells it from an editor's: who
+ * sent it. Its text stays a user message, as an editor's does.
+ */
+const CONNECTED_AGENT_NOTE =
+  "\n\n<sender>The member's Connected Agent sent this message: their own AI, outside the studio, not an editor.</sender>";
+
+/**
+ * What the model reads of a message sent from the API: its text, and after a Connected Agent's,
+ * who sent it. Studios show the text alone, the first part.
+ */
+const modelInputOf = ({ text, from }: OpeningMessage) =>
+  from.kind === "connectedAgent"
+    ? [
+        { type: "text" as const, text },
+        { type: "text" as const, text: CONNECTED_AGENT_NOTE },
+      ]
+    : [{ type: "text" as const, text }];
+
 /** The transcript entry recording an opening message, by its sender's kind, without its content. */
 const openingEntryOf = ({ operationId, from }: OpeningMessage): InputEntry => {
   switch (from.kind) {
@@ -342,10 +361,10 @@ const mergeMessages = (messages: ThreadOpening["messages"], more: ThreadOpening[
   ...more.filter(({ operationId }) => !messages.some((known) => known.operationId === operationId)),
 ];
 
-/** A user message of `text`, as Pi places an input. */
-const userMessage = (text: string) => ({
+/** A user message of `text`, or of its parts, as Pi places an input. */
+const userMessage = (text: string | { type: "text"; text: string }[]) => ({
   role: "user" as const,
-  content: [{ type: "text" as const, text }],
+  content: typeof text === "string" ? [{ type: "text" as const, text }] : text,
   timestamp: Date.now(),
 });
 
@@ -408,11 +427,12 @@ it as you make it. You can't publish or delete the draft: an editor reviews it a
 A thread the agent on Live handed a request off to opens with its Brief, from Camox: the context \
 the request depends on, written by that agent, not by the editor. The editor's messages follow.
 
-A thread may also open with a message from a member's Connected Agent: the member's own AI, \
-such as Claude or ChatGPT, which knows their business from their docs, notes and code, and \
-reads your final message. Its message holds the request and the context it depends on. When \
-you lack a fact the change needs, about the product, its audience or its claims, never invent \
-it: ask for it in your final message, and the Connected Agent will answer.`
+A message marked as sent by the member's Connected Agent, opening the thread or later in it, \
+comes from the member's own AI, such as Claude or ChatGPT, not from an editor. It knows their \
+business from their docs, notes and code, can answer questions about it, and reads your final \
+message. Its message holds the request and the context it depends on. When you lack a fact the \
+change needs, about the product, its audience or its claims, never invent it: ask for it in \
+your final message, and the Connected Agent will answer.`
     : `This is the editor's own thread on Live, which you only read: you change nothing here. \
 Answer questions about the website yourself. For every request that would change anything, \
 content or code, call startDraft: it starts a draft where Camox's agent does the work, and ends \
@@ -1629,12 +1649,12 @@ export class Thread extends DurableObject<Bindings> {
         {
           type: "write",
           requestId: message.operationId,
-          entry: { ...openingEntryOf(message), model: [userMessage(message.text)] },
+          entry: { ...openingEntryOf(message), model: [userMessage(modelInputOf(message))] },
         },
         BACKGROUND,
       );
     }
-    await this.harness.submit(last.text, {
+    await this.harness.submit(modelInputOf(last), {
       whenBusy: "steer",
       operationId: last.operationId,
       entry: openingEntryOf(last),
@@ -1662,7 +1682,7 @@ export class Thread extends DurableObject<Bindings> {
     }
     await this.#recordApiOrigin(apiOrigin);
     await this.#startTurnTiming(message.operationId);
-    await this.harness.submit(message.text, {
+    await this.harness.submit(modelInputOf(message), {
       whenBusy: "steer",
       operationId: message.operationId,
       entry: openingEntryOf(message),

@@ -1,26 +1,26 @@
 import { generateUuidv7 } from "@camox/api-contract/ids";
 import type { CallToolResult, McpServer } from "@modelcontextprotocol/server";
-import { ORPCError } from "@orpc/server";
 import { z } from "zod";
 
 import type { OpeningSender } from "../../durable-objects/thread";
 import { runService } from "../../lib/run-service";
 import { startDraft } from "../drafts/service";
 import { draftThread } from "../threads/service";
-import { connectedAgentClientOf } from "./consent";
-import { draftArgument, reachDraft } from "./draft-ref";
+import { clientNamed, connectedAgentClientOf } from "./agents";
+import { draftArgument, openDraft } from "./draft-ref";
 import { MESSAGE_DESCRIPTION } from "./guidance";
-import { memberServiceContext, registerProjectTool, toolRefusal } from "./projects";
+import { DRAFTS_SCOPE } from "./oauth";
+import { registerProjectTool } from "./projects";
 import type { ConnectedAgentCall } from "./routes";
+import { memberServiceContext, requireScope, serviceRefusal, toolRefusal } from "./tools";
 import { answerWithTurn } from "./turn";
-
-/** What a Connected Agent's message records of its client when the client is gone. */
-const UNKNOWN_CLIENT = { name: "An unnamed app", verified: false };
 
 /** The member's Connected Agent, as its messages record it as their sender. */
 async function connectedAgentOf(call: ConnectedAgentCall): Promise<OpeningSender> {
   const { user } = call.member;
-  const client = (await connectedAgentClientOf(call.db, call.clientId)) ?? UNKNOWN_CLIENT;
+  // A client deleted since its token was issued is an unnamed app.
+  const client =
+    (await connectedAgentClientOf(call.db, call.clientId)) ?? clientNamed(undefined, undefined);
   return {
     kind: "connectedAgent",
     member: { id: user.id, name: user.name, image: user.image ?? null },
@@ -52,6 +52,7 @@ export function registerDraftTools(server: McpServer, call: ConnectedAgentCall) 
         name: z.string().trim().min(1).max(200).describe("A few words saying what it changes."),
         message: z.string().trim().min(1).describe(MESSAGE_DESCRIPTION),
       },
+      scope: DRAFTS_SCOPE,
     },
     async ({ project }, { name, message }) => {
       const { user } = call.member;
@@ -94,25 +95,23 @@ export function registerDraftTools(server: McpServer, call: ConnectedAgentCall) 
         message: z.string().trim().min(1).describe(MESSAGE_DESCRIPTION),
       }),
       annotations: { readOnlyHint: false, openWorldHint: false },
+      scopeChallenge: requireScope(DRAFTS_SCOPE),
     },
     async ({ draft: ref, message }) => {
-      const reached = await reachDraft(call, ref);
+      const reached = await openDraft(call, ref);
       if ("refusal" in reached) return toolRefusal(reached.refusal);
       const { id: draftId, project } = reached.draft;
       const operationId = generateUuidv7();
       try {
         const { threadId } = await runService(
-          draftThread(
-            { ...memberServiceContext(call), draft: { id: draftId, create: false } },
-            project.project.id,
-          ),
+          draftThread(memberServiceContext(call, draftId), project.id),
         );
         await call.env.THREAD.getByName(threadId).send({
-          identity: { projectId: project.project.id, draftId, ownerId: null },
+          identity: { projectId: project.id, draftId, ownerId: null },
           apiOrigin: call.apiOrigin,
           message: { operationId, text: message, from: await connectedAgentOf(call) },
         });
-        return answerWithTurn(call, { project: project.project, draftId, threadId, operationId });
+        return answerWithTurn(call, { project, draftId, threadId, operationId });
       } catch (error) {
         return refusalOfEndedDraft(call, ref, error);
       }
@@ -129,8 +128,7 @@ async function refusalOfEndedDraft(
   ref: string,
   error: unknown,
 ): Promise<CallToolResult> {
-  const reached = await reachDraft(call, ref);
+  const reached = await openDraft(call, ref);
   if ("refusal" in reached) return toolRefusal(reached.refusal);
-  if (error instanceof ORPCError && error.status < 500) return toolRefusal(error.message);
-  throw error;
+  return serviceRefusal(error);
 }

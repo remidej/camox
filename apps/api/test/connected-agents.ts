@@ -149,21 +149,27 @@ export async function connectAgent(userId: string, options: ConnectOptions = {})
     code_verifier: verifier,
     resource,
   });
-  const refreshForm = (refreshToken: string) => ({
+  const refreshForm = (refreshToken: string, scope?: string) => ({
     grant_type: "refresh_token",
     refresh_token: refreshToken,
     client_id: clientId,
     resource,
+    ...(scope && { scope }),
   });
   return {
     accessToken: tokens.access_token,
     refreshToken: tokens.refresh_token,
+    /** The scopes the member granted, space-separated, as the token endpoint answered. */
+    scope: tokens.scope,
     clientId,
     consentPage,
     sessionToken,
-    /** Trades the refresh token for new tokens, as a Connected Agent does once its token expires. */
-    refresh: (refreshToken = tokens.refresh_token!) =>
-      requestTokens(tokenEndpoint, refreshForm(refreshToken)),
+    /**
+     * Trades the refresh token for new tokens, as a Connected Agent does once its token expires,
+     * narrowed to `scope` when given.
+     */
+    refresh: (refreshToken = tokens.refresh_token!, scope?: string) =>
+      requestTokens(tokenEndpoint, refreshForm(refreshToken, scope)),
     /** Asks to refresh, returning the token endpoint's answer whether it grants or refuses. */
     tryRefresh: (refreshToken = tokens.refresh_token!) =>
       tokenRequest(tokenEndpoint, refreshForm(refreshToken)),

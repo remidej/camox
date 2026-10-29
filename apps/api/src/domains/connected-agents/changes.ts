@@ -1,7 +1,7 @@
 import type { ServerEvent, ServerEventBus } from "@modelcontextprotocol/server";
 
 import { type ConnectedMember, loadConnectedMember } from "./member";
-import type { ConnectedAgentCall } from "./routes";
+import type { VerifiedCall } from "./routes";
 
 /** How often an open subscription checks whether its member's projects changed. */
 export const PROJECTS_POLL_MS = 30_000;
@@ -12,7 +12,7 @@ export const PROJECTS_POLL_MS = 30_000;
  */
 const projectsShape = ({ projects }: ConnectedMember) =>
   JSON.stringify(
-    projects.map(({ project }) => [project.id, project.slug, project.name, project.customDomain]),
+    projects.map((project) => [project.id, project.slug, project.name, project.customDomain]),
   );
 
 /**
@@ -21,7 +21,7 @@ const projectsShape = ({ projects }: ConnectedMember) =>
  * share memory and membership changes in many places, so while someone listens the bus checks the
  * member's projects again every so often, rather than waiting to be told.
  */
-export function memberChanges(call: Omit<ConnectedAgentCall, "era">): ServerEventBus {
+export function memberChanges(call: VerifiedCall): ServerEventBus {
   const listeners = new Set<(event: ServerEvent) => void>();
   const interval = Number(call.env.CONNECTED_AGENT_PROJECTS_POLL_MS ?? PROJECTS_POLL_MS);
   let shape = projectsShape(call.member);

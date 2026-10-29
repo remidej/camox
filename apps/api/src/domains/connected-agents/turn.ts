@@ -1,5 +1,5 @@
 import { DRAFT_SEARCH_PARAM } from "@camox/api-contract/drafts";
-import { localePrefix } from "@camox/api-contract/locales";
+import { localizedPath } from "@camox/api-contract/locales";
 import { projectWebsiteUrl } from "@camox/api-contract/projects";
 import type { CallToolResult } from "@modelcontextprotocol/server";
 import { Effect } from "effect";
@@ -8,12 +8,11 @@ import { runService } from "../../lib/run-service";
 import type { ServiceContext } from "../_shared/service-context";
 import { computePreview, requireDraft } from "../drafts/publish";
 import { findEndedDraft } from "../drafts/service";
-import { listLocales } from "../locales/service";
-import { listPages } from "../pages/service";
 import type { TurnOutcome, TurnPage } from "../threads/turn-end";
 import type { MemberProject } from "./member";
-import { memberServiceContext, toolAnswer } from "./projects";
 import type { ConnectedAgentCall } from "./routes";
+import { memberServiceContext, toolAnswer } from "./tools";
+import { pagesAndLocales } from "./website";
 
 /**
  * How long a Connected Agent's call waits for the agent's turn to end, below the timeouts common
@@ -23,7 +22,7 @@ export const TURN_WAIT_MS = 45_000;
 
 /** The message the turn's call waits on: the one the Connected Agent just sent to the draft. */
 export type AwaitedTurn = {
-  project: MemberProject["project"];
+  project: MemberProject;
   draftId: string;
   threadId: string;
   /** The operation id the message was sent to the draft's thread with. */
@@ -62,13 +61,10 @@ export async function answerWithTurn(
     return toolAnswer({
       draft: draftId,
       turn: "draftEnded",
-      ...(ended && { outcome: ended.outcome, endedBy: ended.endedBy?.name }),
+      ...(ended && { outcome: ended.outcome, endedBy: ended.endedBy.name }),
     });
   }
-  const ctx: ServiceContext = {
-    ...memberServiceContext(call),
-    draft: { id: draftId, create: false },
-  };
+  const ctx = memberServiceContext(call, draftId);
   const [studioLink, blockers] = await Promise.all([
     studioLinkOf(ctx, project, draftId, outcome.page),
     blockersOf(ctx, project.id),
@@ -94,16 +90,10 @@ async function studioLinkOf(
 ) {
   let path = "/";
   if (page) {
-    const [pages, locales] = await runService(
-      Effect.all([
-        listPages(ctx, { projectId: project.id }),
-        listLocales(ctx, { projectId: project.id }),
-      ]),
-    );
+    const { pages, locales } = await pagesAndLocales(ctx, project.id);
     const found = pages.find(({ id }) => id === page.pageId);
     const locale = locales.find(({ tag }) => tag === page.locale);
-    const prefix = locale ? localePrefix(locale) : "";
-    if (found) path = prefix && found.fullPath === "/" ? prefix : `${prefix}${found.fullPath}`;
+    if (found) path = locale ? localizedPath(found.fullPath, locale) : found.fullPath;
   }
   const url = new URL(path, projectWebsiteUrl(project));
   url.searchParams.set(DRAFT_SEARCH_PARAM, draftId);

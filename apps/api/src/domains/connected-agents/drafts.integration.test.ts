@@ -70,6 +70,12 @@ async function publishDraft(website: Website, draftId: string) {
   await call(router.drafts.publish, { ...input, token }, inDraft(website, draftId));
 }
 
+/**
+ * What the Connected Agent wrote in the model's last user message, without the note after it
+ * saying who sent it.
+ */
+const lastWritten = (editorMessages: string[]) => editorMessages.at(-1)!.split("\n\n")[0];
+
 /** What `start_draft` answered, read as the Connected Agent reads it. */
 const answerOf = (result: { isError?: boolean; content: { text: string }[] }) => {
   expect(result.isError, result.content[0]?.text).toBeFalsy();
@@ -81,7 +87,7 @@ describe("start_draft", () => {
     const website = await websiteFixture({ pricing: "Plans start at $9." });
     const { memberUser, project } = website;
     const { accessToken } = await connectAgent(memberUser.id, { clientName: "Claude" });
-    answerFrom(({ editorMessages }) => `You asked: ${editorMessages.at(-1)}`);
+    answerFrom(({ editorMessages }) => `You asked: ${lastWritten(editorMessages)}`);
 
     const answer = answerOf(
       await callTool(accessToken, "start_draft", { name: "Export feature page", message: REQUEST }),
@@ -254,7 +260,7 @@ describe("send_message", () => {
     answerNext("Which tone do you want?");
     await ask(await editorOnDraft(website, draftId), "Make the pricing page friendlier.");
     const { accessToken } = await connectAgent(memberUser.id, { clientName: "Claude" });
-    answerFrom(({ editorMessages }) => `You said: ${editorMessages.at(-1)}`);
+    answerFrom(({ editorMessages }) => `You said: ${lastWritten(editorMessages)}`);
 
     const answer = answerOf(
       await callTool(accessToken, "send_message", {
@@ -308,7 +314,7 @@ describe("send_message", () => {
       await tools.editBlock({ id: pricing.blocks[0].id, content: { body: "Plans start at $12." } });
     `);
     const release = holdNextScript(`text("checking");`);
-    answerFrom(({ editorMessages }) => `Done, and noted: ${editorMessages.at(-1)}`);
+    answerFrom(({ editorMessages }) => `Done, and noted: ${lastWritten(editorMessages)}`);
     const draft = answerOf(
       await callTool(accessToken, "start_draft", { name: "New prices", message: "Raise prices." }),
     ).draft as string;
@@ -369,6 +375,40 @@ describe("send_message", () => {
       `The draft "New prices" has ended: ${memberUser.name} published it`,
     );
     expect(await refusalOf(deleted)).toContain(`${memberUser.name} deleted it`);
+  });
+});
+
+describe("what Camox's agent reads", () => {
+  it("marks the Connected Agent's messages as its own, opening a draft or continuing an editor's", async () => {
+    const website = await websiteFixture({ pricing: "Plans start at $9." });
+    const { db, memberUser, project } = website;
+    const { accessToken } = await connectAgent(memberUser.id, { clientName: "Claude" });
+    const received: string[][] = [];
+    const record = () =>
+      answerFrom(({ editorMessages }) => {
+        received.push(editorMessages);
+        return "Done.";
+      });
+
+    record();
+    await callTool(accessToken, "start_draft", { name: "Export feature page", message: REQUEST });
+    const editorsDraft = await startDraft(db, project.id, memberUser.id);
+    answerNext("Which tone do you want?");
+    await ask(await editorOnDraft(website, editorsDraft), "Make the pricing page friendlier.");
+    record();
+    await callTool(accessToken, "send_message", {
+      draft: editorsDraft,
+      message: "Warm and playful, for small agencies.",
+    });
+
+    const [opening, continued] = received;
+    expect(opening).toEqual([expect.stringContaining(REQUEST)]);
+    expect(opening![0]).toMatch(/Connected Agent/);
+    const [editors, connectedAgents] = continued!;
+    expect(editors).toContain("Make the pricing page friendlier.");
+    expect(editors).not.toMatch(/Connected Agent/);
+    expect(connectedAgents).toContain("Warm and playful, for small agencies.");
+    expect(connectedAgents).toMatch(/Connected Agent/);
   });
 });
 
@@ -474,6 +514,15 @@ describe("get_draft", () => {
   });
 });
 
+// The settled wording of #705, quoted from the spec rather than from the code.
+const SPEC_INSTRUCTIONS = [
+  "Camox runs this member's website. Camox's agent does the work on it: it writes the content, the code and the styles, and checks the result. It knows the website, but nothing about the business behind it beyond what's already published. **That knowledge is yours to bring.**",
+  "Before you start a draft, gather what the change depends on from everything you can reach: product docs, specs, the member's notes, their codebase. Put it in your message: the facts and claims to make, who it's for, what sets it apart, links to sources, and URLs of images to use. Camox's agent writes only from what you give it and what's already on the site. Given too little, it can only produce slop. If something it needs isn't in your reach, ask the member rather than leave Camox to guess.",
+  "Say what to change and why, never how to build it. After each turn, give the member the studio link: they review and publish there.",
+];
+const SPEC_MESSAGE_DESCRIPTION =
+  "The request, and all the context it depends on that Camox can't know: product facts and claims, audience, sources, image URLs. You're the only source of business knowledge Camox has, so be thorough. Leave out what doesn't apply.";
+
 describe("guidance to a Connected Agent", () => {
   it("makes business context the Connected Agent's job, in the server's instructions", async () => {
     const website = await websiteFixture({});
@@ -486,30 +535,21 @@ describe("guidance to a Connected Agent", () => {
     });
 
     const { instructions } = message!.result as { instructions: string };
-    expect(instructions).toContain(
-      "It knows the website, but nothing about the business behind it beyond what's already published. **That knowledge is yours to bring.**",
-    );
-    expect(instructions).toContain(
-      "Given too little, it can only produce slop. If something it needs isn't in your reach, ask the member rather than leave Camox to guess.",
-    );
-    expect(instructions).toContain(
-      "Say what to change and why, never how to build it. After each turn, give the member the studio link: they review and publish there.",
-    );
+    for (const paragraph of SPEC_INSTRUCTIONS) expect(instructions).toContain(paragraph);
+    expect(instructions).not.toMatch(/\bblocks?\b/i);
   });
 
-  it("asks for the request and all its context in start_draft's message, mentioning no Camox internals", async () => {
+  it("asks for the request and all its context in a message to Camox, mentioning no Camox internals", async () => {
     const website = await websiteFixture({});
     const { accessToken } = await connectAgent(website.memberUser.id);
 
-    const startDraft = (await listTools(accessToken)).find((tool) => tool.name === "start_draft");
+    const tools = await listTools(accessToken);
 
-    const properties = startDraft!.inputSchema.properties as Record<
-      string,
-      { description?: string }
-    >;
-    expect(properties.message?.description).toBe(
-      "The request, and all the context it depends on that Camox can't know: product facts and claims, audience, sources, image URLs. You're the only source of business knowledge Camox has, so be thorough. Leave out what doesn't apply.",
-    );
-    expect(JSON.stringify(startDraft)).not.toMatch(/\bblocks?\b/i);
+    for (const name of ["start_draft", "send_message"]) {
+      const tool = tools.find((tool) => tool.name === name);
+      const properties = tool!.inputSchema.properties as Record<string, { description?: string }>;
+      expect(properties.message?.description).toBe(SPEC_MESSAGE_DESCRIPTION);
+    }
+    expect(JSON.stringify(tools)).not.toMatch(/\bblocks?\b/i);
   });
 });

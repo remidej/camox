@@ -3,8 +3,8 @@ import { asc, eq } from "drizzle-orm";
 import type { Database } from "../../db";
 import { member, projects, user } from "../../schema";
 
-/** A project a Connected Agent's member can reach, with their role in its organization. */
-export type MemberProject = { project: typeof projects.$inferSelect; role: string };
+/** A project a Connected Agent's member can reach. */
+export type MemberProject = typeof projects.$inferSelect;
 
 /**
  * The member a Connected Agent acts as, loaded on every call: access follows membership as it is
@@ -23,12 +23,12 @@ export async function loadConnectedMember(
   const [found, reachable] = await Promise.all([
     db.select().from(user).where(eq(user.id, userId)).get(),
     db
-      .select({ project: projects, role: member.role })
+      .select({ project: projects })
       .from(member)
       .innerJoin(projects, eq(projects.organizationId, member.organizationId))
       .where(eq(member.userId, userId))
       .orderBy(asc(projects.id))
       .all(),
   ]);
-  return found ? { user: found, projects: reachable } : null;
+  return found ? { user: found, projects: reachable.map(({ project }) => project) } : null;
 }
