@@ -2,6 +2,8 @@ import { cimd } from "@better-auth/cimd";
 import { mcp } from "@better-auth/mcp";
 import type { ClientMetadataResourceFetch } from "@better-auth/oauth-provider";
 import { isPrivateOrLocalHost } from "agents/webfetch";
+import type { BetterAuthPlugin } from "better-auth";
+import { createAuthMiddleware } from "better-auth/api";
 import { jwt } from "better-auth/plugins";
 
 import type { Bindings } from "../../types";
@@ -19,6 +21,29 @@ export const CONNECTED_AGENT_SCOPES = [WEBSITE_SCOPE, DRAFTS_SCOPE] as const;
  * Better Auth only issues with `offline_access`, so members stay connected for weeks.
  */
 export const REQUESTED_SCOPES = [...CONNECTED_AGENT_SCOPES, "offline_access"];
+
+/**
+ * Makes every authorization request ask for both Connected Agent scopes, whichever it names, so
+ * one consent grants both and the member can't grant one alone. The authorization server only
+ * grants what the request asked for, so it's widened before the authorization server reads it.
+ * A request naming no scope gets the client's registered ones, which hold both.
+ */
+const grantedTogether = {
+  id: "connected-agent-scopes",
+  hooks: {
+    before: [
+      {
+        matcher: (ctx) => ctx.path === "/oauth2/authorize",
+        handler: createAuthMiddleware(async (ctx) => {
+          const scope = (ctx.query as { scope?: unknown } | undefined)?.scope;
+          if (typeof scope !== "string" || !scope.trim()) return;
+          const widened = new Set([...scope.split(" ").filter(Boolean), ...CONNECTED_AGENT_SCOPES]);
+          return { context: { query: { ...ctx.query, scope: [...widened].join(" ") } } };
+        }),
+      },
+    ],
+  },
+} satisfies BetterAuthPlugin;
 
 /** The MCP server's canonical URI, which its tokens are bound to (RFC 8707). */
 export const mcpResourceOf = (apiOrigin: string) => `${apiOrigin}/mcp`;
@@ -39,9 +64,12 @@ const METADATA_DOCUMENT_TIMEOUT_MS = 5_000;
 const METADATA_DOCUMENT_MAX_BYTES = 5 * 1024;
 
 /**
- * Fetches a Client ID Metadata Document, or a resource it names, on Workers. As file uploads do,
- * it refuses private and special-use addresses, and it refuses redirects. Workers can't resolve
- * a name before fetching it, so the check reads the host as the URL names it.
+ * Fetches a Client ID Metadata Document, or a resource it names, on Workers. It refuses
+ * redirects, and, with the check file uploads use, private and special-use addresses.
+ *
+ * Limit: that check reads the hostname only, as the URL names it. Workers can't resolve a name
+ * before fetching it, so a public name whose DNS points at a private or special-use address
+ * isn't refused. File uploads have the same limit.
  */
 export const fetchClientMetadataDocument: ClientMetadataResourceFetch = async (input, init) => {
   const url = new URL(input instanceof Request ? input.url : input.toString());
@@ -87,5 +115,6 @@ export function connectedAgentPlugins(env: Bindings, apiOrigin: string) {
       fetchClientMetadataResource: fetchClientMetadataDocument,
       metadataProfile: "mcp-2026-07-28",
     }),
+    grantedTogether,
   ];
 }

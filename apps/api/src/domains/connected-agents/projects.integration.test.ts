@@ -69,6 +69,17 @@ describe("choosing a project", () => {
     );
   });
 
+  it("takes no project in any tool of a member with one project", async () => {
+    const { memberUser } = await createProjectFixture(crypto.randomUUID());
+    const { accessToken } = await connectAgent(memberUser.id);
+
+    const tools = await listTools(accessToken);
+
+    expect(tools.map(({ name }) => name)).toContain("get_website");
+    for (const tool of tools)
+      expect(tool.inputSchema.properties ?? {}).not.toHaveProperty("project");
+  });
+
   it("names a member's several projects, by name and address, in the server's instructions", async () => {
     const { memberUser, project, clientProject } = await memberOfTwoProjects();
     const { accessToken } = await connectAgent(memberUser.id);

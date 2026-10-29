@@ -43,7 +43,7 @@ export type DraftEnd = { outcome: DraftOutcome; endedBy: string; endedAt: number
  * or ended, or why it can't have it. The draft implies its project, so tools naming one need no
  * project.
  */
-export async function seeDraft(
+export async function openOrEndedDraft(
   call: ConnectedAgentCall,
   ref: string,
 ): Promise<{ draft: ReachedDraft; ended?: DraftEnd } | { refusal: string }> {
@@ -66,13 +66,13 @@ export async function seeDraft(
       .get(),
   ]);
   const found = open ?? ended;
-  const project =
-    found && call.member.projects.find(({ project }) => project.id === found.projectId);
+  const project = found && call.member.projects.find(({ id }) => id === found.projectId);
   // A draft of a project the member can't reach reads as one that doesn't exist.
   if (!found || !project) return { refusal: `No draft you can see has the id ${id}.` };
   const draft = { id, name: found.name, project };
   if (open) return { draft };
-  const how = (await Effect.runPromise(findEndedDraft(call.db, project.project.id, id)))!;
+  // Found among ended drafts, so it's there: an ended draft never comes back.
+  const how = (await Effect.runPromise(findEndedDraft(call.db, project.id, id)))!;
   return {
     draft,
     ended: { outcome: how.outcome, endedBy: how.endedBy.name, endedAt: how.endedAt },
@@ -83,11 +83,11 @@ export async function seeDraft(
  * The open draft a Connected Agent names by id or studio link, among those its member can see,
  * or why it can't have it: a draft that ended is refused, saying how.
  */
-export async function reachDraft(
+export async function openDraft(
   call: ConnectedAgentCall,
   ref: string,
 ): Promise<{ draft: ReachedDraft } | { refusal: string }> {
-  const seen = await seeDraft(call, ref);
+  const seen = await openOrEndedDraft(call, ref);
   if ("refusal" in seen || !seen.ended) return seen;
   const { draft, ended } = seen;
   const named = draft.name ? `The draft "${draft.name}"` : `The draft ${draft.id}`;

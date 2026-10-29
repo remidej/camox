@@ -6,7 +6,7 @@ import { WORKING_WITH_CAMOX } from "./guidance";
 import { projectInstructions, registerNoProjectTool } from "./projects";
 import { registerReadPage } from "./read-page";
 import type { ConnectedAgentCall } from "./routes";
-import { registerWebsiteTools } from "./website";
+import { registerGetWebsite } from "./website";
 
 /**
  * Camox's MCP server as one call's member sees it (ADR 0030): built for each call, so its tools
@@ -21,7 +21,7 @@ export function connectedAgentServer(call: ConnectedAgentCall) {
     registerNoProjectTool(server, call);
     return server;
   }
-  registerWebsiteTools(server, call);
+  registerGetWebsite(server, call);
   registerReadPage(server, call);
   registerDraftTools(server, call);
   registerGetDraft(server, call);

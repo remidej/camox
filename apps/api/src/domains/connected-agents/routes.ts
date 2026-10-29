@@ -14,7 +14,7 @@ import { issuerOf, mcpResourceOf, REQUESTED_SCOPES, servesMcp } from "./oauth";
 import { connectedAgentServer } from "./server";
 
 /** A Connected Agent's call, verified: the member it acts as, and what services run with. */
-export type ConnectedAgentCall = {
+export type VerifiedCall = {
   member: ConnectedMember;
   /** The OAuth client id of the Connected Agent's app, which its token was issued to. */
   clientId: string;
@@ -22,7 +22,11 @@ export type ConnectedAgentCall = {
   env: Bindings;
   waitUntil: (promise: Promise<unknown>) => void;
   apiOrigin: string;
-  /** The MCP revisions the call speaks: 2025-era (`legacy`) or 2026-07-28 and later (`modern`). */
+};
+
+/** A verified call, as the MCP server handles it: with the MCP revisions it speaks. */
+export type ConnectedAgentCall = VerifiedCall & {
+  /** 2025-era (`legacy`) or 2026-07-28 and later (`modern`). */
   era: ProtocolEra;
 };
 
@@ -89,7 +93,7 @@ export const mcpRoutes = new Hono<AppEnv>().all("/", async (c) => {
     if (!granted) throw unauthorized("The member disconnected this Connected Agent");
     const member = await loadConnectedMember(c.var.db, claims.sub!);
     if (!member) throw unauthorized("The member this token was issued to no longer exists");
-    const call: Omit<ConnectedAgentCall, "era"> = {
+    const call: VerifiedCall = {
       member,
       clientId: String(claims.azp),
       db: c.var.db,

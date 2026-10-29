@@ -81,6 +81,39 @@ describe("connecting", () => {
 });
 
 describe("calling the MCP server", () => {
+  it.each([
+    { kept: "website:read", tool: "start_draft", missing: "drafts:write" },
+    { kept: "drafts:write", tool: "get_website", missing: "website:read" },
+  ])(
+    "refuses $tool to a token without $missing, asking for it",
+    async ({ kept, tool, missing }) => {
+      const { memberUser } = await createProjectFixture(crypto.randomUUID());
+      const { refresh } = await connectAgent(memberUser.id);
+      // A Connected Agent can narrow its token's scopes as it refreshes it.
+      const { access_token: narrowed } = await refresh(undefined, `${kept} offline_access`);
+
+      const { response } = await mcpRequest(narrowed, "tools/call", {
+        name: tool,
+        arguments: { name: "New page", message: "Add a page." },
+      });
+
+      expect(response.status).toBe(403);
+      const challenge = response.headers.get("www-authenticate") ?? "";
+      expect(challenge).toContain('error="insufficient_scope"');
+      expect(/scope="([^"]+)"/.exec(challenge)?.[1]?.split(" ")).toContain(missing);
+    },
+  );
+
+  it("reads the website with a token narrowed to reading it", async () => {
+    const { memberUser } = await createProjectFixture(crypto.randomUUID());
+    const { refresh } = await connectAgent(memberUser.id);
+    const { access_token: narrowed } = await refresh(undefined, "website:read offline_access");
+
+    const result = await callTool(narrowed, "get_website");
+
+    expect(result.isError).toBeFalsy();
+  });
+
   it("refuses a request with no token", async () => {
     const { response } = await mcpRequest(null, "tools/list");
 

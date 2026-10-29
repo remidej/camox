@@ -19,7 +19,9 @@ export const EDITOR_MESSAGE_ENTRY = "camox.editor-message";
 /**
  * The kind of the transcript entry recording a Connected Agent's message (ADR 0030), with its
  * member and client as data (`connectedAgentMessageDataSchema`). The model reads it as a user
- * message, as it does an editor's; studios show it as the member's AI, never as the member.
+ * message, as it does an editor's: its first text part is what the Connected Agent wrote, and a
+ * second one, which only the model reads, says who sent it. Studios show it as the member's AI,
+ * never as the member.
  */
 export const CONNECTED_AGENT_MESSAGE_ENTRY = "camox.connected-agent-message";
 
@@ -506,7 +508,7 @@ function threadStepOf(entry: EntryRecord): ThreadStep | undefined {
           type: "connectedAgent",
           member: senderOf(data.member)!,
           client: { name: data.client.name, verified: data.client.verified },
-          text: textOf(message.content),
+          text: editorTextOf(message.content),
         }
       );
     }

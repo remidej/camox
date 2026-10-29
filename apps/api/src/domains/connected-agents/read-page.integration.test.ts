@@ -4,7 +4,7 @@ import { call } from "@orpc/server";
 import { and, eq, isNull } from "drizzle-orm";
 import { describe, expect, it } from "vite-plus/test";
 
-import { callTool, connectAgent } from "../../../test/connected-agents";
+import { callTool, connectAgent, listTools } from "../../../test/connected-agents";
 import {
   callSeedingLive,
   createProjectFixture,
@@ -205,7 +205,7 @@ describe("read_page", () => {
     expect(refusedDeleted).toContain(memberUser.name);
   });
 
-  it("refuses a draft of another of the member's projects than the one it names, naming the draft's", async () => {
+  it("reads a page in a draft of a member with several projects with no project named: the draft implies it", async () => {
     const pricingSite = await website();
     const otherSite = await createProjectFixture(crypto.randomUUID());
     await otherSite.db.insert(member).values({
@@ -218,18 +218,12 @@ describe("read_page", () => {
     const draft = await pricingSite.draftChangingPrice("Plans start at $12.");
     const { accessToken } = await connectAgent(pricingSite.memberUser.id);
 
-    const refused = await refusalOf(accessToken, {
-      path: "/pricing",
-      draft,
-      project: otherSite.project.slug,
-    });
-    expect(refused).toContain(pricingSite.project.slug);
-    // Named in its own project, the draft reads.
-    const read = await readPage(accessToken, {
-      path: "/pricing",
-      draft,
-      project: pricingSite.project.slug,
-    });
+    const readPageTool = (await listTools(accessToken)).find(({ name }) => name === "read_page");
+    const read = await readPage(accessToken, { path: "/pricing", draft });
+
+    expect((readPageTool!.inputSchema as { required?: string[] }).required ?? []).not.toContain(
+      "project",
+    );
     expect(read.markdown).toContain("Plans start at $12.");
   });
 });

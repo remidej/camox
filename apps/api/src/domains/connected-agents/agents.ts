@@ -1,3 +1,4 @@
+import type { ConnectedAgentClient } from "@camox/api-contract/threads";
 import { and, desc, eq } from "drizzle-orm";
 import { Effect } from "effect";
 import { z } from "zod";
@@ -7,6 +8,29 @@ import type { Database } from "../../db";
 import { decodeInput, NotFoundError } from "../../lib/errors";
 import { oauthAccessToken, oauthClient, oauthConsent, oauthRefreshToken } from "../../schema";
 import type { ServiceContext } from "../_shared/service-context";
+
+/**
+ * The app a Connected Agent runs in, as members see it, of its OAuth client's registered name and
+ * how it registered: the name is verified only when it comes from a Client ID Metadata Document.
+ * A client gone or registered with no name is an unnamed app.
+ */
+export const clientNamed = (
+  name: string | null | undefined,
+  discovery: string | null | undefined,
+): ConnectedAgentClient => ({ name: name ?? "An unnamed app", verified: discovery === "cimd" });
+
+/** The app a Connected Agent runs in, by its OAuth client id, if it's registered. */
+export async function connectedAgentClientOf(
+  db: Database,
+  clientId: string,
+): Promise<ConnectedAgentClient | undefined> {
+  const client = await db
+    .select({ name: oauthClient.name, discovery: oauthClient.clientDiscoveryId })
+    .from(oauthClient)
+    .where(eq(oauthClient.clientId, clientId))
+    .get();
+  return client && clientNamed(client.name, client.discovery);
+}
 
 /**
  * Whether the member `userId` still grants the Connected Agent `clientId` access, recording the
@@ -51,7 +75,7 @@ export const listConnectedAgents = Effect.fn("connectedAgents.list")(function* (
   );
   return rows.map(({ id, name, discovery, connectedAt, lastUsedAt }) => ({
     id,
-    client: { name: name ?? "An unnamed app", verified: discovery === "cimd" },
+    client: clientNamed(name, discovery),
     connectedAt,
     lastUsedAt,
   }));
