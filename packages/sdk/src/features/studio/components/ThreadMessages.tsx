@@ -295,7 +295,9 @@ function ThreadMessageRow({
             {`${member.name}’s ${client.verified ? client.name : "agent"}`}
           </MessageHeader>
           <Bubble variant="muted" className="max-w-full">
-            <BubbleContent className="whitespace-pre-wrap">{message.text}</BubbleContent>
+            <BubbleContent>
+              <CroppedText text={message.text} />
+            </BubbleContent>
           </Bubble>
         </MessageContent>
       </Message>
@@ -308,7 +310,9 @@ function ThreadMessageRow({
         <MessageContent>
           <MessageHeader className="text-muted-foreground text-xs">Camox</MessageHeader>
           <Bubble variant="muted" className="max-w-full">
-            <BubbleContent className="whitespace-pre-wrap">{message.text}</BubbleContent>
+            <BubbleContent>
+              <CroppedText text={message.text} />
+            </BubbleContent>
           </Bubble>
         </MessageContent>
       </Message>
@@ -321,10 +325,56 @@ function ThreadMessageRow({
       </MessageAvatar>
       <MessageContent>
         <Bubble align="end" variant="muted" className="max-w-full">
-          <BubbleContent className="whitespace-pre-wrap">{message.text}</BubbleContent>
+          <BubbleContent>
+            <CroppedText text={message.text} />
+          </BubbleContent>
         </Bubble>
       </MessageContent>
     </Message>
+  );
+}
+
+/**
+ * A message's text, cropped past its fourth line: the next ones fade out, above a button that
+ * shows it all. A message that fits shows as is.
+ */
+function CroppedText({ text }: { text: string }) {
+  const node = React.useRef<HTMLDivElement>(null);
+  const [overflows, setOverflows] = React.useState(false);
+  const [expanded, setExpanded] = React.useState(false);
+  React.useLayoutEffect(() => {
+    const element = node.current;
+    if (!element || expanded) return;
+    const measure = () => setOverflows(element.scrollHeight > element.clientHeight + 1);
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [text, expanded]);
+  const cropped = !expanded && overflows;
+  return (
+    <>
+      <div
+        ref={node}
+        data-thread-cropped={cropped || undefined}
+        className={cn(
+          "whitespace-pre-wrap",
+          !expanded && "max-h-[5.5lh] overflow-hidden",
+          cropped && "mask-[linear-gradient(to_bottom,black_4lh,transparent)]",
+        )}
+      >
+        {text}
+      </div>
+      {cropped && (
+        <button
+          type="button"
+          onClick={() => setExpanded(true)}
+          className="focus-visible:ring-ring mt-1 rounded-sm font-medium hover:underline focus-visible:ring-2 focus-visible:outline-none"
+        >
+          Show full message
+        </button>
+      )}
+    </>
   );
 }
 
