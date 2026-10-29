@@ -17,3 +17,10 @@ that call for the skill, in the words editors use.
 
 A skill's scripts never run: the agent only reads its files. Don't name a skill like one of the
 SDK's, which would replace it.
+
+## Credits
+
+`website-design` adapts Anthropic's
+[`frontend-design`](https://github.com/anthropics/skills/tree/main/skills/frontend-design) skill,
+licensed under the [Apache License 2.0](https://www.apache.org/licenses/LICENSE-2.0), to Camox's
+websites: its Theme, its editors' content, and its agent's tools.
