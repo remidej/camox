@@ -163,6 +163,11 @@ export interface PageRenderInput extends DraftRead {
    * instead of a page. Its block bundle is in the dehydrated state.
    */
   lookBlock?: string;
+  /**
+   * Whether this is the look document (ADR 0032), whose client only shows the draft: it asks
+   * nothing about a session and offers no sign-in, which would add requests to its captures.
+   */
+  look?: boolean;
   previewDocument?: string;
   routeKind?: StudioRouteKind;
   /** Whether the location is the Canvas with nothing selected, which only the Canvas shows. */
@@ -902,6 +907,7 @@ async function createLookDocumentResponse(
   const dehydratedState = dehydrate(queryClient);
   const input: PageRenderInput = {
     ...shown,
+    look: true,
     presentation: "public",
     apiUrl,
     authenticationUrl,

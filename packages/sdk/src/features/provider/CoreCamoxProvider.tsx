@@ -23,6 +23,8 @@ export interface CoreCamoxProviderProps {
   projectUuid: string;
   initialAuthenticated?: boolean;
   initialProject?: Project;
+  /** Whether the page has no session to ask about, as the look document: always signed out. */
+  sessionless?: boolean;
 }
 
 export function CoreCamoxProvider({
@@ -33,6 +35,7 @@ export function CoreCamoxProvider({
   projectUuid,
   initialAuthenticated = false,
   initialProject,
+  sessionless = false,
 }: CoreCamoxProviderProps) {
   const queryClient = useQueryClient();
   const authClient = React.useMemo(() => createCamoxAuthClient(apiUrl), [apiUrl]);
@@ -90,8 +93,17 @@ export function CoreCamoxProvider({
       projectUuid,
       initialAuthenticated,
       exchangingToken,
+      sessionless,
     }),
-    [authClient, authenticationUrl, apiUrl, projectUuid, initialAuthenticated, exchangingToken],
+    [
+      authClient,
+      authenticationUrl,
+      apiUrl,
+      projectUuid,
+      initialAuthenticated,
+      exchangingToken,
+      sessionless,
+    ],
   );
   const [isPreviewHandoff, setIsPreviewHandoff] = React.useState(false);
   React.useEffect(() => {
