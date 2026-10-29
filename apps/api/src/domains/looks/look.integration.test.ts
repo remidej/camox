@@ -26,7 +26,7 @@ import {
 import { verifyLookToken } from "../drafts/look-token";
 import { pageProcedures } from "../pages/routes";
 import { END_OF_TURN_BUILD_FAILURES } from "../revisions/end-of-turn";
-import { LOOK_IMAGE_CAP, LOOK_MAX_DELAY_MS } from "./look";
+import { LOOK_IMAGE_CAP, LOOK_MAX_DELAY_MS, LOOK_MAX_URL_LENGTH } from "./look";
 
 // The agent's `look`, driven through a draft thread's socket by the scripted model. Browser Run
 // is the release fakes Worker's fake, which records each capture and answers it with one image.
@@ -201,7 +201,7 @@ describe("the agent's look", () => {
     ]);
   });
 
-  it("has the browser wait each target's delay before it captures", async () => {
+  it("gives the browser each target's delay", async () => {
     const { draftId, thread } = await draftThread();
 
     const { results } = await look(thread, {
@@ -426,7 +426,7 @@ describe("the agent's look", () => {
       ]);
     });
 
-    it("says when the block was taller than two screens, so its image was cut", async () => {
+    it("tells the model when the browser cut the block's image", async () => {
       const { website, thread } = await draftThread();
       const block = await placementOn(website, "/home");
       await browserRunFakes.cutCapturesOf(block, "mobile");
@@ -498,6 +498,31 @@ describe("the agent's look at a Block Definition", () => {
       expect(JSON.parse(params.get("settings")!)).toEqual(target.settings);
       expect(capture.element).toBe(`[data-camox-viewport-block="${UNPLACED_BLOCK_ID}"]`);
     }
+  });
+
+  it("fails a target whose overrides make its URL too long, telling the agent to shorten them, and captures the others", async () => {
+    const { draftId, thread } = await draftThreadWithHero();
+    const long = { title: "x".repeat(LOOK_MAX_URL_LENGTH) };
+
+    const { results, images } = await look(thread, {
+      targets: [
+        { blockDefinition: "hero", content: long, sizes: ["desktop"] },
+        { blockDefinition: "hero", sizes: ["mobile"] },
+      ],
+    });
+    thread.close();
+
+    expect(results).toEqual([
+      {
+        blockDefinition: "hero",
+        content: long,
+        size: "desktop",
+        error: expect.stringMatching(/shorten/i),
+      },
+      { blockDefinition: "hero", size: "mobile" },
+    ]);
+    expect(images).toHaveLength(1);
+    expect((await browserRunFakes.captures(draftId)).map(({ size }) => size)).toEqual(["mobile"]);
   });
 
   it("fails a target with an override its schema refuses, or an unknown Block Definition, with the schema's error, and captures the others", async () => {

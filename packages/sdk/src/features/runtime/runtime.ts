@@ -163,6 +163,11 @@ export interface PageRenderInput extends DraftRead {
    * instead of a page. Its block bundle is in the dehydrated state.
    */
   lookBlock?: string;
+  /**
+   * Whether this is the look document (ADR 0032), whose client only shows the draft: it asks
+   * nothing about a session and offers no sign-in, which would add requests to its captures.
+   */
+  look?: boolean;
   previewDocument?: string;
   routeKind?: StudioRouteKind;
   /** Whether the location is the Canvas with nothing selected, which only the Canvas shows. */
@@ -820,23 +825,19 @@ function createRendererDocumentResponse(options: RuntimeOptions): Response {
  */
 const LOOK_READY_SCRIPT = `(()=>{const loaded=new WeakSet();let hydrated=false,marked=false;const mark=()=>{if(marked||!hydrated||document.readyState!=="complete")return;const frames=[...document.querySelectorAll("iframe")];for(const frame of frames)if(frame.getAttribute("loading")==="lazy")frame.setAttribute("loading","eager");if(!frames.every((frame)=>loaded.has(frame)))return;marked=true;requestAnimationFrame(()=>requestAnimationFrame(()=>document.documentElement.setAttribute("data-camox-ready","")))};const settle=(event)=>{if(event.target&&event.target.tagName==="IFRAME")loaded.add(event.target);mark()};document.addEventListener("load",settle,true);document.addEventListener("error",settle,true);addEventListener("load",mark,{once:true});addEventListener("camox:hydrated",()=>{hydrated=true;mark()},{once:true})})()`;
 
+/** The headers every look document answer carries: private, never cached, never indexed. */
+const LOOK_HEADERS = { "Cache-Control": "private, no-store", "X-Robots-Tag": "noindex" };
+
 /** What the look document answers when it shows nothing: no token, or one the API refused. */
 function lookNotFound(): Response {
-  return new Response("Not found", {
-    status: 404,
-    headers: { "Cache-Control": "private, no-store", "X-Robots-Tag": "noindex" },
-  });
+  return new Response("Not found", { status: 404, headers: LOOK_HEADERS });
 }
 
 /** What the look document answers when the API refuses what it was asked to show, and why. */
 function lookRefused(message: string): Response {
   return new Response(message, {
     status: 422,
-    headers: {
-      "Content-Type": "text/plain; charset=utf-8",
-      "Cache-Control": "private, no-store",
-      "X-Robots-Tag": "noindex",
-    },
+    headers: { ...LOOK_HEADERS, "Content-Type": "text/plain; charset=utf-8" },
   });
 }
 
@@ -846,14 +847,16 @@ type LookShown = Pick<
   "head" | "href" | "layoutIdentity" | "loaderData" | "pathname" | "lookBlock"
 >;
 
-/** A JSON override of the look document's URL: absent, or the value it holds. */
-function overrideParam(searchParams: URLSearchParams, name: string) {
+/** A JSON override of the look document's URL: absent, the value it holds, or why it's refused. */
+type Override = { ok: true; value: unknown } | { ok: false; error: string };
+
+function overrideParam(searchParams: URLSearchParams, name: string): Override {
   const raw = searchParams.get(name);
-  if (raw === null) return { value: undefined };
+  if (raw === null) return { ok: true, value: undefined };
   try {
-    return { value: JSON.parse(raw) as unknown };
+    return { ok: true, value: JSON.parse(raw) as unknown };
   } catch {
-    return { error: `The ${name} override isn't JSON.` };
+    return { ok: false, error: `The ${name} override isn't JSON.` };
   }
 }
 
@@ -904,6 +907,7 @@ async function createLookDocumentResponse(
   const dehydratedState = dehydrate(queryClient);
   const input: PageRenderInput = {
     ...shown,
+    look: true,
     presentation: "public",
     apiUrl,
     authenticationUrl,
@@ -941,9 +945,8 @@ ${renderClientEntryScript(options.pageClientEntryUrl)}
 </html>`,
     {
       headers: {
+        ...LOOK_HEADERS,
         "Content-Type": "text/html; charset=utf-8",
-        "Cache-Control": "private, no-store",
-        "X-Robots-Tag": "noindex",
         "Referrer-Policy": "no-referrer",
       },
     },
@@ -1006,8 +1009,8 @@ async function lookAtBlockDefinition(
   const { searchParams } = new URL(request.url);
   const content = overrideParam(searchParams, LOOK_CONTENT_PARAM);
   const settings = overrideParam(searchParams, LOOK_SETTINGS_PARAM);
-  if ("error" in content) return lookRefused(content.error!);
-  if ("error" in settings) return lookRefused(settings.error!);
+  if (!content.ok) return lookRefused(content.error);
+  if (!settings.ok) return lookRefused(settings.error);
   const studioCache = createServerStudioCache(queryClient, { apiUrl, lookToken, locale });
   const inDraft = { in: draftId };
   let bundle: BlockBundle;

@@ -49,9 +49,9 @@ async function bundledWorker(configPath: string) {
 /**
  * The API's Wrangler configuration without its Cloudflare Artifacts, email, service and Browser
  * Run bindings. Artifacts has no local simulator, the services (dispatch) aren't run, Browser Run
- * would launch a real Chromium, and Miniflare lets either win over the test's fake of the same name, so the tests run from a copy that leaves them to
- * the fakes. Its own directory per run, as test shards configure in
- * parallel.
+ * would launch a real Chromium, and Miniflare lets either win over the test's fake of the same
+ * name, so the tests run from a copy that leaves them to the fakes. Its own directory per run, as
+ * test shards configure in parallel.
  */
 async function wranglerConfigForTests() {
   const { rawConfig } = experimental_readRawConfig({

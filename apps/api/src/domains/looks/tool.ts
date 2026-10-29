@@ -79,7 +79,7 @@ const BLOCK_DEFINITION_TARGET = Type.Object({
  * What one result says beside its image, as a line of JSON: the target it captured, at which
  * size, and whether its image was cut, or why it failed.
  */
-const describe = ({ target: { sizes: _sizes, ...target }, size, ...captured }: Looked) =>
+const resultLine = ({ target: { sizes: _sizes, ...target }, size, ...captured }: Looked) =>
   JSON.stringify({
     ...target,
     size,
@@ -131,7 +131,7 @@ export const lookTool = (
       const looked = await look(targets as LookTarget[], { api, context });
       return {
         output: looked.flatMap((result) => [
-          { type: "text" as const, text: describe(result) },
+          { type: "text" as const, text: resultLine(result) },
           ...("image" in result
             ? [
                 { type: "text" as const, text: reportChecks(result.checks) },

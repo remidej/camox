@@ -291,52 +291,12 @@ void test("marks itself ready only once it hydrated and its Artifacts loaded", a
  * Artifacts loaded.
  */
 async function assertHydratesThenReady(t: test.TestContext, target: string) {
-  mockApi(t);
-  const { html } = await look({ target });
-  const window = new Window({
-    url: `https://site.test/_camox/look?camox-draft=${DRAFT}&${target}`,
-    settings: { enableJavaScriptEvaluation: true },
-  });
-  Object.assign(globalThis, {
-    window,
-    document: window.document,
-    location: window.location,
-    localStorage: window.localStorage,
-    HTMLElement: window.HTMLElement,
-    HTMLIFrameElement: window.HTMLIFrameElement,
-    Element: window.Element,
-    Node: window.Node,
-    IS_REACT_ACT_ENVIRONMENT: true,
-  });
-  // React reports hydration mismatches as errors.
-  const errors: unknown[] = [];
-  t.mock.method(console, "error", (...args: unknown[]) => errors.push(args));
-  Object.assign(globalThis, { reportError: (error: unknown) => errors.push(error) });
+  const { window, errors, hydrate, held } = await openLook(t, target);
   const ready = () => window.document.documentElement.hasAttribute("data-camox-ready");
   const frames = () => window.document.querySelectorAll("iframe").length;
   try {
-    // happy-dom writes a frame's document at once, then fires its `load` on the next animation
-    // frame: holding the frames asked for while the page is written keeps its Artifact loading,
-    // as one still fetching its libraries would.
-    const held: FrameRequestCallback[] = [];
-    const holding = t.mock.method(
-      window,
-      "requestAnimationFrame",
-      (callback: FrameRequestCallback) => {
-        held.push(callback);
-        return undefined as never;
-      },
-    );
-    window.document.write(html.replace(/<script type="module"[^>]*><\/script>/g, ""));
-    holding.mock.restore();
-    await window.happyDOM.waitUntilComplete();
     assert.equal(ready(), false, "not before the page's client hydrated it");
-
-    const { hydratePageWithApp } = await import("./pageClient");
-    await React.act(async () => {
-      await hydratePageWithApp(camoxApp);
-    });
-    await window.happyDOM.waitUntilComplete();
+    await hydrate();
     assert.deepEqual(errors, []);
     assert.equal(frames(), 1);
     assert.equal(window.document.readyState, "complete");
@@ -352,6 +312,87 @@ async function assertHydratesThenReady(t: test.TestContext, target: string) {
     await window.happyDOM.close();
   }
 }
+
+/**
+ * The look document of `target`, written into a browser window, its client not yet hydrated:
+ * the frames it asked for are held, keeping its Artifacts loading until the test runs `held`.
+ * `cookie` is set on the window first, as a browser that has one sends it. Records the errors
+ * React reports and the requests the page makes.
+ */
+async function openLook(t: test.TestContext, target: string, { cookie }: { cookie?: string } = {}) {
+  const received = mockApi(t);
+  const { html } = await look({ target });
+  const window = new Window({
+    url: `https://site.test/_camox/look?camox-draft=${DRAFT}&${target}`,
+    settings: { enableJavaScriptEvaluation: true },
+  });
+  if (cookie) window.document.cookie = cookie;
+  Object.assign(globalThis, {
+    window,
+    document: window.document,
+    location: window.location,
+    localStorage: window.localStorage,
+    HTMLElement: window.HTMLElement,
+    HTMLIFrameElement: window.HTMLIFrameElement,
+    HTMLInputElement: window.HTMLInputElement,
+    HTMLTextAreaElement: window.HTMLTextAreaElement,
+    KeyboardEvent: window.KeyboardEvent,
+    Element: window.Element,
+    Node: window.Node,
+    IS_REACT_ACT_ENVIRONMENT: true,
+  });
+  // React reports hydration mismatches as errors.
+  const errors: unknown[] = [];
+  t.mock.method(console, "error", (...args: unknown[]) => errors.push(args));
+  Object.assign(globalThis, { reportError: (error: unknown) => errors.push(error) });
+  // happy-dom writes a frame's document at once, then fires its `load` on the next animation
+  // frame: holding the frames asked for while the page is written keeps its Artifact loading,
+  // as one still fetching its libraries would.
+  const held: FrameRequestCallback[] = [];
+  const holding = t.mock.method(
+    window,
+    "requestAnimationFrame",
+    (callback: FrameRequestCallback) => {
+      held.push(callback);
+      return undefined as never;
+    },
+  );
+  window.document.write(html.replace(/<script type="module"[^>]*><\/script>/g, ""));
+  holding.mock.restore();
+  await window.happyDOM.waitUntilComplete();
+  const hydrate = async () => {
+    const { hydratePageWithApp } = await import("./pageClient");
+    await React.act(async () => {
+      await hydratePageWithApp(camoxApp);
+    });
+    await window.happyDOM.waitUntilComplete();
+  };
+  return { window, errors, received, held, hydrate };
+}
+
+void test("asks nothing about a session and offers no sign-in, even in a browser signed in to the studio", async (t) => {
+  const { window, received, hydrate } = await openLook(t, PAGE_TARGET, {
+    cookie: `camox_auth_cookie=${encodeURIComponent("better-auth.session_token=member-session")}`,
+  });
+  try {
+    const before = received.length;
+    await hydrate();
+    assert.deepEqual(
+      received
+        .slice(before)
+        .map((request: Request | string) => (typeof request === "string" ? request : request.url)),
+      [],
+      "no request about the session",
+    );
+    // The shortcut that signs a visitor in from their page, which would leave it.
+    const href = window.location.href;
+    window.dispatchEvent(new window.KeyboardEvent("keydown", { key: "Enter", metaKey: true }));
+    await window.happyDOM.waitUntilComplete();
+    assert.equal(window.location.href, href, "no sign-in");
+  } finally {
+    await window.happyDOM.close();
+  }
+});
 
 // The Block Definition mode: one block of a Block Definition, placed nowhere, alone in the site's
 // shell, with its default content and Block Settings and overrides merged on.
