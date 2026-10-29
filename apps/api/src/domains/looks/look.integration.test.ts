@@ -26,7 +26,7 @@ import {
 import { verifyLookToken } from "../drafts/look-token";
 import { pageProcedures } from "../pages/routes";
 import { END_OF_TURN_BUILD_FAILURES } from "../revisions/end-of-turn";
-import { LOOK_IMAGE_CAP } from "./look";
+import { LOOK_IMAGE_CAP, LOOK_MAX_DELAY_MS } from "./look";
 
 // The agent's `look`, driven through a draft thread's socket by the scripted model. Browser Run
 // is the release fakes Worker's fake, which records each capture and answers it with one image.
@@ -175,6 +175,53 @@ describe("the agent's look", () => {
     expect(images).toEqual([
       { data: await browserRunFakes.capturedImage(), mimeType: "image/jpeg" },
     ]);
+  });
+
+  it("has the browser wait each target's delay before it captures", async () => {
+    const { draftId, thread } = await draftThread();
+
+    const { results } = await look(thread, {
+      targets: [
+        { path: "/home", sizes: ["desktop"], delay: LOOK_MAX_DELAY_MS },
+        { path: "/home", sizes: ["mobile"] },
+      ],
+    });
+    thread.close();
+
+    expect(results).toEqual([
+      { path: "/home", delay: LOOK_MAX_DELAY_MS, size: "desktop" },
+      { path: "/home", size: "mobile" },
+    ]);
+    const captures = await browserRunFakes.captures(draftId);
+    expect(captures.map(({ size, delayMs }) => [size, delayMs])).toEqual([
+      ["desktop", LOOK_MAX_DELAY_MS],
+      ["mobile", undefined],
+    ]);
+  });
+
+  it("refuses a delay over the maximum for its own target, capturing the others", async () => {
+    const { draftId, thread } = await draftThread();
+
+    const { results, images } = await look(thread, {
+      targets: [
+        { path: "/home", sizes: ["desktop"], delay: LOOK_MAX_DELAY_MS + 1 },
+        { path: "/home", sizes: ["mobile"] },
+      ],
+    });
+    thread.close();
+
+    expect(results).toEqual([
+      {
+        path: "/home",
+        delay: LOOK_MAX_DELAY_MS + 1,
+        size: "desktop",
+        error: expect.stringContaining(`at most ${LOOK_MAX_DELAY_MS}`),
+      },
+      { path: "/home", size: "mobile" },
+    ]);
+    expect(images).toHaveLength(1);
+    const captures = await browserRunFakes.captures(draftId);
+    expect(captures.map(({ size }) => size)).toEqual(["mobile"]);
   });
 
   it("returns, as text with each image, the errors, failed requests and overflow its page reported, or says briefly there were none", async () => {

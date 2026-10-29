@@ -796,10 +796,14 @@ function createRendererDocumentResponse(options: RuntimeOptions): Response {
 
 /**
  * Marks the look document ready (`data-camox-ready` on its root element) for the browser to wait
- * on, once the page's client hydrated it (`camox:hydrated`) and the window loaded, which includes
- * its artifacts' frames, then a frame later, once painted.
+ * on, once the page's client hydrated it (`camox:hydrated`), the window loaded, and every frame
+ * on the page, its Artifacts' included, loaded or failed to, then a frame later, once painted.
+ * Artifacts' frames load lazily, and their documents may fetch libraries as they start, so the
+ * window's `load` alone comes before them: the frames are made eager once hydrated, so those
+ * below the first screen load too, and each frame's own `load` is awaited. A frame that never
+ * loads leaves the document unready, and the capture waiting on it times out.
  */
-const LOOK_READY_SCRIPT = `(()=>{let hydrated=false;const mark=()=>{if(!hydrated||document.readyState!=="complete")return;requestAnimationFrame(()=>requestAnimationFrame(()=>document.documentElement.setAttribute("data-camox-ready","")))};addEventListener("camox:hydrated",()=>{hydrated=true;mark()},{once:true});addEventListener("load",mark,{once:true})})()`;
+const LOOK_READY_SCRIPT = `(()=>{const loaded=new WeakSet();let hydrated=false,marked=false;const mark=()=>{if(marked||!hydrated||document.readyState!=="complete")return;const frames=[...document.querySelectorAll("iframe")];for(const frame of frames)if(frame.getAttribute("loading")==="lazy")frame.setAttribute("loading","eager");if(!frames.every((frame)=>loaded.has(frame)))return;marked=true;requestAnimationFrame(()=>requestAnimationFrame(()=>document.documentElement.setAttribute("data-camox-ready","")))};const settle=(event)=>{if(event.target&&event.target.tagName==="IFRAME")loaded.add(event.target);mark()};document.addEventListener("load",settle,true);document.addEventListener("error",settle,true);addEventListener("load",mark,{once:true});addEventListener("camox:hydrated",()=>{hydrated=true;mark()},{once:true})})()`;
 
 /** What the look document answers when it shows nothing: no token, or one the API refused. */
 function lookNotFound(): Response {
