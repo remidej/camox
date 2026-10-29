@@ -823,3 +823,42 @@ describe("Live built against an SDK Bundle", () => {
     );
   });
 });
+
+describe("the look document", () => {
+  // ADR 0032: the browser the agent's `look` tool drives carries a look token, not a session.
+  const LOOK = `/_camox/look?camox-draft=${DRAFT}&path=%2Fpricing`;
+
+  it("reaches Live's code with the request's look token, for a draft without code changes", async () => {
+    const asked: unknown[] = [];
+    const env = {
+      ...fakeEnv({
+        slugs: { acme: ACME_UUID },
+        workers: {
+          [ACME_UUID]: (request) => {
+            const url = new URL(request.url);
+            return new Response(
+              `Live's code at ${url.pathname}${url.search} with ${request.headers.get("cookie")}`,
+            );
+          },
+        },
+      }),
+      API: {
+        liveScript: async () => null,
+        previewedRevision: async (question: unknown) => {
+          asked.push(question);
+          return null;
+        },
+      },
+    } as unknown as Env;
+
+    const response = await worker.fetch(
+      new Request(`https://acme.camox.site${LOOK}`, { headers: { cookie: "camox_look=token" } }),
+      env,
+      context(env),
+    );
+
+    expect(await response.text()).toBe(`Live's code at ${LOOK} with camox_look=token`);
+    // A look token isn't a member's session: nothing asks which revision it may see.
+    expect(asked).toEqual([]);
+  });
+});

@@ -36,7 +36,6 @@ export const LOOK_TOKEN_HEADER = "x-camox-look-token";
 /**
  * The cookie the browser `look` drives carries the look token in, set for the website's host
  * only, so third-party requests never see it. The website forwards it as `LOOK_TOKEN_HEADER`.
- * Mirrored in apps/dispatch/src/previews.ts: keep the two in sync.
  */
 export const LOOK_TOKEN_COOKIE = "camox_look";
 
