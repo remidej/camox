@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.64.0](https://github.com/remidej/camox/compare/camox-v0.63.0...camox-v0.64.0) (2026-10-29)
+
+
+### Changes
+
+* **api:** annotate lookTool's return type so package declarations build ([60953a5](https://github.com/remidej/camox/commit/60953a574c95eaf63ff82d7f9b129a3a95549b2a))
+* **api:** give the agent a website design skill ([#730](https://github.com/remidej/camox/issues/730)) ([7a7941c](https://github.com/remidej/camox/commit/7a7941c43e53cbb13a002a68e41773a58959327f))
+* **api:** log failed agent model calls, and alert when OpenRouter's account turns them down ([#733](https://github.com/remidej/camox/issues/733)) ([9fdbcff](https://github.com/remidej/camox/commit/9fdbcfffd9421a7711c8b14c26a0febc1ae65cb5))
+* let the agent look at pages of Singleton and Derived Layouts ([#734](https://github.com/remidej/camox/issues/734)) ([ba5dbfd](https://github.com/remidej/camox/commit/ba5dbfd288d75bef58e6a48d1b757abd62393243))
+* **sdk:** crop long chat messages past four lines, with a button to show them in full ([#732](https://github.com/remidej/camox/issues/732)) ([1470617](https://github.com/remidej/camox/commit/1470617e2573d9b5c482a7ddb244165744b83cb7))
+* **sdk:** invite editors to connect their AI from the Agent Sidebar ([#735](https://github.com/remidej/camox/issues/735)) ([a4afc37](https://github.com/remidej/camox/commit/a4afc372bec4d362bd34884d399a46f2481851ee))
+* **sdk:** keep leaving sidebar cards where they were as the stack changes ([#736](https://github.com/remidej/camox/issues/736)) ([cd5ea6b](https://github.com/remidej/camox/commit/cd5ea6b8b4ce08633c7118dd97f261ccfbf390b0))
+* **sdk:** stop clicks beside a field on the Canvas from editing it ([#737](https://github.com/remidej/camox/issues/737)) ([5e05b83](https://github.com/remidej/camox/commit/5e05b83eef70a127dfbf9d8d205a19d28cb58a50))
+* **sdk:** zoom the Canvas overview out past a lone short Page ([#739](https://github.com/remidej/camox/issues/739)) ([6f39878](https://github.com/remidej/camox/commit/6f398780fa8b0cc1242dc0de709807141a7a7a99))
+* the agent looks at what it designed ([#727](https://github.com/remidej/camox/issues/727)) ([70f8822](https://github.com/remidej/camox/commit/70f8822a192cb1cc51102b5dd16d719341d8b147))
+
 ## [0.63.0](https://github.com/remidej/camox/compare/camox-v0.62.0...camox-v0.63.0) (2026-10-29)
 
 
