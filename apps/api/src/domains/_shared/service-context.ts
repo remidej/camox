@@ -1,6 +1,7 @@
 import type { Database } from "../../db";
 import type { Bindings } from "../../types";
 import type { Auth } from "../auth/routes";
+import type { LookGrant } from "../drafts/look-token";
 import type { DraftRequest } from "../drafts/scope";
 
 export type ServiceContext = {
@@ -32,6 +33,11 @@ export type ServiceContext = {
    * publishes, and Live otherwise (`accessTo`).
    */
   publishingDraft?: string;
+  /**
+   * What the valid look token the request carries through `x-camox-look-token` grants (ADR
+   * 0032): a public read naming its draft reads it without a session (`accessTo`).
+   */
+  look?: LookGrant;
   /**
    * The locale the request reads and writes content in, by its tag, through `x-camox-locale` or
    * an AI tool's `locale`. Absent means the default locale (ADR 0015). Content access checks

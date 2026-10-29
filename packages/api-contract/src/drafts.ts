@@ -26,6 +26,21 @@ export const PUBLISHING_DRAFT_HEADER = "x-camox-publishing-draft";
 export const PUBLISHING_DRAFT_VAR = "CAMOX_PUBLISHING_DRAFT";
 
 /**
+ * Request header carrying a look token (ADR 0032): a short-lived, read-only credential the API
+ * signs for the agent's `look` tool, naming one project and one draft. A request carrying a valid
+ * one reads that draft's content, named with `DRAFT_HEADER`, as a member would, without a session.
+ * It writes nothing, reads no other draft, and reads none of Live's private data.
+ */
+export const LOOK_TOKEN_HEADER = "x-camox-look-token";
+
+/**
+ * The cookie the browser `look` drives carries the look token in, set for the website's host
+ * only, so third-party requests never see it. The website forwards it as `LOOK_TOKEN_HEADER`.
+ * Mirrored in apps/dispatch/src/previews.ts: keep the two in sync.
+ */
+export const LOOK_TOKEN_COOKIE = "camox_look";
+
+/**
  * Request header asking the API to create the draft named by `DRAFT_HEADER` if it doesn't
  * exist yet. Its value is `"1"`.
  */
