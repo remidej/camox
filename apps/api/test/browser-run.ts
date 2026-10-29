@@ -27,6 +27,8 @@ export type BrowserRunFakes = {
   capturedImage(): Promise<string>;
   failCapturesOf(pattern: string, error: string, size?: string): Promise<void>;
   takeBrowserRunDownFor(host: string): Promise<void>;
+  /** Makes captures of an element whose selector holds `pattern` cut, at `size` only when given. */
+  cutCapturesOf(pattern: string, size?: string): Promise<void>;
 };
 
 export const browserRunFakes = (env as unknown as { RELEASE_FAKES: BrowserRunFakes }).RELEASE_FAKES;

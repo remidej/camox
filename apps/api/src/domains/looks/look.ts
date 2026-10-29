@@ -33,8 +33,11 @@ export const DEFAULT_SIZES: readonly LookSize[] = ["desktop", "mobile"];
 /** A page of the draft, by its path in its Locale, the Default Locale without one. */
 export type PageTarget = { path: string; locale?: string };
 
+/** One Placement on a page of the draft, by the page's path and the block's ID. */
+export type PlacementTarget = PageTarget & { block: string };
+
 /** What the agent asks `look` to capture, with the sizes it wants. */
-export type LookTarget = PageTarget & { sizes?: LookSize[] };
+export type LookTarget = (PageTarget | PlacementTarget) & { sizes?: LookSize[] };
 
 /** One result: a target at one size, with its image, or why it failed. */
 export type Looked = { target: LookTarget; size: LookSize } & Captured;
@@ -121,7 +124,10 @@ export async function look(
   });
 }
 
-/** What `target` is captured as: the lightweight document of its page, once it's in the draft. */
+/**
+ * What `target` is captured as: the lightweight document of its page, once it's in the draft,
+ * and for a Placement, its block's element there.
+ */
 async function resolve(
   env: Bindings,
   where: LookIn,
@@ -129,20 +135,31 @@ async function resolve(
   origin: string,
   target: LookTarget,
 ): Promise<Resolved> {
-  const missing = await pageMissing(env, where, projectUuid, target);
-  if (missing) return { error: missing };
+  const structure = await pageStructure(env, where, projectUuid, target);
+  if ("error" in structure) return structure;
   const url = new URL(LOOK_DOCUMENT_PATH, origin);
   url.searchParams.set(DRAFT_SEARCH_PARAM, where.draftId);
   url.searchParams.set(LOOK_PATH_PARAM, target.path);
   if (target.locale) url.searchParams.set(LOOK_LOCALE_PARAM, target.locale);
-  return { url: url.href };
+  if (!("block" in target)) return { url: url.href };
+  const { page, layout } = structure;
+  const placements = [
+    ...(layout?.beforeBlockIds ?? []),
+    ...page.blockIds,
+    ...(layout?.afterBlockIds ?? []),
+  ];
+  if (!placements.includes(target.block)) {
+    return { error: `The page at ${target.path} has no block ${target.block}.` };
+  }
+  // The site's block render marks each block's element with its Placement ID, Layout blocks too.
+  return { url: url.href, element: `[data-camox-viewport-block="${target.block}"]` };
 }
 
 /**
- * Why the page `target` names can't be looked at, or undefined when the draft has it: read as the
- * browser will, with the draft's look token.
+ * The structure of the page `target` names, read as the browser will, with the draft's look
+ * token, or why it can't be looked at.
  */
-async function pageMissing(
+async function pageStructure(
   env: Bindings,
   where: LookIn,
   projectUuid: string,
@@ -160,12 +177,14 @@ async function pageMissing(
     locale,
   };
   try {
-    await runService(getPageStructure(ctx, { projectUuid, path }));
-    return undefined;
+    return await runService(getPageStructure(ctx, { projectUuid, path }));
   } catch (error) {
     if (!(error instanceof ORPCError)) throw error;
-    return error.code === "NOT_FOUND"
-      ? `The draft has no page at ${path}${locale ? ` in ${locale}` : ""}.`
-      : error.message;
+    return {
+      error:
+        error.code === "NOT_FOUND"
+          ? `The draft has no page at ${path}${locale ? ` in ${locale}` : ""}.`
+          : error.message,
+    };
   }
 }
