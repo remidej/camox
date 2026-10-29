@@ -26,7 +26,6 @@ const report = (
 ): ReportView => ({
   id,
   outcome: "done",
-  attention: "none",
   at: minutes(2),
   live: false,
   place: null,
@@ -36,7 +35,9 @@ const report = (
 const seoManager = (overrides: Partial<PatrollerView> = {}): PatrollerView => ({
   id: "seoManager",
   role: "SEO manager",
+  duty: "asYouGo",
   working: null,
+  lastCheckedAt: null,
   lastActivityAt: minutes(2),
   reports: [
     report("1", {
@@ -60,7 +61,9 @@ const seoManager = (overrides: Partial<PatrollerView> = {}): PatrollerView => ({
 const translator: PatrollerView = {
   id: "translator",
   role: "Translator",
+  duty: "asYouGo",
   working: null,
+  lastCheckedAt: null,
   lastActivityAt: null,
   reports: [],
   more: [],
@@ -375,6 +378,35 @@ void test("each patroller shows its own squareling, never the agent's, with its 
       face: "working",
     },
   );
+});
+
+void test("a patroller off where the editor is shows asleep, and working whenever it works there", () => {
+  const face = (patroller: PatrollerView) =>
+    renderOne(patroller).squareling?.getAttribute("data-squareling");
+
+  assert.equal(face(seoManager({ duty: "off" })), "asleep");
+  assert.equal(face({ ...translator, duty: "off" }), "asleep");
+  assert.equal(
+    face(
+      seoManager({
+        duty: "off",
+        working: { subject: pricing, locales: [{ locale: "de", count: 1 }] },
+      }),
+    ),
+    "working",
+  );
+  assert.equal(face(seoManager({ duty: "atPublish" })), "idle");
+});
+
+void test("an asleep patroller still opens its popover, with its reports", () => {
+  const shown = render({ patrollers: [seoManager({ duty: "off" })] }, { open: "seoManager" });
+
+  assert.equal(shown.openRole, "SEO manager");
+  assert.deepEqual(shown.reports("seoManager"), [
+    "Wrote SEO for Pricing in German 2m",
+    "Couldn't write SEO for Pricing in French 5m",
+    "Described team.png in English Live 1h",
+  ]);
 });
 
 void test("assistive technology hears the working state in words as it changes, once", () => {

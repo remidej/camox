@@ -51,8 +51,11 @@ export const reportLocale = (
 /** Whether the work was done, or failed. A failure shows in its report only. */
 export type ReportOutcome = "done" | "failed";
 
-/** Whether a report needs a human. Nothing raises one yet. */
-export type AttentionLevel = "none" | "needed";
+/**
+ * Where a patroller is on duty, in drafts or on Live: it works as you go, checks when you
+ * publish, or is off there (ADR 0034).
+ */
+export type PatrollerDuty = "asYouGo" | "atPublish" | "off";
 
 /**
  * Where the studio shows a report's subject: a page on the Canvas, with the block and repeatable
@@ -68,7 +71,6 @@ export type ReportView = {
   id: string;
   summary: ReportSummary;
   outcome: ReportOutcome;
-  attention: AttentionLevel;
   /** When the work last settled, in milliseconds since the epoch. */
   at: number;
   /** Whether the report is Live's, seen from a draft or from Live. */
@@ -96,9 +98,19 @@ export type PatrollerView = {
   id: PatrollerId;
   /** Its role, as editors know it: "Translator", "SEO manager". */
   role: string;
+  /** Its duty in the scope viewed. Off there, it still has its reports. */
+  duty: PatrollerDuty;
   /** Null when it isn't working in the scope. */
   working: PatrollerWorking | null;
-  /** Its latest activity in the scope, or null when it never worked there. */
+  /**
+   * When it last finished a check in the scope, whether it found anything or not, or null when it
+   * never checked there.
+   */
+  lastCheckedAt: number | null;
+  /**
+   * Its latest activity in the scope: its last check, its newest report or when its pending work
+   * started, whichever is later. Null when it never worked there.
+   */
   lastActivityAt: number | null;
   /** Its newest reports, newest first. */
   reports: ReportView[];

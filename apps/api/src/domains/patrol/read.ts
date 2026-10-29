@@ -1,4 +1,5 @@
 import {
+  type PatrollerId,
   type PatrollerView,
   type PatrollerWorking,
   type PatrolView,
@@ -32,10 +33,10 @@ import { withFileMetadata } from "../files/generated-metadata";
 import { files } from "../files/schema";
 import { defaultLocaleTag } from "../locales/default-locale";
 import { pages } from "../pages/schema";
-import { PATROLLERS } from "./patrollers";
-import { reports } from "./schema";
+import { dutyOnLive, PATROLLERS } from "./patrollers";
+import { patrolChecks, reports } from "./schema";
 import { liveWorkScopes } from "./scopes";
-import type { PendingWork } from "./working";
+import type { PendingWork, WorkScopes } from "./working";
 
 // The Patrol read (ADR 0024): every patroller of the registry, with its reports in the scope the
 // studio views. A draft sees its own reports and Live's; Live sees its own. The catch-up draft's
@@ -255,6 +256,34 @@ const latest = (...times: (number | undefined)[]) => {
   return known.length > 0 ? Math.max(...known) : null;
 };
 
+/** When each patroller last checked any of `scopes`, the latest. */
+const lastCheckedIn = Effect.fn("patrol.lastCheckedIn")(function* (
+  db: Database,
+  projectId: number,
+  scopes: WorkScopes,
+) {
+  const drafts = scopes.filter((scope) => scope !== null);
+  const rows = yield* Effect.promise(() =>
+    db
+      .select({ patroller: patrolChecks.patroller, checkedAt: patrolChecks.checkedAt })
+      .from(patrolChecks)
+      .where(
+        and(
+          eq(patrolChecks.projectId, projectId),
+          or(
+            ...(scopes.includes(null) ? [isNull(patrolChecks.draftId)] : []),
+            ...(drafts.length > 0 ? [inArray(patrolChecks.draftId, drafts)] : []),
+          ),
+        ),
+      ),
+  );
+  const latestOf = new Map<PatrollerId, number>();
+  for (const { patroller, checkedAt } of rows) {
+    latestOf.set(patroller, Math.max(latestOf.get(patroller) ?? 0, checkedAt));
+  }
+  return latestOf;
+});
+
 /** Newest first; a report written later wins a tie. */
 const newestFirst = (a: ReportRow, b: ReportRow) => b.at - a.at || b.rowId - a.rowId;
 
@@ -300,7 +329,6 @@ export const getPatrol = Effect.fn("patrol.get")(function* (
       id: `${row.draftId ?? "live"}:${row.key}`,
       summary,
       outcome: row.outcome,
-      attention: row.attention,
       at: row.at,
       // Live's own, or the catch-up draft's unless that's the draft viewed.
       live: row.draftId === null || row.draftId !== viewed?.id,
@@ -310,6 +338,7 @@ export const getPatrol = Effect.fn("patrol.get")(function* (
 
   // What's pending in the scope viewed: on Live, the catch-up draft's work is Live's.
   const workScopes = viewed ? [viewed.id] : liveScopes;
+  const lastChecked = yield* lastCheckedIn(ctx.db, projectId, workScopes);
   const working = yield* Effect.forEach(PATROLLERS, (patroller) =>
     Effect.flatMap(patroller.pending(ctx.db, projectId, workScopes), (pending) =>
       workingOn(ctx.db, projectId, pending, viewed ? draftOf(viewed) : null),
@@ -323,11 +352,14 @@ export const getPatrol = Effect.fn("patrol.get")(function* (
       const locale = reportLocale(row.summary);
       rest.set(locale, (rest.get(locale) ?? 0) + 1);
     }
+    const lastCheckedAt = lastChecked.get(patroller.id) ?? null;
     return {
       id: patroller.id,
       role: patroller.role,
+      duty: viewed ? patroller.duty.drafts : dutyOnLive(patroller, catchUp !== undefined),
       working: working[index]!.working,
-      lastActivityAt: latest(own[0]?.at, working[index]!.since),
+      lastCheckedAt,
+      lastActivityAt: latest(own[0]?.at, working[index]!.since, lastCheckedAt ?? undefined),
       reports: own.slice(0, REPORTS_SHOWN).map(viewOf),
       more: mostFirst(rest),
     };

@@ -304,7 +304,7 @@ function PatrollerRow({
           <span className="bg-muted relative flex size-8 shrink-0 items-center justify-center rounded-full">
             <Squareling
               variant={patroller.id}
-              status={working ? "working" : "idle"}
+              status={working ? "working" : patroller.duty === "off" ? "asleep" : "idle"}
               className="size-5"
             />
             {working && <WorkingArc />}

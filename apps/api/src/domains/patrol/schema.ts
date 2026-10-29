@@ -1,5 +1,4 @@
 import type {
-  AttentionLevel,
   PatrollerId,
   ReportEntity,
   ReportOutcome,
@@ -43,7 +42,6 @@ export const reports = sqliteTable(
     key: text().notNull(),
     summary: text({ mode: "json" }).notNull().$type<StoredSummary>(),
     outcome: text().notNull().$type<ReportOutcome>(),
-    attention: text().notNull().default("none").$type<AttentionLevel>(),
     // When the work last settled.
     at: int().notNull(),
   },
@@ -55,5 +53,31 @@ export const reports = sqliteTable(
       .on(table.draftId, table.patroller, table.key)
       .where(sql`${table.draftId} is not null`),
     index("reports_project_idx").on(table.projectId),
+  ],
+);
+
+/**
+ * When a patroller last finished a check in a scope, a draft or Live (`draftId` null), whether it
+ * found anything or not (ADR 0034). One per project, scope and patroller. Like reports, not
+ * content, and a draft's end with it.
+ */
+export const patrolChecks = sqliteTable(
+  "patrol_checks",
+  {
+    rowId: int("row_id").primaryKey(),
+    projectId: int("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    draftId: text("draft_id").references(() => drafts.id, { onDelete: "cascade" }),
+    patroller: text().notNull().$type<PatrollerId>(),
+    checkedAt: int("checked_at").notNull(),
+  },
+  (table) => [
+    uniqueIndex("patrol_checks_live_idx")
+      .on(table.projectId, table.patroller)
+      .where(sql`${table.draftId} is null`),
+    uniqueIndex("patrol_checks_draft_idx")
+      .on(table.draftId, table.patroller)
+      .where(sql`${table.draftId} is not null`),
   ],
 );

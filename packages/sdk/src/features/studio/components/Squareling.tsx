@@ -17,8 +17,11 @@ export type SquarelingStatus =
   | "checking"
   | "fixing";
 
-/** Whether a patroller is working, as its squareling's face says. */
-export type PatrollerSquarelingStatus = "idle" | "working";
+/**
+ * Whether a patroller is working, idle, or asleep where it's off duty, as its squareling's face
+ * says.
+ */
+export type PatrollerSquarelingStatus = "idle" | "working" | "asleep";
 
 type SquarelingProps = (
   | { variant?: "agent"; status: SquarelingStatus }
@@ -37,6 +40,8 @@ type SquarelingProps = (
  * has its own, one family: the Translator is the logo's wide wedge, in violet, glancing across
  * while it works; the SEO manager is a tall block with the small shape's soft corner, in amber,
  * scanning down while it works.
+ *
+ * A patroller off duty where the editor is sleeps, eyes closed, breathing slowly.
  *
  * One face flows into the next: its eyes glide to where the next face holds them, opening or
  * narrowing, and a looping motion settles before the next one starts (`useFaceChange`).
@@ -68,7 +73,11 @@ export function Squareling(props: SquarelingProps) {
             {props.variant === undefined || props.variant === "agent" ? (
               <AgentEyes eyes={look.eyes} status={props.status} />
             ) : (
-              <PatrollerEyes eyes={look.eyes} working={props.status === "working"} />
+              <PatrollerEyes
+                eyes={look.eyes}
+                working={props.status === "working"}
+                asleep={props.status === "asleep"}
+              />
             )}
           </g>
         </g>
@@ -151,23 +160,32 @@ const OPEN = 17;
 const NARROWED = 6;
 /** How far down a narrowed eye's middle sits, from the open one's. */
 const NARROWED_SHIFT = 2.5;
+const CLOSED = 2;
+/** How far down a closed eye's middle sits, from the open one's: near its lower lid. */
+const CLOSED_SHIFT = 5;
+
+/** How open an eye is. */
+type Openness = "open" | "narrowed" | "closed";
 
 /**
- * One eye, its left edge at `x` and its top at `y`: open, or narrowed on the work, lower down.
- * It narrows by scaling, which `studio.css` eases. Only an eye that blinks carries the class
- * `studio.css` blinks.
+ * One eye, its left edge at `x` and its top at `y`: open, narrowed on the work, or closed, each
+ * lower down. It narrows and closes by scaling, which `studio.css` eases. Only an eye that blinks
+ * carries the class `studio.css` blinks.
  */
 function Eye({
   x,
   y,
   narrowed,
+  closed = false,
   blinks,
 }: {
   x: number;
   y: number;
   narrowed: boolean;
+  closed?: boolean;
   blinks: boolean;
 }) {
+  const openness: Openness = closed ? "closed" : narrowed ? "narrowed" : "open";
   return (
     <rect
       className={cn("squareling-eye", blinks && "squareling-blinks")}
@@ -175,14 +193,16 @@ function Eye({
       y={y}
       width={EYE_WIDTH}
       height={OPEN}
-      style={
-        narrowed
-          ? { scale: `1 ${NARROWED / OPEN}`, translate: `0 ${NARROWED_SHIFT}px` }
-          : { scale: "1", translate: "0" }
-      }
+      style={EYE_STYLES[openness]}
     />
   );
 }
+
+const EYE_STYLES: Record<Openness, React.CSSProperties> = {
+  open: { scale: "1", translate: "0" },
+  narrowed: { scale: `1 ${NARROWED / OPEN}`, translate: `0 ${NARROWED_SHIFT}px` },
+  closed: { scale: `1 ${CLOSED / OPEN}`, translate: `0 ${CLOSED_SHIFT}px` },
+};
 
 /**
  * The agent's eyes: both narrowed on the work while making changes, the right one while fixing,
@@ -205,7 +225,20 @@ function AgentEyes({ eyes, status }: { eyes: Eyes; status: SquarelingStatus }) {
   );
 }
 
-/** A patroller's eyes: open while idle, narrowed on the work while working. */
-function PatrollerEyes({ eyes, working }: { eyes: Eyes; working: boolean }) {
-  return eyes.x.map((x) => <Eye key={x} x={x} y={eyes.y} narrowed={working} blinks />);
+/**
+ * A patroller's eyes: open while idle, narrowed on the work while working, closed while asleep,
+ * when they don't blink.
+ */
+function PatrollerEyes({
+  eyes,
+  working,
+  asleep,
+}: {
+  eyes: Eyes;
+  working: boolean;
+  asleep: boolean;
+}) {
+  return eyes.x.map((x) => (
+    <Eye key={x} x={x} y={eyes.y} narrowed={working} closed={asleep} blinks={!asleep} />
+  ));
 }

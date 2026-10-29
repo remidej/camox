@@ -22,6 +22,8 @@ import { router } from "../../router";
 import { blocks, files, pages } from "../../schema";
 import { runOverviewJob } from "../drafts/overview-job";
 import { runGenerationJob } from "../generated-values/generation";
+import { seoManager as seoManagerPatroller, translator as translatorPatroller } from "./patrollers";
+import { writeCheck } from "./reports";
 
 // The Patrol (ADR 0024) as the studio reads it: edits go through the router, Camox's scheduled
 // jobs run against the scripted model, and the `PatrolView` says what the patrollers did.
@@ -220,7 +222,6 @@ describe("the SEO manager", () => {
 
     const patroller = await seoManager();
     expect(sentences(patroller)).toEqual(["failed wroteSeo Pricing en"]);
-    expect(patroller.reports[0]!.attention).toBe("none");
   });
 
   it("leaves no report, and no time, for a page whose SEO is manual", async () => {
@@ -330,6 +331,84 @@ describe("drafts and Live", () => {
     await call(router.drafts.publish, { projectId, token }, member(inDraft));
 
     expect((await seoManager({})).reports).toEqual([]);
+  });
+});
+
+describe("where each patroller is on duty", () => {
+  const duties = (patrollers: PatrollerView[]) =>
+    Object.fromEntries(patrollers.map(({ id, duty }) => [id, duty]));
+
+  it("has the Translator and the SEO manager work as you go in a draft", async () => {
+    const { patrol } = await fixture();
+
+    expect(duties(await patrol())).toEqual({ translator: "asYouGo", seoManager: "asYouGo" });
+  });
+
+  it("has the Translator and the SEO manager off on Live", async () => {
+    const { patrol } = await fixture();
+
+    expect(duties(await patrol({}))).toEqual({ translator: "off", seoManager: "off" });
+  });
+});
+
+describe("when a patroller last checked", () => {
+  /** A short wait, so that times written after it are later. */
+  const tick = () => new Promise((resolve) => setTimeout(resolve, 5));
+
+  it("keeps the time a patroller last finished a check in each scope, found anything or not", async () => {
+    const { db, projectId, draft, patrol } = await fixture();
+    const before = Date.now();
+
+    await runService(writeCheck(db, translatorPatroller, { projectId, draftId: draft }));
+
+    const [first, second] = await patrol();
+    expect(first!.id).toBe("translator");
+    expect(first!.lastCheckedAt).toBeGreaterThanOrEqual(before);
+    expect(first!.lastActivityAt).toBe(first!.lastCheckedAt);
+    expect(first!.reports).toEqual([]);
+    expect(second!.lastCheckedAt).toBeNull();
+    // Live wasn't checked.
+    for (const patroller of await patrol({})) expect(patroller.lastCheckedAt).toBeNull();
+  });
+
+  it("says a patroller last worked when it last checked or reported, whichever is later", async () => {
+    const { db, projectId, draft, page, writeSeo, seoManager } = await fixture();
+    await writeSeo(page.id);
+    const reported = (await seoManager()).reports[0]!.at;
+    await tick();
+
+    await runService(writeCheck(db, seoManagerPatroller, { projectId, draftId: draft }));
+
+    const checked = await seoManager();
+    expect(checked.lastCheckedAt).toBeGreaterThan(reported);
+    expect(checked.lastActivityAt).toBe(checked.lastCheckedAt);
+    await tick();
+
+    await writeSeo(page.id, { answer: { metaTitle: "Plans", metaDescription: "Our plans" } });
+
+    const after = await seoManager();
+    expect(after.reports[0]!.at).toBeGreaterThan(checked.lastCheckedAt!);
+    expect(after.lastActivityAt).toBe(after.reports[0]!.at);
+  });
+
+  it("keeps a new time when a patroller checks the same scope again", async () => {
+    const { db, projectId, draft, seoManager } = await fixture();
+    await runService(writeCheck(db, seoManagerPatroller, { projectId, draftId: draft }));
+    const first = (await seoManager()).lastCheckedAt!;
+    await tick();
+
+    await runService(writeCheck(db, seoManagerPatroller, { projectId, draftId: draft }));
+
+    expect((await seoManager()).lastCheckedAt).toBeGreaterThan(first);
+  });
+
+  it("refreshes the Patrol of the scope checked", async () => {
+    const { db, projectId, draft } = await fixture();
+    forgetSent(projectId);
+
+    await runService(writeCheck(db, seoManagerPatroller, { projectId, draftId: draft }));
+
+    expect(refreshes(sentTo(projectId), draft, [...queryKeys.patrol.get, projectId])).toBe(true);
   });
 });
 
@@ -601,6 +680,19 @@ describe("a patroller at work", () => {
     });
     await runTranslations(f);
     expect((await translator(f, {})).working).toBeNull();
+  });
+
+  it("puts the Translator and the SEO manager on duty on Live while the catch-up draft translates", async () => {
+    const f = await fixture();
+    const onLive = async () =>
+      Object.fromEntries((await f.patrol({})).map(({ id, duty }) => [id, duty]));
+
+    await catchingUp(f);
+
+    expect(await onLive()).toEqual({ translator: "asYouGo", seoManager: "asYouGo" });
+    // Once its translations settle, the catch-up draft is published, and they're off again.
+    await runTranslations(f);
+    expect(await onLive()).toEqual({ translator: "off", seoManager: "off" });
   });
 
   it("refreshes the Patrol of the draft whose SEO is requested", async () => {
