@@ -1,6 +1,6 @@
-import { and, eq } from "drizzle-orm";
+import { and, eq, inArray, type SQL } from "drizzle-orm";
 
-import { createDb } from "../../db";
+import { createDb, type Database } from "../../db";
 import { member, projects } from "../../schema";
 import type { Bindings } from "../../types";
 import { createAuth } from "../auth/routes";
@@ -52,19 +52,15 @@ export async function previewedRevision(
     headers: new Headers({ authorization: `Bearer ${token}` }),
   });
   if (!signedIn) return null;
-  const previewed = await db
-    .select({ revision: revisions.id, archiveKey: revisions.archiveKey })
-    .from(drafts)
-    .innerJoin(projects, eq(projects.id, drafts.projectId))
-    .innerJoin(
-      member,
-      and(eq(member.organizationId, projects.organizationId), eq(member.userId, signedIn.user.id)),
-    )
-    .innerJoin(revisions, eq(revisions.id, drafts.previewedRevisionId))
-    .where(and(eq(drafts.id, draft), eq(projects.uuid, project)))
-    .get();
-  if (!previewed?.archiveKey) return null;
-  return { revision: previewed.revision, archiveKey: previewed.archiveKey, project, draft };
+  const memberOrganizations = db
+    .select({ organizationId: member.organizationId })
+    .from(member)
+    .where(eq(member.userId, signedIn.user.id));
+  return revisionPreviewedBy(
+    db,
+    { project, draft },
+    inArray(projects.organizationId, memberOrganizations),
+  );
 }
 
 /** What dispatch asks about a look document: its project's Project ID, its draft, its look token. */
@@ -82,12 +78,28 @@ export async function lookedRevision(
 ): Promise<RevisionToLoad | null> {
   const grant = await verifyLookToken(env, token);
   if (!grant || grant.draftId !== draft) return null;
-  const previewed = await createDb(env.DB)
+  return revisionPreviewedBy(
+    createDb(env.DB),
+    { project, draft },
+    eq(projects.id, grant.projectId),
+  );
+}
+
+/**
+ * The revision the draft `draft` of the project `project` previews, when its project meets
+ * `allowed`, or null. The two questions differ only in who is allowed.
+ */
+async function revisionPreviewedBy(
+  db: Database,
+  { project, draft }: { project: string; draft: string },
+  allowed: SQL,
+): Promise<RevisionToLoad | null> {
+  const previewed = await db
     .select({ revision: revisions.id, archiveKey: revisions.archiveKey })
     .from(drafts)
     .innerJoin(projects, eq(projects.id, drafts.projectId))
     .innerJoin(revisions, eq(revisions.id, drafts.previewedRevisionId))
-    .where(and(eq(drafts.id, draft), eq(projects.uuid, project), eq(projects.id, grant.projectId)))
+    .where(and(eq(drafts.id, draft), eq(projects.uuid, project), allowed))
     .get();
   if (!previewed?.archiveKey) return null;
   return { revision: previewed.revision, archiveKey: previewed.archiveKey, project, draft };

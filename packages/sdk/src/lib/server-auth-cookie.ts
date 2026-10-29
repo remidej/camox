@@ -26,15 +26,7 @@ export function getServerAuthCookieHeader(headers: Headers): string {
 
 /** The mirror's session in a `Cookie` header's value, or `document.cookie`. */
 export function readServerAuthCookie(cookieHeader: string): string {
-  const cookies = cookieHeader.split(";").map((part) => part.trim());
-  const mirror = cookies.find((part) => part.startsWith(`${SERVER_AUTH_COOKIE_NAME}=`));
-  if (!mirror) return "";
-  try {
-    return decodeURIComponent(mirror.slice(SERVER_AUTH_COOKIE_NAME.length + 1));
-  } catch {
-    // A malformed mirror is no session.
-    return "";
-  }
+  return readCookie(cookieHeader, SERVER_AUTH_COOKIE_NAME);
 }
 
 /**
@@ -42,12 +34,18 @@ export function readServerAuthCookie(cookieHeader: string): string {
  * agent's `look` tool drives for the website's host only. Empty when there's none.
  */
 export function getLookToken(headers: Headers): string {
-  const cookies = (headers.get("Cookie") ?? "").split(";").map((part) => part.trim());
-  const look = cookies.find((part) => part.startsWith(`${LOOK_TOKEN_COOKIE}=`));
-  if (!look) return "";
+  return readCookie(headers.get("Cookie") ?? "", LOOK_TOKEN_COOKIE);
+}
+
+/** The cookie `name`'s value in a `Cookie` header's value, decoded, or empty when there's none. */
+function readCookie(cookieHeader: string, name: string): string {
+  const cookies = cookieHeader.split(";").map((part) => part.trim());
+  const cookie = cookies.find((part) => part.startsWith(`${name}=`));
+  if (!cookie) return "";
   try {
-    return decodeURIComponent(look.slice(LOOK_TOKEN_COOKIE.length + 1));
+    return decodeURIComponent(cookie.slice(name.length + 1));
   } catch {
+    // A malformed cookie is none.
     return "";
   }
 }
