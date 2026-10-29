@@ -14,13 +14,15 @@ import {
   retried,
   type RevisionOrigin,
 } from "./build";
+import { lintable } from "./lint-log";
 import type { BuildResult } from "./result";
 import { lintInSandbox } from "./sandbox";
 import { type RevisionBuildStatus, type RevisionTypeCheckStatus, revisions } from "./schema";
 
 /**
- * How many end-of-turn builds may fail in a row before the turn commits its changes anyway, as a
- * revision that isn't built. Builds the agent calls itself don't count. A tuning value.
+ * How many end-of-turn builds may fail in a row, or find lint problems, before the turn commits
+ * its changes anyway, as a revision that isn't built, or keeps them with their errors. Builds the
+ * agent calls itself don't count. A tuning value.
  */
 export const END_OF_TURN_BUILD_FAILURES = 3;
 
@@ -29,7 +31,10 @@ export type TurnBuild =
   /** The turn's code already is a revision: nothing changed since the last one. */
   | { outcome: "unchanged" }
   | { outcome: "built"; result: BuildResult }
-  /** The turn's code builds, and lint found problems in it: the agent is handed `result`. */
+  /**
+   * The turn's code builds, but lint found problems in the files it changed: the agent is handed
+   * `result` to fix them. Once it had them too often, the turn ends `built`, with them.
+   */
   | { outcome: "linted"; result: BuildResult }
   /** The build failed: the agent is handed `result` to fix it. */
   | { outcome: "failed"; result: BuildResult }
@@ -107,19 +112,29 @@ function settled(revision: {
 }
 
 /**
- * Lints the turn's code, which built as `result`: a turn whose code has lint findings hands them
- * to the agent. Lint is for code quality only: when Camox can't run it, the turn just ends.
+ * The files the turn changed that lint lints: those that differ from `base`, the commit the
+ * draft's code was at as the turn started, or from the branch's head without it.
  */
-async function lintTurn(
+async function filesToLint(env: Bindings, draftId: string, base: string | undefined) {
+  const changed = await retried(() =>
+    env.DRAFT_CODE.getByName(draftId).changedFiles({ since: base }),
+  );
+  return changed.filter(lintable);
+}
+
+/**
+ * Lints `files` of the turn's tree, built already. Lint is for code quality: when Camox can't run
+ * it, it finds nothing, and the turn goes on as if it found nothing.
+ */
+async function lintTree(
   env: Bindings,
   draftId: string,
   tree: Parameters<typeof lintInSandbox>[2],
-  result: BuildResult,
+  files: string[],
   span: SpanFields,
-): Promise<TurnBuild> {
-  let found;
+) {
   try {
-    found = await retried(() => lintInSandbox(env, draftId, tree, span), {
+    return await retried(() => lintInSandbox(env, draftId, tree, files, span), {
       name: "agent.turnEnd.lint",
       fields: span,
       after: (errors) => ({ lintErrors: errors.length }),
@@ -127,18 +142,19 @@ async function lintTurn(
   } catch (error) {
     if (!(error instanceof BuildInfrastructureError)) throw error;
     console.error("A turn ended without linting its code", error);
+    return [];
+  }
+}
+
+/**
+ * What the end of a turn whose code builds does about `result`'s lint findings: hands them to the
+ * agent, unless the end of the turn failed too often in a row with this one.
+ */
+function lintedOrBuilt(result: BuildResult, failedInARow: number): TurnBuild {
+  if (result.lint.length === 0 || failedInARow + 1 >= END_OF_TURN_BUILD_FAILURES) {
     return { outcome: "built", result };
   }
-  if (found.length === 0) return { outcome: "built", result };
-  const { shown, total } = capped(found);
-  return {
-    outcome: "linted",
-    result: {
-      ...result,
-      lint: shown,
-      ...(total === undefined ? {} : { truncated: { ...result.truncated, lint: total } }),
-    },
-  };
+  return { outcome: "linted", result };
 }
 
 /**
@@ -151,10 +167,11 @@ async function lintTurn(
  * that isn't built, and ones that did stay with their errors. `building` runs before a build
  * starts.
  *
- * When `lint` is set, code the turn changed that builds is linted too, after its build: findings
- * hand the agent a `linted` result. Lint never fails a build. The caller sets it once per turn,
- * with `covered` when the agent's own builds in the turn may have covered its changes: a tree
- * already built is then linted too.
+ * The files the turn changed since `base`, the commit its code was at as it started, are linted
+ * too, beside the build, or alone when the agent's builds covered its changes: findings in code
+ * that builds hand the agent a `linted` result, and count as a failure, and the findings of a
+ * build that fails come with its errors. Lint never fails a build, and the turn ends with
+ * findings it had once too often.
  */
 export async function buildAtEndOfTurn(
   env: Bindings,
@@ -163,41 +180,49 @@ export async function buildAtEndOfTurn(
     run,
     failedInARow,
     building,
-    lint,
+    base,
   }: {
     run?: RevisionOrigin["run"];
     failedInARow: number;
     building: () => Promise<void>;
-    lint?: { covered: boolean };
+    base?: string;
   },
 ): Promise<TurnBuild> {
   const span = { draftId, threadId: run?.threadId, runId: run?.runId, failedInARow };
   return timed(
     "agent.turnEnd",
-    { ...span, linting: !!lint },
-    () => turnBuild(env, draftId, { run, failedInARow, building, lint }, span),
-    ({ outcome }) => ({ outcome }),
+    span,
+    () => turnBuild(env, draftId, { run, failedInARow, building, base }, span),
+    (turn) => ({
+      outcome: turn.outcome,
+      lintErrors: "result" in turn ? turn.result.lint.length : undefined,
+    }),
   );
 }
 
 async function turnBuild(
   env: Bindings,
   draftId: string,
-  { run, failedInARow, building, lint }: Parameters<typeof buildAtEndOfTurn>[2],
+  { run, failedInARow, building, base }: Parameters<typeof buildAtEndOfTurn>[2],
   span: SpanFields,
 ): Promise<TurnBuild> {
   const { prepared, revision } = await revisionOfTree(env, draftId, span);
+  const lint = await filesToLint(env, draftId, base);
   if (revision && settled(revision)) {
     // The agent's own build in this turn covered its changes: they're still to lint.
-    if (!lint?.covered || revision.buildStatus !== "built") return { outcome: "unchanged" };
-    const result = { ok: true, revision: revision.id, build: [], types: [], lint: [] };
-    const linted = await lintTurn(env, draftId, prepared, result, span);
-    return linted.outcome === "linted" ? linted : { outcome: "unchanged" };
+    if (revision.buildStatus !== "built" || lint.length === 0) return { outcome: "unchanged" };
+    const found = await lintTree(env, draftId, prepared, lint, span);
+    if (found.length === 0) return { outcome: "unchanged" };
+    const { shown, total } = capped(found);
+    const result = { ok: true, revision: revision.id, build: [], types: [], lint: shown };
+    return lintedOrBuilt(
+      total === undefined ? result : { ...result, truncated: { lint: total } },
+      failedInARow,
+    );
   }
   await building();
-  const result = await buildRevision(env, draftId, { leftBy: "turn", run });
-  if (result.ok)
-    return lint ? lintTurn(env, draftId, prepared, result, span) : { outcome: "built", result };
+  const result = await buildRevision(env, draftId, { leftBy: "turn", run, lint });
+  if (result.ok) return lintedOrBuilt(result, failedInARow);
   if (failedInARow + 1 < END_OF_TURN_BUILD_FAILURES) return { outcome: "failed", result };
   if (result.revision) return { outcome: "keptErrors", result };
   const code = env.DRAFT_CODE.getByName(draftId);
@@ -256,14 +281,15 @@ export const fixBuild = (result: BuildResult) =>
       "then end your turn again. "
     : "Your code changes don't build, so your turn isn't over: fix these errors, then end " +
       "your turn again. ") +
+  (result.lint.length > 0 ? "Fix the problems lint found in the files you changed too. " : "") +
   "Editors don't see this message.\n\n" +
   JSON.stringify(result);
 
 /** What the agent is told when the code its turn changed builds, but lint found problems in it. */
 export const fixLint = (result: BuildResult) =>
-  "Your code changes build, and the preview shows them, but lint found these problems in them. " +
-  "Fix the ones worth fixing, then end your turn again: Camox won't lint again in this turn, and " +
-  "lint never stops a draft from being published. Editors don't see this message.\n\n" +
+  "Your code changes build, and the preview shows them, but lint found these problems in the " +
+  "files you changed, so your turn isn't over: fix them, then end your turn again. Editors " +
+  "don't see this message.\n\n" +
   JSON.stringify(result);
 
 const EXPLAIN =

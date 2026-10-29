@@ -323,16 +323,17 @@ describe("lint at the end of a turn", () => {
   /** Pricing code that builds, with a lint finding the fake sandbox reports for its marker. */
   const linted = (marker: string) => `${PRICING}// ${marker}\n`;
 
-  it("hands the agent the turn's lint findings once, and the turn ends though it doesn't fix them", async () => {
+  it("hands the agent the lint findings of the files it changed, and its turn goes on until it fixes them", async () => {
     const marker = await lintedMarker([debuggerStatement(PRICING_FILE, 2)]);
     const { website, draftId, thread } = await draftThreadOf();
     let told = "";
     answerWithToolCall("write", { path: PRICING_FILE, content: linted(marker) });
     answerNext("I added a pricing section.");
-    answerFrom(({ editorMessages }) => {
+    answerWithToolCallFrom("write", ({ editorMessages }) => {
       told = editorMessages.at(-1)!;
-      return "I added a pricing section.";
+      return { path: PRICING_FILE, content: PRICING };
     });
+    answerNext("I added a pricing section, and tidied its code.");
 
     const view = await ask(thread, "Add a pricing section");
 
@@ -340,29 +341,89 @@ describe("lint at the end of a turn", () => {
     expect(told).toContain(PRICING_FILE);
     expect(said(view)).toEqual([
       { from: "editor", text: "Add a pricing section" },
-      { from: "agent", text: "I added a pricing section." },
+      { from: "agent", text: "I added a pricing section, and tidied its code." },
     ]);
-    expect(threadModelCalls()).toBe(3);
-    expect((await previewOf(website, draftId)).blockers).toEqual([]);
+    expect(await fakes.readFile(website.project.uuid, draftId, PRICING_FILE)).toBe(PRICING);
+    expect(await lintRuns(draftId)).toBe(2);
   });
 
-  it("doesn't lint the agent's fix again in the same turn", async () => {
+  it("ends the turn with the lint findings the agent didn't fix once the limit is reached", async () => {
     const marker = await lintedMarker([debuggerStatement(PRICING_FILE, 2)]);
-    const { draftId, thread } = await draftThreadOf();
+    const { website, draftId, thread } = await draftThreadOf();
     answerWithToolCall("write", { path: PRICING_FILE, content: linted(marker) });
-    answerNext("I added a pricing section.");
-    // A fix that still has the finding: the end of the turn builds it, and lets the turn end.
-    answerWithToolCall("write", { path: PRICING_FILE, content: `${linted(marker)}// Fixed\n` });
-    answerNext("I added a pricing section, and tidied its code.");
+    // The agent answers without fixing anything, every time the end of the turn sends it back.
+    for (let linting = 0; linting < END_OF_TURN_BUILD_FAILURES; linting++) answerNext("Done.");
 
     const view = await ask(thread, "Add a pricing section");
 
-    expect(said(view).at(-1)).toEqual({
-      from: "agent",
-      text: "I added a pricing section, and tidied its code.",
-    });
-    expect(await fakes.revisionBuilds(draftId)).toHaveLength(2);
+    expect(said(view).at(-1)).toEqual({ from: "agent", text: "Done." });
+    expect(threadModelCalls()).toBe(1 + END_OF_TURN_BUILD_FAILURES);
+    expect(await lintRuns(draftId)).toBe(END_OF_TURN_BUILD_FAILURES);
+    // Lint never stops a draft from being published.
+    expect((await previewOf(website, draftId)).blockers).toEqual([]);
+  });
+
+  it("leaves out the lint findings of files the turn didn't change", async () => {
+    const marker = await lintedMarker([debuggerStatement("src/blocks/hero.tsx", 2)]);
+    const { draftId, thread } = await draftThreadOf();
+    answerWithToolCall("write", { path: PRICING_FILE, content: linted(marker) });
+    answerNext("I added a pricing section.");
+
+    const view = await ask(thread, "Add a pricing section");
+
+    expect(said(view).at(-1)).toEqual({ from: "agent", text: "I added a pricing section." });
+    expect(threadModelCalls()).toBe(2);
     expect(await lintRuns(draftId)).toBe(1);
+  });
+
+  it("lints the files changed since the turn started, though the agent's builds committed them", async () => {
+    const marker = await lintedMarker([debuggerStatement(PRICING_FILE, 2)]);
+    const { thread } = await draftThreadOf();
+    let told = "";
+    answerWithToolCall("write", { path: PRICING_FILE, content: linted(marker) });
+    answerWithToolCall("build", {});
+    answerWithToolCall("write", {
+      path: "src/blocks/faq.tsx",
+      content: "export const faq = [];\n",
+    });
+    answerNext("I added a pricing section and a FAQ.");
+    answerFrom(({ editorMessages }) => {
+      told = editorMessages.at(-1)!;
+      return "I added a pricing section and a FAQ.";
+    });
+
+    await ask(thread, "Add a pricing section and a FAQ");
+
+    expect(told).toContain("eslint(no-debugger)");
+    expect(told).toContain(PRICING_FILE);
+  });
+
+  it("hands the agent the lint findings of changes that don't build with their errors", async () => {
+    const failing = await failingMarker(PRICING_FILE);
+    const marker = await lintedMarker([debuggerStatement(PRICING_FILE, 2)]);
+    const { thread } = await draftThreadOf();
+    let told = "";
+    answerWithToolCall("write", {
+      path: PRICING_FILE,
+      content: `${broken(failing)}// ${marker}\n`,
+    });
+    answerNext("I added a pricing section.");
+    answerWithToolCallFrom("write", ({ editorMessages }) => {
+      told = editorMessages.at(-1)!;
+      return { path: PRICING_FILE, content: PRICING };
+    });
+    answerNext("I added a pricing section, and fixed its import.");
+
+    await ask(thread, "Add a pricing section");
+
+    const result = JSON.parse(told.slice(told.indexOf("{"))) as {
+      build: unknown[];
+      lint: unknown[];
+    };
+    expect(result.build).toEqual([expect.objectContaining({ file: PRICING_FILE })]);
+    expect(result.lint).toEqual([
+      expect.objectContaining({ file: PRICING_FILE, rule: "eslint(no-debugger)" }),
+    ]);
   });
 
   it("lints a turn whose last build covered its changes", async () => {

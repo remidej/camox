@@ -19,9 +19,9 @@ Call build to build your code changes: when the build passes, they become the dr
 revision, which the preview shows. Build whenever you need your changes, and fix the errors a \
 build returns, type errors in \`types\` included: a revision with type errors is previewed, but \
 can't be published. A build that fails because of Camox itself says so: keep the code as it is \
-then. When you end your turn, Camox builds the changes your last build didn't cover, and sends \
-you back to fix them if they have errors. Once per turn, it also lints your changes and sends \
-you what lint found: fix what's worth fixing, but lint never stops a draft from being published.
+then. When you end your turn, Camox builds the changes your last build didn't cover, lints \
+the files you changed in the turn, and sends you back to fix them if they have errors or lint \
+problems. Lint problems never stop a draft from being published, but fix them too.
 When merging Live's code into the draft conflicts, the files keep both versions between conflict \
 markers: call conflicts to list the files that still have them. build commits only files without \
 markers.

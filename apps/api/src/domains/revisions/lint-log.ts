@@ -2,8 +2,8 @@ import { z } from "zod";
 
 import type { LintError } from "./result";
 
-// What `vp lint --format json` prints: Oxlint's JSON report, after whatever the project's Vite
-// config logged as Vite+ loaded it (the Camox plugin says what it builds), such as:
+// What a lint prints (sandbox.ts): Oxlint's JSON report, after whatever the project's Vite config
+// logged as `vp lint` loaded it (the Camox plugin says what it builds), such as:
 //
 //   4:00:00 AM [vite+] Building Camox app (Live, not released)
 //   { "diagnostics": [{"message": "`debugger` statement is not allowed","code": "eslint(no-debugger)",
@@ -25,11 +25,14 @@ const reportSchema = z.object({
 /** Files the agent may change: `src/`, except the platform's `src/camox/`. */
 const isAgents = (file: string) => file.startsWith("src/") && !file.startsWith("src/camox/");
 
+/** Whether lint lints the file `path`: one the agent may change, of JavaScript or TypeScript. */
+export const lintable = (path: string) => isAgents(path) && /\.[cm]?[jt]sx?$/.test(path);
+
 /**
- * The findings of a `vp lint --format json` run in files the agent may change, or nothing when
- * its output has no report, as when the run itself failed.
+ * The findings of a lint in `files`, or nothing when its output has no report, as when the run
+ * itself failed. Syntax errors, which name no rule, are left out: the build reports them.
  */
-export function lintErrorsOf(output: string): LintError[] | undefined {
+export function lintErrorsOf(output: string, files: string[]): LintError[] | undefined {
   const start = output.search(/^\{/m);
   if (start === -1) return undefined;
   let report: unknown;
@@ -40,12 +43,17 @@ export function lintErrorsOf(output: string): LintError[] | undefined {
   }
   const parsed = reportSchema.safeParse(report);
   if (!parsed.success) return undefined;
-  return parsed.data.diagnostics
-    .filter(({ filename }) => isAgents(filename))
-    .map(({ message, code, help, filename, labels }) => ({
-      file: filename,
-      line: labels?.[0]?.span.line ?? 0,
-      rule: code ?? "",
-      message: help ? `${message}. ${help}` : message,
-    }));
+  const linted = new Set(files);
+  return parsed.data.diagnostics.flatMap(({ message, code, help, filename, labels }) =>
+    linted.has(filename) && code !== undefined
+      ? [
+          {
+            file: filename,
+            line: labels?.[0]?.span.line ?? 0,
+            rule: code,
+            message: help ? `${message}. ${help}` : message,
+          },
+        ]
+      : [],
+  );
 }

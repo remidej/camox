@@ -55,7 +55,7 @@ const TYPE_CHECK_COMMAND = `tsrs -p ${TYPE_CHECK_CONFIG} --pretty false`;
 const SDK_BUNDLE_CACHE = "/opt/camox/sdk-bundles";
 
 /**
- * What builds and `vp lint` run with: both load the project's Vite config. Its Camox plugin
+ * What builds and lints run with: both load the project's Vite config. Its Camox plugin
  * builds a dry-run release as `camox release --dry-run` does, releasing nothing, and the hosted
  * build's variables turn on the hosted projects' checks. A hosted build reads its SDK Bundle from
  * the cache, and never builds it.
@@ -86,6 +86,15 @@ const START_BUILDER_COMMAND = `sh -c '[ -f ${REVISION_BUILDER} ] && exec node ${
  * sandbox whose image has none. Both print the same log. The builder's exit 75 says it couldn't.
  */
 const BUILD_COMMAND = `sh -c 'if [ -f ${REVISION_BUILDER} ]; then node ${REVISION_BUILDER} build; status=$?; [ $status -eq 75 ] || exit $status; fi; exec ${VP} build'`;
+/** Where a lint lists the files it lints, one path a line, for the revision builder to read. */
+const LINT_FILES = "/tmp/camox-lint-files";
+/**
+ * The lint: through the revision builder, which runs Oxlint with the project's `lint` config and
+ * lints the files listed with `vp lint` when it can't. A sandbox whose image has no builder lints
+ * all of `src/` with `vp lint`, whose findings in files that aren't listed are left out. Either
+ * prints Oxlint's JSON report.
+ */
+const LINT_COMMAND = `sh -c 'if [ -f ${REVISION_BUILDER} ]; then exec node ${REVISION_BUILDER} lint ${LINT_FILES}; fi; exec ${VP} lint --format json src'`;
 /** The lines the revision builder prints what a span logs of its build on, as JSON. */
 const BUILDER_REPORT = /^camox-builder: (.*)\n?/gm;
 
@@ -126,16 +135,18 @@ export type SandboxTypeCheck = { ok: boolean; output: string };
 /**
  * A build's outcome: its output as one gzipped tar archive, with the SDK Bundle it names (null
  * for a whole-app build) and the type check of the same tree, which may still be running, or the
- * log of its failure.
+ * log of its failure. Either way, `lint` has the findings of the lint that ran beside it: null
+ * when it was asked for none, or Camox couldn't lint.
  */
-export type SandboxBuild =
+export type SandboxBuild = { lint: Promise<LintError[] | null> } & (
   | {
       ok: true;
       archive: Uint8Array;
       sdkBundle: SdkBundleNames | null;
       typeCheck: Promise<SandboxTypeCheck>;
     }
-  | { ok: false; log: string };
+  | { ok: false; log: string }
+);
 
 /**
  * How the API talks to the sandbox's container. The tree's archive is written as a stream, which
@@ -315,21 +326,30 @@ export async function warmSandbox(
 
 /**
  * Builds a tree in the draft's sandbox, as a dry-run release of a hosted project. The type check
- * of `src/` runs beside the build, and a passed build returns it still going. A build missing
- * its SDK Bundle has it ensured, then builds once more. Throws a `SandboxError` when the sandbox,
- * not the build, fails.
+ * of `src/` runs beside the build, and a passed build returns it still going. So does the lint of
+ * the files `lint` lists, when it lists some: a lint Camox can't run finds nothing, and never
+ * fails the build. A build missing its SDK Bundle has it ensured, then builds once more. Throws a
+ * `SandboxError` when the sandbox, not the build, fails.
  */
 export async function buildInSandbox(
   env: SandboxEnv,
   draftId: string,
   tree: Tree,
   span: SpanFields = { draftId },
+  lint: string[] = [],
 ): Promise<SandboxBuild> {
   const { sandbox, run } = await workspaceWith(env, draftId, tree, span);
 
   const typeCheck = checkTypesInSandbox(env, draftId, span);
   // A build that fails drops its check: nothing waits on it then.
   typeCheck.catch(() => undefined);
+  const linting =
+    lint.length === 0
+      ? Promise.resolve(null)
+      : lintWorkspace(env, draftId, lint, span).catch((error: unknown) => {
+          console.error("A build's code wasn't linted", error);
+          return null;
+        });
   const viteBuild = () =>
     timed(
       "revision.sandbox.viteBuild",
@@ -358,7 +378,7 @@ export async function buildInSandbox(
       throw new SandboxError(`The build is still missing its SDK Bundle: ${tail(built.log)}`);
     }
   }
-  if (!built.success) return { ok: false, log: built.log };
+  if (!built.success) return { ok: false, log: built.log, lint: linting };
 
   const { archive, sdkBundle } = await timed(
     "revision.sandbox.archive",
@@ -378,7 +398,7 @@ export async function buildInSandbox(
     },
     ({ archive }) => ({ bytes: archive.byteLength }),
   );
-  return { ok: true, archive, sdkBundle, typeCheck };
+  return { ok: true, archive, sdkBundle, typeCheck, lint: linting };
 }
 
 /** The SDK Bundle a build's manifest names, or null when it has none: a whole-app build. */
@@ -392,29 +412,48 @@ function sdkBundleOf(manifest: string): SdkBundleNames | null {
 }
 
 /**
- * Lints a tree in the draft's sandbox with the project's `vp lint` config, and returns its
- * findings in the files the agent may change. Throws a `SandboxError` when the sandbox fails, or
- * the lint itself does: findings never fail it.
+ * Lints `files` in the tree the draft's sandbox last extracted, with the project's lint config,
+ * and returns their findings: those in `files` only. Throws a `SandboxError` when the sandbox
+ * fails, or the lint itself does: findings never fail it.
+ */
+async function lintWorkspace(
+  env: Pick<Bindings, "REVISION_SANDBOX">,
+  draftId: string,
+  files: string[],
+  span: SpanFields,
+): Promise<LintError[]> {
+  // Outside the shell session, so it runs beside the build.
+  const sandbox = sessionlessSandboxOf(env, draftId);
+  await sandbox.writeFile(LINT_FILES, `${files.join("\n")}\n`);
+  // Exits non-zero when it finds an error, which its report then lists.
+  const linted = await timed(
+    "revision.sandbox.lint",
+    { ...span, files: files.length },
+    () => sandbox.exec(LINT_COMMAND, { cwd: WORKSPACE, env: VITE_ENV }),
+    ({ exitCode }) => ({ exitCode }),
+  );
+  const errors = lintErrorsOf(linted.stdout, files);
+  if (!errors) {
+    throw new SandboxError(
+      `\`${LINT_COMMAND}\` exited with ${linted.exitCode} without a report: ${tail(`${linted.stdout}\n${linted.stderr}`)}`,
+    );
+  }
+  return errors;
+}
+
+/**
+ * Lints `files` of a tree in the draft's sandbox, as a build lints them beside it: for a tree
+ * that's built already. Throws a `SandboxError` as `lintWorkspace` does.
  */
 export async function lintInSandbox(
   env: SandboxEnv,
   draftId: string,
   tree: Tree,
+  files: string[],
   span: SpanFields = { draftId },
 ): Promise<LintError[]> {
-  const { sandbox } = await workspaceWith(env, draftId, tree, span);
-  const command = `${VP} lint --format json src`;
-  // Exits non-zero when it finds an error, which its report then lists.
-  const linted = await timed("revision.sandbox.lint", span, () =>
-    sandbox.exec(command, { cwd: WORKSPACE, env: VITE_ENV }),
-  );
-  const errors = lintErrorsOf(linted.stdout);
-  if (!errors) {
-    throw new SandboxError(
-      `\`${command}\` exited with ${linted.exitCode} without a report: ${tail(`${linted.stdout}\n${linted.stderr}`)}`,
-    );
-  }
-  return errors;
+  await workspaceWith(env, draftId, tree, span);
+  return lintWorkspace(env, draftId, files, span);
 }
 
 /** Destroys the draft's sandbox, as the draft ends. */
