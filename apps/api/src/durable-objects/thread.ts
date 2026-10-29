@@ -70,6 +70,9 @@ import { CODE_WRITES, codeReadingTools, codeWritingTools } from "../domains/code
 import { writeLine } from "../domains/code/write-line";
 import { writeAccessWhilePublishing } from "../domains/drafts/access";
 import { searchFontsTool } from "../domains/fonts/tool";
+import { browserRun } from "../domains/looks/browser-run";
+import { look, type Looked, type LookTarget } from "../domains/looks/look";
+import { lookTool } from "../domains/looks/tool";
 import { projects } from "../domains/projects/schema";
 import { BuildInfrastructureError, buildRevision } from "../domains/revisions/build";
 import {
@@ -104,6 +107,13 @@ import { threadModel } from "../lib/thread-model";
 import { logSpan, timed } from "../lib/timing";
 import { user } from "../schema";
 import type { Bindings } from "../types";
+
+/** A browser that couldn't be reached at all, which fails a whole `look`. */
+class BrowserUnreachable extends Error {
+  constructor(cause: unknown) {
+    super("The browser can't be reached", { cause });
+  }
+}
 
 /** The header the API sets on a connection it forwards, naming the signed-in sender. */
 export const THREAD_SENDER_HEADER = "x-camox-thread-sender";
@@ -455,6 +465,7 @@ export class Thread extends DurableObject<Bindings> {
             ...codeWritingTools(),
             conflictsTool(() => this.#conflicts()),
             buildTool((invocation) => this.#build(invocation)),
+            lookTool((targets, invocation) => this.#look(targets, invocation)),
           ];
       this.#registry.install({
         name: "camox",
@@ -725,6 +736,48 @@ export class Thread extends DurableObject<Bindings> {
     );
     await this.#timeTurnRevision(result, { draftId, runId: run?.runId });
     return result;
+  }
+
+  /**
+   * Captures `targets` in the thread's draft for the agent's `look`, in the thread's browser
+   * session. A browser that can't be reached fails the call with an error the agent can act on.
+   */
+  async #look(targets: LookTarget[], invocation: ToolInvocation): Promise<Looked[]> {
+    const identity = await this.#knownIdentity();
+    const draftId = identity?.draftId;
+    if (!identity || !draftId) throw new Error("`look` sees a draft, never Live");
+    const { api, context } = invocation;
+    const live = await api.snapshot(LiveDoc, api.conversationId, context);
+    const span = {
+      projectId: identity.projectId,
+      draftId,
+      threadId: this.#threadId(),
+      runId: live?.run ? String(live.run.taskId) : undefined,
+    };
+    const capturer = browserRun(this.env, this.ctx.storage);
+    return timed(
+      "look",
+      { ...span, targets: targets.length },
+      async () => {
+        const where = { ...span, span, draftHasCode: await this.#hasCode(draftId) };
+        try {
+          return await look(this.env, where, targets, {
+            capture: (batch, fields) =>
+              capturer.capture(batch, fields).catch((error: unknown) => {
+                throw new BrowserUnreachable(error);
+              }),
+          });
+        } catch (error) {
+          if (!(error instanceof BrowserUnreachable)) throw error;
+          console.error("A look couldn't reach the browser", error.cause);
+          throw new Error(
+            "The browser that captures pages can't be reached right now. Carry on without " +
+              "looking, and tell the editor what you couldn't check.",
+          );
+        }
+      },
+      (looked) => ({ failed: looked.filter((result) => "error" in result).length }),
+    );
   }
 
   /**

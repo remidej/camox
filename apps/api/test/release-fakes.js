@@ -1157,6 +1157,56 @@ export class FakeDispatch extends WorkerEntrypoint {
   }
 }
 
+/**
+ * A 1×1 white JPEG: every image the fake Browser Run captures. Real captures stay far under
+ * Browser Run's 1 MB cap too.
+ */
+const FAKE_CAPTURE_JPEG =
+  "/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAgGBgcGBQgHBwcJCQgKDBQNDAsLDBkSEw8UHRofHh0aHBwgJC4nICIsIxwcKDcpLDAxNDQ0Hyc5PTgyPC4zNDL/wAALCAABAAEBAREA/8QAFAABAAAAAAAAAAAAAAAAAAAACf/EABQQAQAAAAAAAAAAAAAAAAAAAAD/2gAIAQEAAD8AKp//2Q==";
+
+/**
+ * @typedef {{ url: string, size: string, element?: string, delayMs?: number }} FakeCapture
+ * @typedef {{ name: string, value: string, host: string }} FakeCaptureCookie
+ */
+
+/** @type {(FakeCapture & { cookie: FakeCaptureCookie })[]} every capture asked for, oldest first */
+const captures = [];
+
+/**
+ * @type {{ pattern: string, error: string, size?: string }[]} captures of a URL holding `pattern`
+ * fail, at `size` only when given
+ */
+const failingCaptures = [];
+
+/** @type {Set<string>} the website hosts whose captures find Browser Run unreachable */
+const unreachableBrowserHosts = new Set();
+
+/**
+ * Browser Run, behind the API's capture interface (src/domains/looks/capture.ts), which the tests'
+ * adapter (test/browser-run.ts) calls: records each capture it's asked for and answers it with
+ * `FAKE_CAPTURE_JPEG`, unless a test scripted its failure, or the whole batch's.
+ */
+export class FakeBrowserRun extends WorkerEntrypoint {
+  /** @param {{ cookie: FakeCaptureCookie, captures: FakeCapture[] }} batch */
+  async capture({ cookie, captures: batch }) {
+    if (unreachableBrowserHosts.has(cookie.host)) {
+      throw new Error("Browser Run couldn't start a browser session");
+    }
+    return batch.map((capture) => {
+      captures.push({ ...capture, cookie });
+      const failing = failingCaptures.find(
+        ({ pattern, size }) => capture.url.includes(pattern) && (!size || size === capture.size),
+      );
+      if (failing) return { error: failing.error };
+      return {
+        image: { data: FAKE_CAPTURE_JPEG, mimeType: "image/jpeg" },
+        cut: false,
+        checks: { errors: [], failedRequests: [], overflow: false },
+      };
+    });
+  }
+}
+
 /** The `send_email` binding: records each email instead of sending it. */
 export class FakeEmail extends WorkerEntrypoint {
   /** @param {{ from: unknown, to: string, subject: string, text: string, html: string }} message */
@@ -1386,6 +1436,39 @@ export class ReleaseFakes extends WorkerEntrypoint {
   /** @param {string} repo Whether a Git repo or a pushed repo of that name exists. */
   async hasRepo(repo) {
     return hasGitRepo(repo) || repos.has(repo);
+  }
+
+  /**
+   * The captures Browser Run was asked for whose URL holds `pattern`, such as a draft's id,
+   * oldest first, each with the cookie it was given.
+   * @param {string} pattern
+   */
+  async captures(pattern) {
+    return captures.filter(({ url }) => url.includes(pattern));
+  }
+
+  /** The image every capture that succeeds returns, base64-encoded. */
+  async capturedImage() {
+    return FAKE_CAPTURE_JPEG;
+  }
+
+  /**
+   * Makes every capture of a URL holding `pattern` fail with `error`, as a capture that times
+   * out, or only its captures at `size` when given.
+   * @param {string} pattern
+   * @param {string} error
+   * @param {string} [size]
+   */
+  async failCapturesOf(pattern, error, size) {
+    failingCaptures.push({ pattern, error, size });
+  }
+
+  /**
+   * Makes Browser Run unreachable for every capture of the website at `host`.
+   * @param {string} host
+   */
+  async takeBrowserRunDownFor(host) {
+    unreachableBrowserHosts.add(host);
   }
 
   /** @param {string} sandbox The builds a revision sandbox ran, oldest first. */

@@ -47,12 +47,20 @@ export type TurnBuild =
    */
   | { outcome: "uncommitted"; result: BuildResult; merging: boolean };
 
-/** The working copy's tree as it is now, and the revision the draft holds for it, if any. */
-async function revisionOfTree(env: Bindings, draftId: string, span: SpanFields) {
+/**
+ * The working copy's tree as it is now, and the revision the draft holds for it, if any, its
+ * preparation timed as the span `name`.
+ */
+async function revisionOfTree(
+  env: Bindings,
+  draftId: string,
+  span: SpanFields,
+  name = "agent.turnEnd.prepareCommit",
+) {
   const prepared = await retried(
     () => env.DRAFT_CODE.getByName(draftId).prepareCommit({ message: MESSAGES.turn }),
     {
-      name: "agent.turnEnd.prepareCommit",
+      name,
       fields: span,
       after: ({ files }) => ({ bytes: files.byteLength }),
     },
@@ -69,6 +77,15 @@ async function revisionOfTree(env: Bindings, draftId: string, span: SpanFields) 
     .where(and(eq(revisions.draftId, draftId), eq(revisions.tree, prepared.tree)))
     .get();
   return { prepared, revision };
+}
+
+/**
+ * Whether the draft `draftId`, which has code, previews its working copy as it is now: a revision
+ * holds every change, and it's the one the draft previews.
+ */
+export async function previewsWorkingCopy(env: Bindings, draftId: string, span: SpanFields) {
+  const { revision } = await revisionOfTree(env, draftId, span, "look.prepareCommit");
+  return revision !== undefined && revision.previewed === revision.id;
 }
 
 /**

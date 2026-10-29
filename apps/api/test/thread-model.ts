@@ -125,14 +125,15 @@ export const answerWithToolCallFrom = (
 
 /**
  * What the model sees when it's called: its instructions, the editors' messages, the tools it's
- * offered, its last tool's result, and the output of the last script it ran, without code mode's
- * header.
+ * offered, its last tool's result, its text and its images, and the output of the last script it
+ * ran, without code mode's header.
  */
 export type ModelRequest = {
   instructions: string;
   editorMessages: string[];
   offeredTools: string[];
   lastToolResult: string;
+  lastToolImages: { data: string; mimeType: string }[];
   scriptOutput: string;
 };
 
@@ -160,6 +161,7 @@ const requestOf = ({
   const editorMessages: string[] = [];
   const offered = new Set<string>();
   let lastToolResult = "";
+  let lastToolImages: ModelRequest["lastToolImages"] = [];
   let scriptOutput = "";
   for (const message of messages) {
     if (message.role === "user") {
@@ -184,6 +186,9 @@ const requestOf = ({
     if (message.role === "toolResult") {
       const texts = message.content.flatMap((part) => (part.type === "text" ? [part.text] : []));
       lastToolResult = texts.join("\n");
+      lastToolImages = message.content.flatMap((part) =>
+        part.type === "image" ? [{ data: part.data, mimeType: part.mimeType }] : [],
+      );
       // Code mode's result starts with a header of its own (outcome, wall time), then the output.
       if (message.toolName === "codemode") scriptOutput = texts.slice(1).join("\n");
     }
@@ -193,6 +198,7 @@ const requestOf = ({
     editorMessages,
     offeredTools: [...offered],
     lastToolResult,
+    lastToolImages,
     scriptOutput,
   };
 };
