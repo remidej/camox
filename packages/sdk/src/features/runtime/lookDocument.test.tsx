@@ -31,13 +31,22 @@ const TOKEN = "look-token-for-d1";
 const project = { id: 1, name: "Real project", slug: "test", updatedAt: 1 };
 const pageId = "0199f0a0-0000-7000-8000-000000000001";
 const blockId = "0199f0a0-0000-7000-8000-000000000002";
+const ARTIFACT = "<!doctype html><title>Orbit</title><canvas></canvas>";
 
 const hero = createBlock({
   id: "hero",
   title: "Hero",
   description: "A title",
-  content: (field: ContentFieldBuilder) => ({ title: field.string({ default: "" }) }),
-  toReact: () => <hero.Field name="title">{(props) => <h1 {...props} />}</hero.Field>,
+  content: (field: ContentFieldBuilder) => ({
+    title: field.string({ default: "" }),
+    visual: field.artifact({ size: "fill" }),
+  }),
+  toReact: () => (
+    <>
+      <hero.Field name="title">{(props) => <h1 {...props} />}</hero.Field>
+      <hero.Artifact name="visual">{(props) => <iframe {...props} />}</hero.Artifact>
+    </>
+  ),
   toMarkdown: ({ content }: { content: { title: string } }) => [content.title],
   toTitle: () => "Hero",
 });
@@ -83,7 +92,7 @@ function mockApi(t: { mock: { method: typeof test.mock.method } }) {
               id: blockId,
               pageId,
               type: "hero",
-              content: { title: source },
+              content: { title: source, visual: ARTIFACT },
               settings: {},
               position: "a0",
             },
@@ -162,7 +171,7 @@ void test("shows no draft content for a draft its token isn't for", async (t) =>
   assert.doesNotMatch(html, /Draft title|Live title/);
 });
 
-void test("hydrates, then marks itself ready once the page has loaded", async (t) => {
+void test("marks itself ready only once it hydrated and its Artifacts loaded", async (t) => {
   mockApi(t);
   const { html } = await look();
   const window = new Window({
@@ -184,10 +193,24 @@ void test("hydrates, then marks itself ready once the page has loaded", async (t
   const errors: unknown[] = [];
   t.mock.method(console, "error", (...args: unknown[]) => errors.push(args));
   Object.assign(globalThis, { reportError: (error: unknown) => errors.push(error) });
+  const ready = () => window.document.documentElement.hasAttribute("data-camox-ready");
+  const frames = () => window.document.querySelectorAll("iframe").length;
   try {
+    // happy-dom writes a frame's document at once, then fires its `load` on the next animation
+    // frame: holding the frames asked for while the page is written keeps its Artifact loading,
+    // as one still fetching its libraries would.
+    const held: FrameRequestCallback[] = [];
+    const holding = t.mock.method(
+      window,
+      "requestAnimationFrame",
+      (callback: FrameRequestCallback) => {
+        held.push(callback);
+        return undefined as never;
+      },
+    );
     window.document.write(html.replace(/<script type="module"[^>]*><\/script>/g, ""));
+    holding.mock.restore();
     await window.happyDOM.waitUntilComplete();
-    const ready = () => window.document.documentElement.hasAttribute("data-camox-ready");
     assert.equal(ready(), false, "not before the page's client hydrated it");
 
     const { hydratePageWithApp } = await import("./pageClient");
@@ -196,6 +219,15 @@ void test("hydrates, then marks itself ready once the page has loaded", async (t
     });
     await window.happyDOM.waitUntilComplete();
     assert.deepEqual(errors, []);
+    assert.equal(frames(), 1);
+    assert.equal(window.document.readyState, "complete");
+    assert.equal(ready(), false, "not while its Artifact is still loading");
+    // A browser never loads a lazy frame below the first screen, which would leave it unready.
+    const frame = window.document.querySelector("iframe")!;
+    assert.notEqual(frame.getAttribute("loading"), "lazy", "its Artifacts load wherever they are");
+
+    for (const callback of held) callback(window.performance.now());
+    await window.happyDOM.waitUntilComplete();
     assert.equal(ready(), true);
   } finally {
     await window.happyDOM.close();
