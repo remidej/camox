@@ -257,7 +257,7 @@ The published state of the website, served to the public. Live only changes when
 _Avoid_: Production, production environment, main
 
 **Draft**:
-A named set of changes to the website's content and code, kept apart from Live until it is published or deleted, which ends it. Many drafts can be open at once, each started by an editor, an agent, or Camox, and every member can see, edit, publish, or delete any of them. Editing while viewing Live always starts a new draft.
+A named set of changes to the website's content and code, kept apart from Live until it is published or deleted, which ends it. Many drafts can be open at once, each started by an editor, Camox's agent, a Connected Agent, or Camox, and every member can see, edit, publish, or delete any of them. Editing while viewing Live always starts a new draft.
 _Avoid_: Branch, environment, changeset, working copy
 
 **Revision**:
@@ -366,8 +366,12 @@ _Avoid_: Author, admin, content manager
 An AI that manages content alongside editors: Camox's own, through threads in the studio.
 _Avoid_: Bot, assistant, AI
 
+**Connected Agent**:
+An AI outside Camox, such as a member's Claude or ChatGPT, that the member connects to Camox and that acts on their behalf, with their permissions. It brings what it knows about the member's business, and Camox's agent does the work on the website.
+_Avoid_: External agent, client, assistant, integration
+
 **Thread**:
-A conversation between editors and Camox's agent in the studio. Each editor has one thread of their own on Live, kept for good, and each draft has at most one, shared with everyone in it. The agent on Live changes nothing itself: for each request that would, it starts a draft, whose thread takes the request on from a brief.
+A conversation with Camox's agent, held by editors in the studio and by Connected Agents. Each editor has one thread of their own on Live, kept for good, and each draft has at most one, shared with everyone in it. The agent on Live changes nothing itself: for each request that would, it starts a draft, whose thread takes the request on from a brief. A Connected Agent starts a draft itself, its own message opening the draft's thread.
 _Avoid_: Conversation, chat, session
 
 **Brief**:
