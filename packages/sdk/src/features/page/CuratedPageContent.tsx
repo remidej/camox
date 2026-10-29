@@ -10,7 +10,8 @@ import { BlockErrorBoundary } from "../preview/components/BlockErrorBoundary";
 import { useCamoxApp } from "../provider/components/CamoxAppContext";
 import { SharedLayoutContent } from "./SharedLayoutContent";
 
-function PageBlock({ blockId, mode }: { blockId: string; mode: "site" | "layout" }) {
+/** A block read with its bundle, rendered by its definition's code as a page shows it. */
+export function PageBlock({ blockId, mode }: { blockId: string; mode: "site" | "layout" }) {
   const data = useRead(reads.blockBundle(blockId));
   const camoxApp = useCamoxApp();
   // Hydration and navigation load a page's blocks first; this only waits for one they missed.

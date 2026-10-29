@@ -11,6 +11,7 @@ import { useAuthState, useSignInRedirect } from "../../lib/auth";
 import { type DraftScope, DraftScopeContext } from "../../lib/draft-scope";
 import { CuratedPageContent } from "../page/CuratedPageContent";
 import { DerivedPageContent } from "../page/DerivedPageContent";
+import { UnplacedBlockContent } from "../page/UnplacedBlockContent";
 import { Frame } from "../preview/components/Frame";
 import { PreviewActivation } from "../preview/components/PreviewActivation";
 import { CoreCamoxProvider } from "../provider/CoreCamoxProvider";
@@ -125,7 +126,9 @@ function PageExperience({
   const loading = <div className="text-muted-foreground p-6 text-sm">Loading Studio…</div>;
   const readOnlyPage = input.routeKind ? (
     loading
-  ) : input.canvasOnly ? null : input.derived ? (
+  ) : input.canvasOnly ? null : input.lookBlock ? (
+    <UnplacedBlockContent blockId={input.lookBlock} />
+  ) : input.derived ? (
     <DerivedPageContent camoxApp={camoxApp} derived={input.derived} />
   ) : (
     <CuratedPageContent />
