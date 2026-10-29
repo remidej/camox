@@ -272,6 +272,11 @@ export const oauthConsent = sqliteTable(
     scopes: text().notNull(),
     createdAt: int("createdAt", { mode: "timestamp_ms" }).notNull(),
     updatedAt: int("updatedAt", { mode: "timestamp_ms" }).notNull(),
+    /**
+     * When the Connected Agent this consent connected last called the MCP server, which records
+     * it (Better Auth doesn't know this column).
+     */
+    lastUsedAt: int("lastUsedAt", { mode: "timestamp_ms" }),
   },
   (table) => [
     index("oauthConsent_clientId_idx").on(table.clientId),

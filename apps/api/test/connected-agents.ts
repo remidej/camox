@@ -149,6 +149,12 @@ export async function connectAgent(userId: string, options: ConnectOptions = {})
     code_verifier: verifier,
     resource,
   });
+  const refreshForm = (refreshToken: string) => ({
+    grant_type: "refresh_token",
+    refresh_token: refreshToken,
+    client_id: clientId,
+    resource,
+  });
   return {
     accessToken: tokens.access_token,
     refreshToken: tokens.refresh_token,
@@ -157,21 +163,22 @@ export async function connectAgent(userId: string, options: ConnectOptions = {})
     sessionToken,
     /** Trades the refresh token for new tokens, as a Connected Agent does once its token expires. */
     refresh: (refreshToken = tokens.refresh_token!) =>
-      requestTokens(tokenEndpoint, {
-        grant_type: "refresh_token",
-        refresh_token: refreshToken,
-        client_id: clientId,
-        resource,
-      }),
+      requestTokens(tokenEndpoint, refreshForm(refreshToken)),
+    /** Asks to refresh, returning the token endpoint's answer whether it grants or refuses. */
+    tryRefresh: (refreshToken = tokens.refresh_token!) =>
+      tokenRequest(tokenEndpoint, refreshForm(refreshToken)),
   };
 }
 
-async function requestTokens(tokenEndpoint: string, form: Record<string, string>) {
-  const response = await request(tokenEndpoint, {
+const tokenRequest = (tokenEndpoint: string, form: Record<string, string>) =>
+  request(tokenEndpoint, {
     method: "POST",
     headers: { "content-type": "application/x-www-form-urlencoded" },
     body: new URLSearchParams(form).toString(),
   });
+
+async function requestTokens(tokenEndpoint: string, form: Record<string, string>) {
+  const response = await tokenRequest(tokenEndpoint, form);
   expect(response.status, await response.clone().text()).toBe(200);
   return (await response.json()) as Tokens;
 }

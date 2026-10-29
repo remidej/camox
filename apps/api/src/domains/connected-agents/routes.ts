@@ -7,6 +7,7 @@ import { Hono } from "hono";
 import type { Database } from "../../db";
 import type { AppEnv, Bindings } from "../../types";
 import { createAuth } from "../auth/routes";
+import { recordConnectedAgentCall } from "./agents";
 import { type ConnectedMember, loadConnectedMember } from "./member";
 import { issuerOf, mcpResourceOf, REQUESTED_SCOPES, servesMcp } from "./oauth";
 import { connectedAgentServer } from "./server";
@@ -83,6 +84,8 @@ export const mcpRoutes = new Hono<AppEnv>().all("/", async (c) => {
   const auth = createAuth(c.var.db, c.env, origin);
   try {
     const { token, claims } = await verifiedClaims(c.req.raw, auth, origin);
+    const granted = await recordConnectedAgentCall(c.var.db, claims.sub!, String(claims.azp));
+    if (!granted) throw unauthorized("The member disconnected this Connected Agent");
     const member = await loadConnectedMember(c.var.db, claims.sub!);
     if (!member) throw unauthorized("The member this token was issued to no longer exists");
     const call: ConnectedAgentCall = {
