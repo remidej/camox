@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.63.0](https://github.com/remidej/camox/compare/camox-v0.62.0...camox-v0.63.0) (2026-10-29)
+
+
+### Changes
+
+* Connected Agents, an MCP server through which members' own AI drives Camox's agent ([#714](https://github.com/remidej/camox/issues/714)) ([90b40df](https://github.com/remidej/camox/commit/90b40dff770dee5b34d8a6f4f9dacb50ca2b81d1))
+
 ## [0.62.0](https://github.com/remidej/camox/compare/camox-v0.61.0...camox-v0.62.0) (2026-10-29)
 
 
