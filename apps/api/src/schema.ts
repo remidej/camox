@@ -16,3 +16,4 @@ export * from "./domains/releases/schema";
 export * from "./domains/revisions/schema";
 export * from "./domains/patrol/schema";
 export * from "./domains/artifact-sources/schema";
+export * from "./domains/ai-usage/schema";

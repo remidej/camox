@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.62.0](https://github.com/remidej/camox/compare/camox-v0.61.0...camox-v0.62.0) (2026-10-29)
+
+
+### Changes
+
+* **adr:** let the agent see a draft through a look token ([71310e2](https://github.com/remidej/camox/commit/71310e29ccce567ee138d63cf3e23d0ce189777c))
+* **api:** give the agent platform skills it reads when a task needs them ([#698](https://github.com/remidej/camox/issues/698)) ([438f96f](https://github.com/remidej/camox/commit/438f96fc8e5095f8a3e6e5b73d20582b1a0e8091))
+* **api:** record what every AI job call costs ([#715](https://github.com/remidej/camox/issues/715)) ([816f74d](https://github.com/remidej/camox/commit/816f74db3ddc906a36880c58aa61e040c5911127))
+* **api:** run the agent on Claude Opus 5.5 at medium effort ([#703](https://github.com/remidej/camox/issues/703)) ([78847c3](https://github.com/remidej/camox/commit/78847c3ad2272370c363c9742cbaaf44ac21880e))
+* decide that Connected Agents drive Camox's agent over MCP ([da2471d](https://github.com/remidej/camox/commit/da2471d35b4cdf57629a33e2a09d09e3c105a484))
+* link ADR 0030 to its spec ([f6fdc99](https://github.com/remidej/camox/commit/f6fdc99c6bc2d24494c4149baa09e9978591280a))
+* make experimental features a Project Setting ([#699](https://github.com/remidej/camox/issues/699)) ([f870808](https://github.com/remidej/camox/commit/f870808e716ab009bcf29b5beb1962790b34f6ae))
+* **template:** add an accent color to the Theme ([#695](https://github.com/remidej/camox/issues/695)) ([b172389](https://github.com/remidej/camox/commit/b1723891bec4ccdda5122f95c50727da3ad89141))
+
 ## [0.61.0](https://github.com/remidej/camox/compare/camox-v0.60.2...camox-v0.61.0) (2026-10-28)
 
 

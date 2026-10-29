@@ -5,6 +5,7 @@ import { z } from "zod";
 
 import type { Database } from "../../db";
 import { AiModel } from "../../lib/ai-model";
+import { attributedToRequest } from "../../lib/ai-usage";
 import { edgeCachePurges, edgeCacheTags } from "../../lib/edge-cache-purges";
 import { decodeInput, InvalidInputError, NotFoundError } from "../../lib/errors";
 import { isRasterImage } from "../../lib/image-transform";
@@ -529,9 +530,12 @@ export const generateFileMetadata = Effect.fn("files.generateFileMetadata")(func
   rawInput: z.input<typeof generateFileMetadataInput>,
 ) {
   const { id } = yield* decodeInput(generateFileMetadataInput, rawInput);
-  const { scope } = yield* accessTo(ctx, { file: id }, "member");
+  const { scope, project } = yield* accessTo(ctx, { file: id }, "member");
 
-  yield* generateNow(ctx.db, scope, "file", id).pipe(Effect.orDie);
+  yield* generateNow(ctx.db, scope, "file", id).pipe(
+    attributedToRequest(ctx, project, scope),
+    Effect.orDie,
+  );
   const shown = yield* overlay.get(ctx.db, scope, files, id);
   return shown ? yield* fileView(ctx.db, scope, shown) : undefined;
 }, Effect.scoped);

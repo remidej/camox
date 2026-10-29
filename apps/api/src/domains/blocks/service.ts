@@ -6,6 +6,7 @@ import { z } from "zod";
 
 import type { Database } from "../../db";
 import { AiModel } from "../../lib/ai-model";
+import { attributedToRequest } from "../../lib/ai-usage";
 import { contentToMarkdown, stripArtifactSources } from "../../lib/content-markdown";
 import {
   ConflictError,
@@ -1131,7 +1132,10 @@ export const generateBlockSummary = Effect.fn("blocks.generateBlockSummary")(fun
   const { id } = yield* decodeInput(generateBlockSummaryInput, rawInput);
   const { scope, project } = yield* accessTo(ctx, { block: id }, "member");
 
-  yield* generateNow(ctx.db, scope, "block", id).pipe(Effect.orDie);
+  yield* generateNow(ctx.db, scope, "block", id).pipe(
+    attributedToRequest(ctx, project, scope),
+    Effect.orDie,
+  );
   const stored = yield* overlay.get(ctx.db, scope, blocks, id);
   return stored && (yield* shownBlock(ctx, project.id, scope, stored));
 }, Effect.scoped);

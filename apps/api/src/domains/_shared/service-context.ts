@@ -50,6 +50,9 @@ export type ServiceContext = {
   apiOrigin?: string;
 };
 
+/** The `client` of the context Camox's agent acts in. */
+export const AGENT_CLIENT = "camox-agent";
+
 /**
  * The context Camox's agent acts in, outside any request: as `user`, an editor or no one, in the
  * draft `draftId`, or else on Live.
@@ -69,7 +72,7 @@ export function agentServiceContext({
     user,
     env,
     waitUntil,
-    client: "camox-agent",
+    client: AGENT_CLIENT,
     telemetryDisabled: false,
     apiOrigin,
     draft: draftId ? { id: draftId, create: false } : null,
