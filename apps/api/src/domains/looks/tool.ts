@@ -1,6 +1,6 @@
 import { LOOK_TOOL } from "@camox/api-contract/threads";
 import { Type } from "@earendil-works/pi-ai";
-import { defineTool } from "@earendil-works/pi-durable";
+import { defineTool, type ToolRegistration } from "@earendil-works/pi-durable";
 
 import type { ToolInvocation } from "../threads/tools";
 import { type CaptureChecks, LOOK_SIZES } from "./capture";
@@ -114,7 +114,7 @@ const reportChecks = ({ errors, failedRequests, overflow }: CaptureChecks) => {
  */
 export const lookTool = (
   look: (targets: LookTarget[], invocation: ToolInvocation) => Promise<Looked[]>,
-) =>
+): ToolRegistration =>
   defineTool({
     name: LOOK_TOOL,
     description:
