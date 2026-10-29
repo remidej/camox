@@ -10,6 +10,7 @@ import {
   type Capturer,
   LOOK_SIZES,
 } from "./capture";
+import { elementClip, fittingJpeg } from "./framing";
 
 // Browser Run's Chromium, driven through a Playwright Browser Session (#717): one session per
 // thread, kept alive between `look` calls and reconnected by its ID, the connection dropped at
@@ -46,11 +47,6 @@ const READY_SELECTOR = "html[data-camox-ready]";
 
 /** How long a ready document is left to settle, for entrance animations. A tuning value. */
 const SETTLE_MS = 500;
-
-/** How many screens of its size an element capture shows at most, before it's cut. */
-const ELEMENT_SCREENS = 2;
-
-const JPEG_QUALITY = 80;
 
 /**
  * Browser Run for the thread whose storage is `storage`: captures each batch in the thread's
@@ -179,9 +175,9 @@ async function captureWith(
     "document.documentElement.scrollWidth > document.documentElement.clientWidth",
   );
   const { image, cut } = capture.element
-    ? await elementImage(page, capture.element, viewport.height * ELEMENT_SCREENS)
+    ? await elementImage(page, capture.element, viewport.height)
     : {
-        image: await page.screenshot({ type: "jpeg", quality: JPEG_QUALITY }),
+        image: await fittingJpeg((quality) => page.screenshot({ type: "jpeg", quality })),
         cut: false,
       };
   return {
@@ -191,23 +187,16 @@ async function captureWith(
   };
 }
 
-/** The element `selector` names, cut at `maxHeight`. */
-async function elementImage(page: Page, selector: string, maxHeight: number) {
+/** The element `selector` names, cut at a few screens of `screenHeight`. */
+async function elementImage(page: Page, selector: string, screenHeight: number) {
   const box = await page.locator(selector).first().boundingBox();
   if (!box) throw new Error("The element isn't on the page.");
   const scrollY = await page.evaluate<number>("window.scrollY");
-  const image = await page.screenshot({
-    type: "jpeg",
-    quality: JPEG_QUALITY,
-    fullPage: true,
-    clip: {
-      x: box.x,
-      y: box.y + scrollY,
-      width: box.width,
-      height: Math.min(box.height, maxHeight),
-    },
-  });
-  return { image, cut: box.height > maxHeight };
+  const { clip, cut } = elementClip(box, scrollY, screenHeight);
+  const image = await fittingJpeg((quality) =>
+    page.screenshot({ type: "jpeg", quality, fullPage: true, clip }),
+  );
+  return { image, cut };
 }
 
 /** Records what the page reports as it loads: its errors and the requests that failed. */

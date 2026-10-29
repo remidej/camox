@@ -201,7 +201,7 @@ describe("the agent's look", () => {
     ]);
   });
 
-  it("has the browser wait each target's delay before it captures", async () => {
+  it("gives the browser each target's delay", async () => {
     const { draftId, thread } = await draftThread();
 
     const { results } = await look(thread, {
@@ -426,7 +426,7 @@ describe("the agent's look", () => {
       ]);
     });
 
-    it("says when the block was taller than two screens, so its image was cut", async () => {
+    it("tells the model when the browser cut the block's image", async () => {
       const { website, thread } = await draftThread();
       const block = await placementOn(website, "/home");
       await browserRunFakes.cutCapturesOf(block, "mobile");
