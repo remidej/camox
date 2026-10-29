@@ -15,6 +15,8 @@ import { connectedAgentServer } from "./server";
 /** A Connected Agent's call, verified: the member it acts as, and what services run with. */
 export type ConnectedAgentCall = {
   member: ConnectedMember;
+  /** The OAuth client id of the Connected Agent's app, which its token was issued to. */
+  clientId: string;
   db: Database;
   env: Bindings;
   waitUntil: (promise: Promise<unknown>) => void;
@@ -90,6 +92,7 @@ export const mcpRoutes = new Hono<AppEnv>().all("/", async (c) => {
     if (!member) throw unauthorized("The member this token was issued to no longer exists");
     const call: ConnectedAgentCall = {
       member,
+      clientId: String(claims.azp),
       db: c.var.db,
       env: c.env,
       waitUntil: (promise) => c.executionCtx.waitUntil(promise),
@@ -97,7 +100,7 @@ export const mcpRoutes = new Hono<AppEnv>().all("/", async (c) => {
     };
     const authInfo: AuthInfo = {
       token,
-      clientId: String(claims.azp),
+      clientId: call.clientId,
       scopes: typeof claims.scope === "string" ? claims.scope.split(" ") : [],
       expiresAt: claims.exp,
       resource: new URL(resource),

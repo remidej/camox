@@ -17,6 +17,11 @@ export type Bindings = {
    * (`DISPATCH_ARCHIVE_LIMIT` in domains/revisions/build.ts when unset). Set only by tests.
    */
   DISPATCH_ARCHIVE_LIMIT_BYTES?: string;
+  /**
+   * How long, in milliseconds, a Connected Agent's call waits for the agent's turn to end
+   * (`TURN_WAIT_MS` in domains/connected-agents/turn.ts when unset). Set only by tests.
+   */
+  CONNECTED_AGENT_TURN_WAIT_MS?: string;
   OPEN_ROUTER_API_KEY: string;
   /** Camox's Google Fonts Developer API key, which the daily fonts snapshot is taken with. */
   GOOGLE_FONTS_API_KEY: string;

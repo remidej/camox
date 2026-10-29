@@ -281,6 +281,26 @@ function ThreadMessageRow({
       </Message>
     );
   }
+  if (message.from === "connectedAgent") {
+    // The member's own AI wrote it, not the member. A client's name is only shown as verified
+    // when Camox could check it; otherwise it's on hover, as what the client says it is.
+    const { member, client } = message;
+    return (
+      <Message>
+        <MessageContent>
+          <MessageHeader
+            className="text-muted-foreground text-xs"
+            title={client.verified ? undefined : client.name}
+          >
+            {`${member.name}’s ${client.verified ? client.name : "agent"}`}
+          </MessageHeader>
+          <Bubble variant="muted" className="max-w-full">
+            <BubbleContent className="whitespace-pre-wrap">{message.text}</BubbleContent>
+          </Bubble>
+        </MessageContent>
+      </Message>
+    );
+  }
   if (message.from === "camox") {
     // Camox started the turn itself, as when Live's code doesn't merge into the draft's.
     return (
