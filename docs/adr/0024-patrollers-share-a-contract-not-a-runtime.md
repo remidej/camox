@@ -1,5 +1,7 @@
 # Patrollers share a contract, not a runtime
 
+Amended by [Patrollers raise findings, and each keeps to the scopes its work belongs in](0034-patrollers-raise-findings-and-keep-to-their-scope.md): findings replace reports' attention level.
+
 The Patrol shows editors the work Camox does without being asked, as patrollers such as the Translator and the SEO manager. Patrollers will differ in how they run: today's are AI jobs triggered by edits, while later ones may be multi-step Workflows or Pi agents (ADR 0018) on a schedule. So patrollers share a contract rather than a runtime. Each one runs however suits its work, answers whether it is working in a draft or on Live from its own records, and writes one Report per subject when work settles. A Report is either structured facts (what was done, to which subject, in which locale), which the studio turns into a sentence when it shows it, or text an AI wrote during the run.
 
 ## Considered Options

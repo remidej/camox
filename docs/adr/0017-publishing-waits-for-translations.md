@@ -1,5 +1,7 @@
 # Publishing waits for translations, and Camox catches them up in a draft of its own
 
+Superseded by [Publishing waits for translations and findings](0033-publishing-waits-for-translations-and-findings.md) where it lets a draft publish anyway.
+
 Camox translates a draft's default-locale changes into its other locales as background jobs (ADR 0015), so a draft can be ready to publish while some of its translations are still running. Publishing a draft takes every locale live together: it waits until nothing is left to translate in it, merges with Live's localizations included (ADR 0016). Editors and agents can publish anyway. The draft then publishes as it is, and the translations still pending carry on in a catch-up draft that Camox opens, against the new Live. Camox publishes that draft as itself once nothing is left to translate in it, so Live catches up without anyone reviewing it. Content a release adds to Live is translated into Live's other locales the same way.
 
 ## Considered Options

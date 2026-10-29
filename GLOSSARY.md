@@ -273,15 +273,11 @@ A build of a website that holds Camox, React and the packages it shares with Cam
 _Avoid_: Full build, monolithic build, legacy build
 
 **Publish**:
-Applying all of a draft's changes to Live at once, releasing its code together with its content when it changed any. A draft is always published whole, never in parts, only once it has no blockers, and the Live content it replaces is not kept.
+Applying all of a draft's changes to Live at once, releasing its code together with its content when it changed any. A draft is always published whole, never in parts, only once it has no blockers, no open findings and nothing left to translate, and the Live content it replaces is not kept.
 _Avoid_: Deploy, release, merge
 
-**Publish Anyway**:
-Publishing a draft while Camox is still translating it, rather than waiting for every locale to be translated. The translations left carry on in a catch-up draft.
-_Avoid_: Force publish, skip translations
-
 **Catch-up Draft**:
-A draft Camox opens to finish translations that a publish went ahead without, or to translate what a release added to Live, and publishes by itself once they're done. A project has at most one open.
+A draft Camox opens to translate what a release added to Live, and publishes by itself once it's done. A project has at most one open.
 _Avoid_: Translation draft, system draft, bot draft
 
 **Draft Overview**:
@@ -295,6 +291,14 @@ _Avoid_: Discard, revert, undo
 **Blocker**:
 A problem in a draft that prevents publishing it until it is fixed in the draft, such as a duplicate path, an empty required reference, code that doesn't build or type check, or code that doesn't merge with Live's.
 _Avoid_: Error, validation failure
+
+**Finding**:
+A problem a patroller raises about content, in what a draft changed or on Live, such as a misspelled word or a link that doesn't work, with the fix it suggests when it has one. A draft's findings prevent publishing it until each is fixed or a member dismisses it, and a dismissed finding is not raised again.
+_Avoid_: Issue, warning, flag, suggestion
+
+**Patrol Draft**:
+The draft Camox opens to fix the findings its patrollers raise on Live, which Camox's agent works on and a member publishes. A project has at most one open, and later findings join it.
+_Avoid_: Fix draft, maintenance draft, bot draft
 
 **Conflict**:
 Content that a draft changes and that Live also changed or deleted after the draft first changed it. Camox merges a localization's conflict with Live's before publishing wherever it can tell the draft's changes from Live's.
@@ -347,7 +351,7 @@ Every patroller of a project together: the work Camox does on the website withou
 _Avoid_: Workers, jobs, automations, background tasks
 
 **Patroller**:
-One responsibility Camox carries out on its own, known by its role, such as the Translator or the SEO manager. Editors see whether it is working, when it last worked, and what it did. It works for editors unprompted, so it is not an Agent, even when an agent loop does its work.
+One responsibility Camox carries out on its own, known by its role, such as the Translator or the SEO manager. Editors see whether it is working, when it last worked, what it did and what it found. It works for editors unprompted, so it is not an Agent, even when an agent loop does its work.
 _Avoid_: Worker, bot, job
 
 **Report**:
