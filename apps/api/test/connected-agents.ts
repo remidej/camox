@@ -180,10 +180,12 @@ type JsonRpcResponse = {
   result?: Record<string, unknown>;
   error?: { code: number; message: string };
 };
+type JsonRpcMessage = JsonRpcResponse | { method: string; params?: Record<string, unknown> };
 
 /**
  * Sends one MCP request to the server with `accessToken`, as a Connected Agent does over
- * Streamable HTTP. Returns the HTTP response, and its JSON-RPC message when there is one.
+ * Streamable HTTP. Returns the HTTP response, its JSON-RPC answer when there is one, and the
+ * methods of the notifications the server sent before it.
  */
 export async function mcpRequest(
   accessToken: string | null,
@@ -200,20 +202,24 @@ export async function mcpRequest(
     body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }),
   });
   const text = await response.text();
-  // A response streamed as server-sent events carries the message in its last `data:` line.
+  // A response streamed as server-sent events carries one message per `data:` line, its answer
+  // last; any before it are notifications sent along the way.
   const data = response.headers.get("content-type")?.includes("text/event-stream")
     ? text
         .split("\n")
-        .findLast((line) => line.startsWith("data:"))
-        ?.slice("data:".length)
-    : text;
-  let message: JsonRpcResponse | undefined;
-  try {
-    message = data ? (JSON.parse(data) as JsonRpcResponse) : undefined;
-  } catch {
-    message = undefined;
-  }
-  return { response, message };
+        .filter((line) => line.startsWith("data:"))
+        .map((line) => line.slice("data:".length))
+    : [text];
+  const messages = data.flatMap((line) => {
+    try {
+      return line ? [JSON.parse(line) as JsonRpcMessage] : [];
+    } catch {
+      return [];
+    }
+  });
+  const message = messages.findLast((sent) => !("method" in sent)) as JsonRpcResponse | undefined;
+  const notifications = messages.flatMap((sent) => ("method" in sent ? [sent.method] : []));
+  return { response, message, notifications };
 }
 
 type Tool = { name: string; inputSchema: { properties?: Record<string, unknown> } };
@@ -244,4 +250,63 @@ export async function callTool(
   expect(response.status).toBe(200);
   expect(message?.error).toBeUndefined();
   return message!.result as ToolResult;
+}
+
+/** The revision of MCP that modern Connected Agents speak, with no `initialize`. */
+const MODERN_REVISION = "2026-07-28";
+
+/**
+ * Opens a `subscriptions/listen` stream, as a modern Connected Agent does to hear that its tools
+ * changed. Resolves once the server acknowledged it; `next(method)` waits for the next
+ * notification with that method.
+ */
+export async function listen(accessToken: string) {
+  const aborted = new AbortController();
+  const response = await request(MCP_URL, {
+    method: "POST",
+    signal: aborted.signal,
+    headers: {
+      "content-type": "application/json",
+      accept: "application/json, text/event-stream",
+      authorization: `Bearer ${accessToken}`,
+      "mcp-protocol-version": MODERN_REVISION,
+      "mcp-method": "subscriptions/listen",
+    },
+    body: JSON.stringify({
+      jsonrpc: "2.0",
+      id: 1,
+      method: "subscriptions/listen",
+      params: {
+        notifications: { toolsListChanged: true },
+        _meta: {
+          "io.modelcontextprotocol/protocolVersion": MODERN_REVISION,
+          "io.modelcontextprotocol/clientCapabilities": {},
+        },
+      },
+    }),
+  });
+  expect(response.headers.get("content-type")).toContain("text/event-stream");
+  const reader = response.body!.pipeThrough(new TextDecoderStream()).getReader();
+  let buffered = "";
+  const next = async (method: string) => {
+    for (;;) {
+      const lines = buffered.split("\n");
+      const index = lines.findIndex((line) => line.startsWith("data:") && line.includes(method));
+      if (index >= 0) {
+        buffered = lines.slice(index + 1).join("\n");
+        return JSON.parse(lines[index]!.slice("data:".length)) as { method: string };
+      }
+      const { value, done } = await reader.read();
+      if (done) throw new Error(`The stream ended before ${method}`);
+      buffered += value;
+    }
+  };
+  await next("notifications/subscriptions/acknowledged");
+  return {
+    next,
+    close: () => {
+      aborted.abort();
+      return reader.cancel().catch(() => undefined);
+    },
+  };
 }

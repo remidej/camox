@@ -2,6 +2,7 @@ import { McpServer } from "@modelcontextprotocol/server";
 
 import { registerDraftTools } from "./drafts";
 import { WORKING_WITH_CAMOX } from "./guidance";
+import { projectInstructions, registerNoProjectTool } from "./projects";
 import type { ConnectedAgentCall } from "./routes";
 import { registerWebsiteTools } from "./website";
 
@@ -12,8 +13,12 @@ import { registerWebsiteTools } from "./website";
 export function connectedAgentServer(call: ConnectedAgentCall) {
   const server = new McpServer(
     { name: "camox", title: "Camox", version: "1.0.0" },
-    { instructions: serverInstructions(call) },
+    { instructions: serverInstructions(call), capabilities: { tools: { listChanged: true } } },
   );
+  if (!call.member.projects.length) {
+    registerNoProjectTool(server, call);
+    return server;
+  }
   registerWebsiteTools(server, call);
   registerDraftTools(server, call);
   return server;
@@ -21,8 +26,9 @@ export function connectedAgentServer(call: ConnectedAgentCall) {
 
 /**
  * The server's instructions for the call's member: parts, each written on its own, joined in
- * order. How to work with Camox is the same for every member.
+ * order. How to work with Camox is the same for every member; the project list only shows when
+ * the member has several projects to choose from.
  */
-function serverInstructions(_call: ConnectedAgentCall) {
-  return [WORKING_WITH_CAMOX].join("\n\n");
+function serverInstructions(call: ConnectedAgentCall) {
+  return [WORKING_WITH_CAMOX, projectInstructions(call.member)].filter(Boolean).join("\n\n");
 }

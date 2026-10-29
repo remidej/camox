@@ -22,6 +22,12 @@ export type Bindings = {
    * (`TURN_WAIT_MS` in domains/connected-agents/turn.ts when unset). Set only by tests.
    */
   CONNECTED_AGENT_TURN_WAIT_MS?: string;
+  /**
+   * How often, in milliseconds, a Connected Agent's open subscription checks whether its member's
+   * projects changed (`PROJECTS_POLL_MS` in domains/connected-agents/changes.ts when unset). Set
+   * only by tests.
+   */
+  CONNECTED_AGENT_PROJECTS_POLL_MS?: string;
   OPEN_ROUTER_API_KEY: string;
   /** Camox's Google Fonts Developer API key, which the daily fonts snapshot is taken with. */
   GOOGLE_FONTS_API_KEY: string;
