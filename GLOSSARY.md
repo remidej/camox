@@ -377,3 +377,7 @@ _Avoid_: Conversation, chat, session
 **Brief**:
 What Camox's agent writes when it starts a draft from a Live thread: the context the editor's request depends on, opening the draft's thread ahead of the request itself.
 _Avoid_: Summary, context note, handoff message
+
+**AI Usage Record**:
+What one AI call, or the sandbox compute around it, cost: what it was for, who and what it was for (organization, project, draft, thread), who started it (a member, the agent, or Camox itself, naming the patroller), the model and provider used, its tokens, and its cost as billed or estimated at the time. Written once and never changed, without prompts or outputs, and kept after what it names is gone.
+_Avoid_: Usage event, log, generation, billing record

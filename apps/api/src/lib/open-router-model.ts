@@ -4,6 +4,7 @@ import { Effect } from "effect";
 import { outdent } from "outdent";
 import { z } from "zod";
 
+import type { AiPurpose } from "../domains/ai-usage/schema";
 import { readMetadataImage } from "../domains/files/metadata-image";
 import {
   AiModel,
@@ -12,8 +13,10 @@ import {
   type TranslationContext,
   type TranslationRequest,
 } from "./ai-model";
+import { noLedger, type UsageLedger } from "./ai-usage";
 import { transformImageUrl } from "./image-transform";
-import { retryAiCall } from "./retry-ai-call";
+import { meteredChat, type MeteringOptions } from "./metered-chat";
+import { type AiCallAttempt, retryAiCall } from "./retry-ai-call";
 
 /**
  * Writes every generated value. Chosen in October 2026 after running these prompts
@@ -21,27 +24,39 @@ import { retryAiCall } from "./retry-ai-call";
  */
 const MODEL = "google/gemini-3.1-flash-lite";
 
-/** The model that writes generated values and translations, through OpenRouter. */
-export const openRouterModel = (apiKey: string) =>
-  AiModel.of({
+/**
+ * The model that writes generated values and translations, through OpenRouter. Every attempt of
+ * every call is recorded in `ledger` (`meteredChat`).
+ */
+export const openRouterModel = (apiKey: string, ledger: UsageLedger = noLedger) => {
+  /** One attempt at a call for `purpose`, metered. */
+  const metered = <A>(
+    purpose: AiPurpose,
+    attempt: AiCallAttempt,
+    run: (metering: MeteringOptions) => Promise<A>,
+  ) => meteredChat(ledger, { purpose, model: MODEL, attempt }, run);
+
+  return AiModel.of({
     summarize: (request) =>
-      retryAiCall("summary", (abortController) =>
-        Effect.promise(() =>
+      retryAiCall("summary", (abortController, attempt) =>
+        metered("summary", attempt, (metering) =>
           chat({
             adapter: createOpenRouterText(MODEL, apiKey),
             stream: false,
             abortController,
+            ...metering,
             messages: [{ role: "user", content: summaryPrompt(request) }],
           }).then((result) => result.text),
         ),
       ),
 
     pageSeo: (request) =>
-      retryAiCall("seo", (abortController) =>
-        Effect.promise(() =>
+      retryAiCall("seo", (abortController, attempt) =>
+        metered("page_seo", attempt, (metering) =>
           chat({
             adapter: createOpenRouterText(MODEL, apiKey),
             abortController,
+            ...metering,
             outputSchema: z.object({ metaTitle: z.string(), metaDescription: z.string() }),
             messages: [{ role: "user", content: pageSeoPrompt(request) }],
           }),
@@ -49,7 +64,7 @@ export const openRouterModel = (apiKey: string) =>
       ),
 
     imageMetadata: (request) =>
-      retryAiCall("fileMetadata", (abortController) =>
+      retryAiCall("fileMetadata", (abortController, attempt) =>
         Effect.gen(function* () {
           // Larger images only add input tokens: alt text and a filename don't need the
           // detail. Bound BOTH dimensions so very tall or very wide images shrink too.
@@ -71,10 +86,11 @@ export const openRouterModel = (apiKey: string) =>
           for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
           const base64 = btoa(binary);
 
-          return yield* Effect.promise(() =>
+          return yield* metered("file_metadata", attempt, (metering) =>
             chat({
               adapter: createOpenRouterText(MODEL, apiKey),
               abortController,
+              ...metering,
               outputSchema: z.object({ filename: z.string(), alt: z.string() }),
               messages: [
                 {
@@ -94,11 +110,12 @@ export const openRouterModel = (apiKey: string) =>
       ),
 
     translate: (request) =>
-      retryAiCall("translation", (abortController) =>
-        Effect.promise(() =>
+      retryAiCall("translation", (abortController, attempt) =>
+        metered("translation", attempt, (metering) =>
           chat({
             adapter: createOpenRouterText(MODEL, apiKey),
             abortController,
+            ...metering,
             outputSchema: z.object({
               translations: z.array(z.object({ key: z.string(), text: z.string() })),
             }),
@@ -108,11 +125,12 @@ export const openRouterModel = (apiKey: string) =>
       ),
 
     merge: (request) =>
-      retryAiCall("merge", (abortController) =>
-        Effect.promise(() =>
+      retryAiCall("merge", (abortController, attempt) =>
+        metered("merge", attempt, (metering) =>
           chat({
             adapter: createOpenRouterText(MODEL, apiKey),
             abortController,
+            ...metering,
             outputSchema: z.object({
               merges: z.array(z.object({ key: z.string(), text: z.string() })),
             }),
@@ -122,17 +140,19 @@ export const openRouterModel = (apiKey: string) =>
       ),
 
     draftOverview: (request) =>
-      retryAiCall("draftOverview", (abortController) =>
-        Effect.promise(() =>
+      retryAiCall("draftOverview", (abortController, attempt) =>
+        metered("draft_overview", attempt, (metering) =>
           chat({
             adapter: createOpenRouterText(MODEL, apiKey),
             abortController,
+            ...metering,
             outputSchema: z.object({ headline: z.string(), bullets: z.array(z.string()) }),
             messages: [{ role: "user", content: draftOverviewPrompt(request) }],
           }),
         ),
       ),
   });
+};
 
 /** The answered texts by key: only keys the request asked for count, a missing key keeps its text. */
 function byAskedKey(asked: readonly { key: string }[], answered: { key: string; text: string }[]) {

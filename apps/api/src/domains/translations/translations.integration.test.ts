@@ -18,6 +18,7 @@ import {
   answerEvery,
   forgetAllScheduled,
   forgetScheduled,
+  modelAttributions,
   modelCalls,
   scheduled,
   scheduledFor,
@@ -232,6 +233,29 @@ async function fixture() {
     runTranslations,
   };
 }
+
+describe("what translating costs", () => {
+  it("is recorded as the Translator's work in the draft", async () => {
+    const f = await fixture();
+    translateWithDictionaries();
+
+    await f.tool("addLocale", { tag: "de" }, f.starting);
+    await f.runTranslations();
+
+    const translations = modelAttributions().filter(({ method }) => method === "translate");
+    const translator = {
+      organizationId: f.project.organizationId,
+      projectId: f.projectId,
+      draftId: f.draft,
+      initiator: "camox",
+      patroller: "translator",
+    };
+    expect(translations.length).toBeGreaterThan(0);
+    expect(translations.map(({ attribution }) => attribution)).toEqual(
+      translations.map(() => translator),
+    );
+  });
+});
 
 describe("adding a locale", () => {
   it("queues translations of the whole website into it, and running them writes the locale's content into the draft", async () => {

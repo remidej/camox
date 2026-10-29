@@ -4,6 +4,7 @@ import { and, eq, inArray } from "drizzle-orm";
 import { Effect } from "effect";
 import { z } from "zod";
 
+import { attributedToRequest } from "../../lib/ai-usage";
 import { ConflictError, decodeInput, InvalidInputError, NotFoundError } from "../../lib/errors";
 import { blocks, layouts, pages, projects, user } from "../../schema";
 import { definitionsIn } from "../_shared/definitions";
@@ -577,10 +578,13 @@ export const generatePageSeo = Effect.fn("pages.generatePageSeo")(function* (
   rawInput: z.input<typeof generatePageSeoInput>,
 ) {
   const { id } = yield* decodeInput(generatePageSeoInput, rawInput);
-  const { scope } = yield* accessTo(ctx, { page: id }, "member");
+  const { scope, project } = yield* accessTo(ctx, { page: id }, "member");
 
   // In the scope's draft or Live, and in its locale.
-  yield* generateNow(ctx.db, scope, "page", id).pipe(Effect.orDie);
+  yield* generateNow(ctx.db, scope, "page", id).pipe(
+    attributedToRequest(ctx, project, scope),
+    Effect.orDie,
+  );
   const page = yield* overlay.get(ctx.db, scope, pages, id);
   return page ? yield* shownPage(ctx, scope, page) : undefined;
 }, Effect.scoped);

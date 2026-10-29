@@ -6,6 +6,7 @@ import { z } from "zod";
 
 import type { Database } from "../../db";
 import { AiModel } from "../../lib/ai-model";
+import { attributedToRequest } from "../../lib/ai-usage";
 import { stripArtifactSources } from "../../lib/content-markdown";
 import { ConflictError, decodeInput, InvalidInputError, NotFoundError } from "../../lib/errors";
 import { blocks, repeatableItems } from "../../schema";
@@ -653,7 +654,10 @@ export const generateRepeatableItemSummary = Effect.fn(
   const { id } = yield* decodeInput(generateRepeatableItemSummaryInput, rawInput);
   const { scope, project } = yield* accessTo(ctx, { item: id }, "member");
 
-  yield* generateNow(ctx.db, scope, "repeatableItem", id).pipe(Effect.orDie);
+  yield* generateNow(ctx.db, scope, "repeatableItem", id).pipe(
+    attributedToRequest(ctx, project, scope),
+    Effect.orDie,
+  );
   const stored = yield* overlay.get(ctx.db, scope, repeatableItems, id);
   return stored && (yield* shownItem(ctx, project.id, scope, stored));
 }, Effect.scoped);
