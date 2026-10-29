@@ -40,6 +40,15 @@ export const LOOK_TOKEN_HEADER = "x-camox-look-token";
 export const LOOK_TOKEN_COOKIE = "camox_look";
 
 /**
+ * The website's lightweight document the browser `look` drives loads (the SDK runtime's
+ * `RUNTIME_ROUTE_PATHS.look`): one page of the draft `DRAFT_SEARCH_PARAM` names, at the path
+ * `LOOK_PATH_PARAM` gives in the locale `LOOK_LOCALE_PARAM` names, its Default Locale without.
+ */
+export const LOOK_DOCUMENT_PATH = "/_camox/look";
+export const LOOK_PATH_PARAM = "path";
+export const LOOK_LOCALE_PARAM = "locale";
+
+/**
  * Request header asking the API to create the draft named by `DRAFT_HEADER` if it doesn't
  * exist yet. Its value is `"1"`.
  */

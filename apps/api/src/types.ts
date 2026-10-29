@@ -73,6 +73,8 @@ export type Bindings = {
   SKILLS: R2Bucket;
   /** The dispatch Worker, which loads revisions (`domains/revisions/dispatch.ts`). */
   DISPATCH: import("./domains/revisions/dispatch").Dispatch;
+  /** Browser Run, whose Chromium the agent's `look` captures a draft in (`domains/looks`). */
+  BROWSER: import("@cloudflare/playwright").BrowserWorker;
   /** Camox's Cloudflare account, which serves every project's Worker. */
   CLOUDFLARE_ACCOUNT_ID: string;
   /** The Cloudflare API token that can deploy to the `production` dispatch namespace. */

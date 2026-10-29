@@ -35,6 +35,9 @@
   "services": [
     { "binding": "DISPATCH", "service": "camox-dispatch", "entrypoint": "CamoxRevisions" },
   ],
+  // Browser Run's Chromium, which the agent's `look` captures a draft's pages in, from its
+  // thread (src/domains/looks/browser-run.ts).
+  "browser": { "binding": "BROWSER" },
   "r2_buckets": [
     {
       "binding": "FILES_BUCKET",
