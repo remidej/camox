@@ -372,6 +372,108 @@ describe("send_message", () => {
   });
 });
 
+describe("get_draft", () => {
+  it("lists editors', Connected Agents' and the agent's messages, without tool steps", async () => {
+    const website = await websiteFixture({ pricing: "Plans start at $9." });
+    const { memberUser } = website;
+    const teammate = await addMember(website.db, website.project.organizationId);
+    const { accessToken } = await connectAgent(memberUser.id, { clientName: "Claude" });
+    answerWithScript(`
+      const pricing = await tools.getPage({ path: "/pricing" });
+      await tools.editBlock({ id: pricing.blocks[0].id, content: { body: "Plans start at $12." } });
+    `);
+    answerNext("Raised the price to $12.");
+    const { draft } = answerOf(
+      await callTool(accessToken, "start_draft", { name: "New prices", message: "Raise prices." }),
+    );
+    answerNext("Done.");
+    await ask(await editorOnDraft(website, draft as string, teammate.id), "Say it's per month.");
+
+    const answer = answerOf(await callTool(accessToken, "get_draft", { draft: draft as string }));
+
+    expect(answer).toEqual({
+      draft,
+      name: "New prices",
+      state: "open",
+      turnRunning: false,
+      blockers: [],
+      messages: [
+        {
+          from: "connectedAgent",
+          member: memberUser.name,
+          client: "Claude",
+          text: "Raise prices.",
+        },
+        { from: "agent", text: "Raised the price to $12." },
+        { from: "editor", name: teammate.name, text: "Say it's per month." },
+        { from: "agent", text: "Done." },
+      ],
+    });
+  });
+
+  it("shows the turn running after start_draft said it's still working, then the agent's final message", async () => {
+    const bindings = env as unknown as Bindings;
+    bindings.CONNECTED_AGENT_TURN_WAIT_MS = "0";
+    onTestFinished(() => {
+      delete bindings.CONNECTED_AGENT_TURN_WAIT_MS;
+    });
+    const website = await websiteFixture({ pricing: "Plans start at $9." });
+    const { accessToken } = await connectAgent(website.memberUser.id);
+    const release = holdNextScript(`text("looking");`);
+    answerNext("Raised the prices.");
+    const { draft } = answerOf(
+      await callTool(accessToken, "start_draft", { name: "New prices", message: "Raise prices." }),
+    );
+    const getDraft = async () =>
+      answerOf(await callTool(accessToken, "get_draft", { draft: draft as string }));
+
+    expect(await getDraft()).toMatchObject({ turnRunning: true });
+    release();
+
+    await until(async () => (await getDraft()).turnRunning === false);
+    expect((await getDraft()).messages).toEqual([
+      {
+        from: "connectedAgent",
+        member: website.memberUser.name,
+        client: expect.any(String),
+        text: "Raise prices.",
+      },
+      { from: "agent", text: "Raised the prices." },
+    ]);
+  });
+
+  it("shows a draft that was published or deleted as such, and by whom", async () => {
+    const website = await websiteFixture({ pricing: "Plans start at $9." });
+    const { db, memberUser, project } = website;
+    const { accessToken } = await connectAgent(memberUser.id);
+    answerWithScript(`
+      const pricing = await tools.getPage({ path: "/pricing" });
+      await tools.editBlock({ id: pricing.blocks[0].id, content: { body: "Plans start at $12." } });
+    `);
+    answerNext("Raised the price to $12.");
+    const { draft: published } = answerOf(
+      await callTool(accessToken, "start_draft", { name: "New prices", message: "Raise prices." }),
+    );
+    await publishDraft(website, published as string);
+    const deleted = await startDraft(db, project.id, memberUser.id);
+    await call(router.drafts.delete, { projectId: project.id }, inDraft(website, deleted));
+
+    const getDraft = async (draft: string) =>
+      answerOf(await callTool(accessToken, "get_draft", { draft }));
+    expect(await getDraft(published as string)).toMatchObject({
+      draft: published,
+      name: "New prices",
+      state: "published",
+      endedBy: memberUser.name,
+    });
+    expect(await getDraft(deleted)).toMatchObject({
+      draft: deleted,
+      state: "deleted",
+      endedBy: memberUser.name,
+    });
+  });
+});
+
 describe("guidance to a Connected Agent", () => {
   it("makes business context the Connected Agent's job, in the server's instructions", async () => {
     const website = await websiteFixture({});
