@@ -22,6 +22,8 @@
     "test": "vp test --run"
   },
   "dependencies": {
+    "@better-auth/cimd": "^1.7.14",
+    "@better-auth/mcp": "^1.7.14",
     "@camox/ai-tools": "workspace:*",
     "@camox/api-contract": "workspace:*",
     "@cfworker/json-schema": "^4.1.1",
@@ -35,7 +37,7 @@
     "@tanstack/ai": "^0.69.0",
     "@tanstack/ai-openrouter": "^0.22.0",
     "agents": "0.29.0",
-    "better-auth": "^1.7.10",
+    "better-auth": "^1.7.14",
     "camox": "workspace:*",
     "drizzle-orm": "^0.45.4",
     "effect": "^4.0.5",
