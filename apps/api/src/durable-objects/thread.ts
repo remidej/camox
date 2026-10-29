@@ -573,6 +573,7 @@ export class Thread extends DurableObject<Bindings> {
         hooks: [
           hook(GenerationTask, {
             onYield: async (_answer, api, context) => {
+              await this.#recordTurnPage({ api, context });
               const next = await this.#onYield(api, context);
               if (!next && api.conversationId === ROOT_CONVERSATION_ID) {
                 await this.#endTurnTiming(api, context);
@@ -1493,11 +1494,27 @@ export class Thread extends DurableObject<Bindings> {
   }
 
   /**
+   * Records the page the run changed last for every message of the run, as its turn ends: a
+   * message that steered in after the run's last page write has it too. The message that started
+   * the run was there for every write, so it has the run's last page.
+   */
+  async #recordTurnPage(invocation: InConversation) {
+    if (invocation.api.conversationId !== ROOT_CONVERSATION_ID) return;
+    const [first, ...joined] = operationIdsOf(await this.#entriesOfRun(invocation));
+    if (!first || joined.length === 0) return;
+    const page = await this.ctx.storage.get<TurnPage>(`${TURN_PAGE_PREFIX}${first}`);
+    if (!page) return;
+    await this.ctx.storage.put(
+      Object.fromEntries(joined.map((id) => [`${TURN_PAGE_PREFIX}${id}`, page])),
+    );
+  }
+
+  /**
    * The entries Pi recorded for the inputs of the run a tool call is part of, up to `limit`: the
    * message that started the run first, then those that steered it.
    */
   async #entriesOfRun(
-    { api, context }: ToolInvocation,
+    { api, context }: InConversation,
     limit = Number.POSITIVE_INFINITY,
   ): Promise<EntryRecord[]> {
     const live = await api.snapshot(LiveDoc, api.conversationId, context);
@@ -1619,6 +1636,34 @@ export class Thread extends DurableObject<Bindings> {
       whenBusy: "steer",
       operationId: last.operationId,
       entry: openingEntryOf(last),
+    });
+  }
+
+  /**
+   * Sends a message into the thread from the API, with no studio connected, as an editor's
+   * message from the studio is sent: it starts the agent's run, or steers the one going, and the
+   * run acts as its sender. It's recorded as its sender's kind has it, as opening messages are.
+   * Repeating it changes nothing.
+   */
+  async send({
+    identity,
+    apiOrigin,
+    message,
+  }: {
+    identity: ThreadIdentity;
+    apiOrigin: string;
+    message: OpeningMessage;
+  }): Promise<void> {
+    if (await this.#hasEnded()) throw new Error("The thread ended with its draft");
+    if (!(await this.#start(identity))) {
+      throw new Error("The thread belongs to another project, draft or owner");
+    }
+    await this.#recordApiOrigin(apiOrigin);
+    await this.#startTurnTiming(message.operationId);
+    await this.harness.submit(message.text, {
+      whenBusy: "steer",
+      operationId: message.operationId,
+      entry: openingEntryOf(message),
     });
   }
 
