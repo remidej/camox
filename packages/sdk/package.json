@@ -309,6 +309,16 @@
       "type:pkg"
     ],
     "targets": {
+      "build": {
+        "dependsOn": [
+          {
+            "target": "build",
+            "projects": [
+              "@camox/cli"
+            ]
+          }
+        ]
+      },
       "test": {
         "dependsOn": [
           "^build"
