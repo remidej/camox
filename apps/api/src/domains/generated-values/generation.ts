@@ -3,21 +3,22 @@ import { Effect } from "effect";
 import type { Database } from "../../db";
 import { type GenerationJob, AiJobQueue, type JobEntity, jobName } from "../../lib/ai-job-queue";
 import type { AiModel } from "../../lib/ai-model";
+import { attributedToCamox } from "../../lib/ai-usage";
 import { Background } from "../../lib/background";
 import { isRasterImage } from "../../lib/image-transform";
 import type { Journal } from "../../lib/journal";
 import type { AiCallError } from "../../lib/retry-ai-call";
-import { blocks, pages, repeatableItems } from "../../schema";
+import { blocks, files, pages, repeatableItems } from "../../schema";
 import { executeBlockSummary } from "../blocks/service";
 import * as overlay from "../drafts/overlay";
 import { draftIn, inDefaultLocale, inLocale, type ReadScope } from "../drafts/scope";
 import { draftScopeOfJob } from "../drafts/service";
 import { altGeneratedIn, metadataGenerated } from "../files/generated-metadata";
-import type { files } from "../files/schema";
 import { executeFileMetadata } from "../files/service";
 import { otherLocale } from "../locales/default-locale";
 import { executePageSeo } from "../pages/ai";
 import { seoGenerated } from "../pages/generated-seo";
+import { SEO_MANAGER_TYPES, seoManager } from "../patrol/patrollers";
 import { reportGeneration } from "../patrol/seo-manager";
 import { executeRepeatableItemSummary } from "../repeatable-items/service";
 import { type GeneratedType, LOCALIZED } from "./schema";
@@ -228,6 +229,29 @@ export const generateNow = Effect.fn("generation.generateNow")(function* (
   if (stale) yield* requestGeneration(db, homeOf(scope, stale.projectId), stale.target);
 });
 
+/** The project of an entity on Live, if it's still there: a shared item's is on the item. */
+const liveProjectOf = Effect.fn("generation.liveProjectOf")(function* (
+  db: Database,
+  entity: JobEntity,
+  id: string,
+) {
+  switch (entity) {
+    case "page":
+      return (yield* overlay.get(db, null, pages, id))?.projectId;
+    case "file":
+      return (yield* overlay.get(db, null, files, id))?.projectId;
+    case "block":
+      return (yield* overlay.get(db, null, blocks, id))?.projectId;
+    case "repeatableItem": {
+      const item = yield* overlay.get(db, null, repeatableItems, id);
+      if (item?.projectId) return item.projectId;
+      return item?.blockId
+        ? (yield* overlay.get(db, null, blocks, item.blockId))?.projectId
+        : undefined;
+    }
+  }
+});
+
 /**
  * Runs a scheduled job in the scope and locale it was scheduled from, or nothing once its draft
  * ended. A job that fails for good settles its request, so its value stops showing as pending,
@@ -242,7 +266,19 @@ export const runGenerationJob = Effect.fn("generation.run")(function* (
   const scope = job.locale === undefined ? drafted : inLocale(drafted, job.locale);
   const startedAt = Date.now();
   const key = keyOf(job.entity, job.entityId);
-  const outcome = yield* generateNow(db, scope, job.entity, job.entityId, startedAt).pipe(
+  const projectId = drafted?.projectId ?? (yield* liveProjectOf(db, job.entity, job.entityId));
+  const generating = generateNow(db, scope, job.entity, job.entityId, startedAt);
+  const outcome = yield* (
+    projectId === undefined
+      ? generating
+      : generating.pipe(
+          attributedToCamox(db, {
+            projectId,
+            draftId: job.draftId,
+            patroller: SEO_MANAGER_TYPES.includes(key.type) ? seoManager.id : null,
+          }),
+        )
+  ).pipe(
     Effect.as("done" as const),
     Effect.catchCause((cause) =>
       Effect.logError(`[generation] ${jobName(job)} failed`, cause).pipe(

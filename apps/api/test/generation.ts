@@ -8,6 +8,7 @@ import {
   ScheduleError,
 } from "../src/lib/ai-job-queue";
 import { AiModel } from "../src/lib/ai-model";
+import { AiAttribution } from "../src/lib/ai-usage";
 import { Background, inline } from "../src/lib/background";
 import { AiCallError } from "../src/lib/retry-ai-call";
 import { withTranslationSettled } from "../src/lib/translation-settled";
@@ -31,22 +32,25 @@ const answers = new Map<Method, (Answer<Method> | AiCallError)[]>();
 const standing = new Map<Method, Answerer<Method>>();
 const calls: ModelCall[] = [];
 
+/** Who each call was attributed to, in order: what its AI usage records would name. */
+const attributions: { method: Method; attribution: AiAttribution | undefined }[] = [];
+
 const answer = <M extends Method>(method: M, request: Request<M>) =>
-  Effect.suspend(() => {
+  Effect.gen(function* () {
+    attributions.push({ method, attribution: yield* AiAttribution });
     calls.push({ method, request } as ModelCall);
     const next = answers.get(method)?.shift();
     if (next === undefined) {
       const answerer = standing.get(method) as Answerer<M> | undefined;
       const unscripted = new AiCallError({ cause: `No ${method} answer scripted` });
-      return Effect.promise(async () => answerer?.(request)).pipe(
-        Effect.flatMap((answered) =>
-          answered === undefined || answered instanceof AiCallError
-            ? Effect.fail(answered ?? unscripted)
-            : Effect.succeed(answered),
-        ),
-      );
+      const answered = yield* Effect.promise(async () => answerer?.(request));
+      if (answered === undefined || answered instanceof AiCallError) {
+        return yield* Effect.fail(answered ?? unscripted);
+      }
+      return answered;
     }
-    return next instanceof AiCallError ? Effect.fail(next) : Effect.succeed(next as Answer<M>);
+    if (next instanceof AiCallError) return yield* Effect.fail(next);
+    return next as Answer<M>;
   });
 
 const scriptedModel = AiModel.of({
@@ -72,11 +76,18 @@ export const answerEvery = <M extends Method>(method: M, answerer: Answerer<M>) 
 /** Everything the model was asked since the test started. */
 export const modelCalls = (): readonly ModelCall[] => calls;
 
+/** Who each call to the model since the test started was attributed to, in order. */
+export const modelAttributions = (): readonly {
+  method: Method;
+  attribution: AiAttribution | undefined;
+}[] => attributions;
+
 /** Forgets scripted answers and calls, between tests. */
 export const forgetModel = () => {
   answers.clear();
   standing.clear();
   calls.length = 0;
+  attributions.length = 0;
 };
 
 /** A job on an entity: a generated value or a translation. */

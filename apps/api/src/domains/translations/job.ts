@@ -4,6 +4,7 @@ import { Effect } from "effect";
 import type { Database } from "../../db";
 import { jobName, type TranslationJob } from "../../lib/ai-job-queue";
 import { AiModel, type MergeText, type TranslationText } from "../../lib/ai-model";
+import { attributedToCamox } from "../../lib/ai-usage";
 import type { AiCallError } from "../../lib/retry-ai-call";
 import {
   blocks,
@@ -21,6 +22,7 @@ import type { Draft } from "../drafts/scope";
 import { draftScopeOfJob } from "../drafts/service";
 import { type GenerationTarget, requestGeneration } from "../generated-values/generation";
 import { homeOf } from "../generated-values/service";
+import { translator } from "../patrol/patrollers";
 import { reportTranslation } from "../patrol/translator";
 import {
   type Bookkeeping,
@@ -76,6 +78,11 @@ export const runTranslationJob = Effect.fn("translation.run")(function* (
   if (draft) {
     const run = job.source === "defaults" ? translateDefaults : translate;
     const outcome = yield* run(db, draft, job).pipe(
+      attributedToCamox(db, {
+        projectId: draft.projectId,
+        draftId: draft.id,
+        patroller: translator.id,
+      }),
       Effect.map((wrote) => (wrote ? ("done" as const) : null)),
       Effect.catchCause((cause) =>
         Effect.logError(`[translation] ${jobName(job)} failed`, cause).pipe(

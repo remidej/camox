@@ -5,6 +5,7 @@ import { z } from "zod";
 import type { Database } from "../../db";
 import { jobName, type OverviewJob } from "../../lib/ai-job-queue";
 import { AiModel } from "../../lib/ai-model";
+import { attributedToCamox } from "../../lib/ai-usage";
 import { decodeInput } from "../../lib/errors";
 import { record } from "../../lib/journal";
 import type { ServiceContext } from "../_shared/service-context";
@@ -38,7 +39,11 @@ export const runOverviewJob = Effect.fn("drafts.runOverviewJob")(function* (
   if (changes.length === 0) return;
   const input = yield* overviewInput(ctx, scope, row.name, changes, defaultLocale);
   const model = yield* AiModel;
-  const written = yield* Effect.result(model.draftOverview(input));
+  const written = yield* Effect.result(
+    model
+      .draftOverview(input)
+      .pipe(attributedToCamox(db, { projectId: row.projectId, draftId: row.id, patroller: null })),
+  );
   if (written._tag === "Failure") {
     yield* Effect.logError(`[overview] ${jobName(job)} failed`, written.failure.cause);
     return yield* failOverview(db, row.projectId, row.id, startedAt);
