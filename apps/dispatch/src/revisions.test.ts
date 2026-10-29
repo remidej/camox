@@ -108,6 +108,24 @@ describe("a revision's outbound requests, through its gateway", () => {
     expect(await reached[0]!.text()).toBe("{}");
   });
 
+  it("reach the Camox API with the look token the revision read the draft's content with", async () => {
+    // ADR 0032: a look document's reads of the draft carry the browser's look token, not a session.
+    const gateway = await gatewayOf();
+    const reached = internet();
+
+    await gateway.fetch(
+      new Request(`${API_URL}/rpc/pages/getStructure`, {
+        method: "POST",
+        headers: { "x-camox-draft": DRAFT, "x-camox-look-token": "look.c2lnbmVk" },
+        body: "{}",
+      }),
+    );
+
+    expect(reached).toHaveLength(1);
+    expect(reached[0]!.headers.get("x-camox-look-token")).toBe("look.c2lnbmVk");
+    expect(reached[0]!.headers.get("x-camox-draft")).toBe(DRAFT);
+  });
+
   it("reach any other host as they were sent", async () => {
     const gateway = await gatewayOf();
     const reached = internet();

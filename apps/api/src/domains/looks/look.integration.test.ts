@@ -277,12 +277,13 @@ describe("the agent's look", () => {
     expect(await browserRunFakes.captures(draftId)).toEqual([]);
   });
 
-  it("looks at a draft once its code changes built into its preview", async () => {
-    const { website, thread } = await draftThread();
-    const usable = crypto.randomUUID();
+  it("looks at a draft once its code changes built into its preview, and refuses again after a further unbuilt change", async () => {
+    const { website, draftId, thread } = await draftThread();
+    const [usable, further] = [crypto.randomUUID(), crypto.randomUUID()];
     await definitionFakes.defineBuildsOf(usable, definitionSetWith(website));
+    await definitionFakes.defineBuildsOf(further, definitionSetWith(website));
 
-    const { images } = await look(
+    const built = await look(
       thread,
       { targets: [{ path: "/home" }] },
       {
@@ -295,9 +296,25 @@ describe("the agent's look", () => {
         },
       },
     );
+    expect(built.images).toHaveLength(2);
+    expect(await browserRunFakes.captures(draftId)).toHaveLength(2);
+
+    const unbuilt = await look(
+      thread,
+      { targets: [{ path: "/home" }] },
+      {
+        before: () =>
+          answerWithToolCall("write", {
+            path: "src/blocks/pricing.tsx",
+            content: markedFile(further),
+          }),
+      },
+    );
     thread.close();
 
-    expect(images).toHaveLength(2);
+    expect(unbuilt.results).toEqual([]);
+    expect(unbuilt.text).toContain("Call `build`");
+    expect(await browserRunFakes.captures(draftId)).toHaveLength(2);
   });
 
   it("fails the call with an error the agent acts on when the browser can't be reached, and the turn still ends", async () => {
