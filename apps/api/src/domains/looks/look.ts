@@ -39,11 +39,16 @@ export const DEFAULT_SIZES: readonly LookSize[] = ["desktop", "mobile"];
 export type PageTarget = { path: string; locale?: string };
 
 /**
-/**
  * The longest a target may have the browser wait, once its document is ready and settled, before
  * it captures: enough to see an animation at a later moment.
  */
 export const LOOK_MAX_DELAY_MS = 5000;
+
+/**
+ * The longest a look document's URL may be, in characters, which a Block Definition's overrides
+ * travel in: well under what the website's host and the browser accept.
+ */
+export const LOOK_MAX_URL_LENGTH = 8000;
 
 /**
  * A Block Definition, unplaced: its default content and Block Settings with overrides merged on,
@@ -178,13 +183,21 @@ async function resolve(
   const url = new URL(LOOK_DOCUMENT_PATH, origin);
   url.searchParams.set(DRAFT_SEARCH_PARAM, where.draftId);
   if ("blockDefinition" in target) {
-    const refused = await blockRefused(env, where, projectUuid, target);
-    if (refused) return { error: refused };
     url.searchParams.set(LOOK_BLOCK_DEFINITION_PARAM, target.blockDefinition);
     if (target.content !== undefined)
       url.searchParams.set(LOOK_CONTENT_PARAM, JSON.stringify(target.content));
     if (target.settings !== undefined)
       url.searchParams.set(LOOK_SETTINGS_PARAM, JSON.stringify(target.settings));
+    if (url.href.length > LOOK_MAX_URL_LENGTH) {
+      return {
+        error:
+          `The overrides are too long to look at: they travel in the page's address, at most ` +
+          `${LOOK_MAX_URL_LENGTH} characters, and this one is ${url.href.length}. Shorten the ` +
+          "overrides, such as long text, and look again.",
+      };
+    }
+    const refused = await blockRefused(env, where, projectUuid, target);
+    if (refused) return { error: refused };
     return { url: url.href, element: `[data-camox-viewport-block="${UNPLACED_BLOCK_ID}"]` };
   }
   const structure = await pageStructure(env, where, projectUuid, target);
