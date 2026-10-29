@@ -1,0 +1,12 @@
+// Declaration emit for packages/api-contract. Each tsconfig.dts.* file sits at the repo root
+// because the pack's type generator emits relative to the tsconfig's folder, and the packages'
+// types reach into other workspace folders.
+{
+  "extends": "./packages/api-contract/tsconfig.json",
+  "compilerOptions": {
+    "paths": {
+      "@camox/ai-tools": ["./packages/ai-tools/src/index.ts"]
+    }
+  },
+  "include": ["packages/api-contract/src"]
+}

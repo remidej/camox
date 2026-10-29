@@ -1,4 +1,4 @@
-import { drizzle } from "drizzle-orm/d1";
+import { type DrizzleD1Database, drizzle } from "drizzle-orm/d1";
 
 import {
   account,
@@ -42,7 +42,11 @@ const schema = {
   invitation,
 };
 
-export function createDb(d1: D1Database) {
+// Annotated: for the inferred type, TypeScript 7's declaration emit names drizzle's `TClient`
+// instead of D1Database.
+export function createDb(
+  d1: D1Database,
+): DrizzleD1Database<typeof schema> & { $client: D1Database } {
   return drizzle(d1, { schema });
 }
 

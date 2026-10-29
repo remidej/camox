@@ -1,6 +1,6 @@
 import { BUILD_TOOL } from "@camox/api-contract/threads";
 import { Type } from "@earendil-works/pi-ai";
-import { defineTool } from "@earendil-works/pi-durable";
+import { defineTool, type ToolRegistration } from "@earendil-works/pi-durable";
 
 import type { ToolInvocation } from "../threads/tools";
 import type { BuildResult } from "./result";
@@ -9,7 +9,7 @@ import type { BuildResult } from "./result";
  * The agent's `conflicts`, which lists the files that still have merge conflict markers, as a
  * merge of Live's code that conflicts leaves them. `list` lists them in the thread's draft.
  */
-export const conflictsTool = (list: () => Promise<string[]>) =>
+export const conflictsTool = (list: () => Promise<string[]>): ToolRegistration =>
   defineTool({
     name: "conflicts",
     description:
@@ -28,7 +28,9 @@ export const conflictsTool = (list: () => Promise<string[]>) =>
  * The agent's `build`, which builds its code changes and, when they pass, commits them as the
  * draft's new revision. `build` runs it for the call: the thread knows its draft and run.
  */
-export const buildTool = (build: (invocation: ToolInvocation) => Promise<BuildResult>) =>
+export const buildTool = (
+  build: (invocation: ToolInvocation) => Promise<BuildResult>,
+): ToolRegistration =>
   defineTool({
     name: BUILD_TOOL,
     description:

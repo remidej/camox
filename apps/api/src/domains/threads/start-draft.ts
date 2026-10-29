@@ -1,6 +1,6 @@
 import { START_DRAFT_TOOL, type StartedDraftCard } from "@camox/api-contract/threads";
 import { Type } from "@earendil-works/pi-ai";
-import { defineTool } from "@earendil-works/pi-durable";
+import { defineTool, type ToolRegistration } from "@earendil-works/pi-durable";
 
 import type { ToolInvocation } from "./tools";
 
@@ -16,7 +16,7 @@ export type DraftHandOff = { name: string; brief: string };
  */
 export const startDraftTool = (
   start: (invocation: ToolInvocation, handOff: DraftHandOff) => Promise<StartedDraftCard>,
-) =>
+): ToolRegistration =>
   defineTool({
     name: START_DRAFT_TOOL,
     description:

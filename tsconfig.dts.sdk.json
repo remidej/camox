@@ -1,0 +1,11 @@
+// Declaration emit for packages/sdk (see tsconfig.dts.api-contract.json).
+{
+  "extends": "./packages/sdk/tsconfig.json",
+  "include": ["packages/sdk/src/**/*.ts", "packages/sdk/src/**/*.tsx"],
+  "exclude": [
+    "packages/sdk/src/**/*.test.ts",
+    "packages/sdk/src/**/*.test.tsx",
+    "packages/sdk/src/**/*.fixtures.ts",
+    "packages/sdk/src/**/*.fixtures.tsx"
+  ]
+}

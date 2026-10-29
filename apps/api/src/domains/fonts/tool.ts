@@ -1,5 +1,5 @@
 import { Type } from "@earendil-works/pi-ai";
-import { defineTool } from "@earendil-works/pi-durable";
+import { defineTool, type ToolRegistration } from "@earendil-works/pi-durable";
 
 import type { Bindings } from "../../types";
 import { FONT_CATEGORIES, FONTS_SHOWN, searchFonts } from "./catalog";
@@ -9,7 +9,7 @@ import { FONT_CATEGORIES, FONTS_SHOWN, searchFonts } from "./catalog";
  * the exact link a Document needs, so the agent never misspells a family or asks for a weight
  * it lacks.
  */
-export const searchFontsTool = (env: Bindings) =>
+export const searchFontsTool = (env: Bindings): ToolRegistration =>
   defineTool({
     name: "searchFonts",
     description:

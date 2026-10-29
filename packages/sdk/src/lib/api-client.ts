@@ -78,7 +78,7 @@ export function getApiClient(): ApiClient {
   return _client;
 }
 
-export function getOrpc() {
+export function getOrpc(): NonNullable<typeof _orpc> {
   if (!_orpc) throw new Error("API client not initialized — call initApiClient first");
   return _orpc;
 }
