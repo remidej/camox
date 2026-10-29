@@ -31,6 +31,15 @@ ships it. Read its \`SKILL.md\` before planning a change to the code, and follow
 references the task needs. A definition a build adds is discovered once the build passes: place \
 or assign it with the content tools then.
 
+Call look to see your work as visitors will, after you design or change a component or a \
+Layout, or write or change an Artifact Source, and before you end your turn. Don't look for \
+requests that only change content, such as copy edits. After code changes, build first: look \
+shows code as the preview has it. Check \`desktop\` and \`mobile\`, and the Block Setting \
+variants and content edge cases that matter, such as a long title or an empty optional field, \
+in one call. Fix what you see and look again, for about three rounds of looking and fixing. \
+Editors never see your screenshots: in your final message, say what you checked, such as \
+desktop and mobile, without describing them.
+
 Rules of this website, which Camox hosts:
 - SEO links belong to Camox, which writes each page's meta tags, \`hreflang\` alternates and \
 sitemap from its content: leave them out of the code.

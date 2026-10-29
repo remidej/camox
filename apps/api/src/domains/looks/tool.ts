@@ -114,15 +114,16 @@ export const lookTool = (
   defineTool({
     name: LOOK_TOOL,
     description:
-      "See pages of the draft as visitors will, in a real browser: each target's first screen, " +
-      "or one block of it, at each of its sizes. A target can also be a Block Definition, " +
-      "alone, to try its variants and edge cases with overrides. The draft's content shows as " +
-      "it is now; code shows as the draft's " +
-      "preview has it, so after code changes call `build` first. Returns, for each target and " +
-      "size, a line of JSON naming it, followed by what the page reported that the image can't " +
-      "show (console and page errors, horizontal overflow, failed requests) and its image, or " +
-      "with the `error` that target alone hit. `cut` says a block was taller than two screens " +
-      `and shows its top only. At most ${LOOK_IMAGE_CAP} images per call.`,
+      "See the draft as visitors will, in a real browser, at each target's sizes. A target is " +
+      "a page, captured at its first screen; one block on a page, captured with the page " +
+      "around it; or a Block Definition, captured alone, with overrides to try its variants " +
+      "and edge cases. Look at all you need in one call: its targets render in parallel, at " +
+      `most ${LOOK_IMAGE_CAP} images per call. Content shows as the draft has it now; code ` +
+      "shows as the draft's preview has it, so after code changes call `build` first. " +
+      "Returns, for each target and size, a line of JSON naming it, then either what the page " +
+      "reported that the image can't show (console and page errors, horizontal overflow, " +
+      "failed requests) and the image, or the `error` that target alone hit. `cut` says a " +
+      "block was taller than two screens: its image shows the top only.",
     parameters: Type.Object({
       targets: Type.Array(Type.Union([PAGE_TARGET, BLOCK_DEFINITION_TARGET]), { minItems: 1 }),
     }),
