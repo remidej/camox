@@ -26,6 +26,46 @@ export const PUBLISHING_DRAFT_HEADER = "x-camox-publishing-draft";
 export const PUBLISHING_DRAFT_VAR = "CAMOX_PUBLISHING_DRAFT";
 
 /**
+ * Request header carrying a look token (ADR 0032): a short-lived, read-only credential the API
+ * signs for the agent's `look` tool, naming one project and one draft. A request carrying a valid
+ * one reads that draft's content, named with `DRAFT_HEADER`, as a member would, without a session.
+ * It writes nothing, reads no other draft, and reads none of Live's private data.
+ */
+export const LOOK_TOKEN_HEADER = "x-camox-look-token";
+
+/**
+ * The cookie the browser `look` drives carries the look token in, set for the website's host
+ * only, so third-party requests never see it. The website forwards it as `LOOK_TOKEN_HEADER`.
+ */
+export const LOOK_TOKEN_COOKIE = "camox_look";
+
+/**
+ * The website's lightweight document the browser `look` drives loads (the SDK runtime's
+ * `RUNTIME_ROUTE_PATHS.look`): one page of the draft `DRAFT_SEARCH_PARAM` names, at the path
+ * `LOOK_PATH_PARAM` gives in the locale `LOOK_LOCALE_PARAM` names, its Default Locale without.
+ */
+export const LOOK_DOCUMENT_PATH = "/_camox/look";
+export const LOOK_PATH_PARAM = "path";
+export const LOOK_LOCALE_PARAM = "locale";
+
+/**
+ * The look document's Block Definition mode: instead of a page, the block of the Block Definition
+ * `LOOK_BLOCK_DEFINITION_PARAM` names, alone in the site's shell, with its default content and
+ * Block Settings and the overrides `LOOK_CONTENT_PARAM` and `LOOK_SETTINGS_PARAM` give as JSON, in
+ * the shape the content tools take.
+ */
+export const LOOK_BLOCK_DEFINITION_PARAM = "blockDefinition";
+export const LOOK_CONTENT_PARAM = "content";
+export const LOOK_SETTINGS_PARAM = "settings";
+
+/**
+ * The id of a block shown without being placed, as the look document's Block Definition mode
+ * shows it: never a stored block's, which are UUIDs. Its element is
+ * `[data-camox-viewport-block="unplaced"]`.
+ */
+export const UNPLACED_BLOCK_ID = "unplaced";
+
+/**
  * Request header asking the API to create the draft named by `DRAFT_HEADER` if it doesn't
  * exist yet. Its value is `"1"`.
  */
@@ -133,6 +173,7 @@ const BLOCK_WRITES: Record<keyof Router["blocks"], boolean> = {
   getUsageCounts: false,
   getPagesUsing: false,
   getSyncedContent: false,
+  getUnplaced: false,
   create: true,
   updateContent: true,
   updateSettings: true,

@@ -12,7 +12,7 @@ void test("the agent's eyes narrow on the work while it makes changes, only the 
   const [left, right] = drawn(<Squareling status="idle" />).eyes;
   assert.ok(left !== undefined && right !== undefined);
 
-  for (const status of ["thinking", "exploring", "building"] as const)
+  for (const status of ["thinking", "exploring", "building", "checking"] as const)
     assert.deepEqual(drawn(<Squareling status={status} />).eyes, [left, right], status);
   const changing = drawn(<Squareling status="changing" />).eyes;
   assert.equal(changing.length, 2);

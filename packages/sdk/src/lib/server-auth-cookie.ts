@@ -1,3 +1,5 @@
+import { LOOK_TOKEN_COOKIE } from "@camox/api-contract/drafts";
+
 export const SERVER_AUTH_COOKIE_NAME = "camox_auth_cookie";
 
 /** How long the mirror lasts. The API still refuses a session that expired before it. */
@@ -24,13 +26,26 @@ export function getServerAuthCookieHeader(headers: Headers): string {
 
 /** The mirror's session in a `Cookie` header's value, or `document.cookie`. */
 export function readServerAuthCookie(cookieHeader: string): string {
+  return readCookie(cookieHeader, SERVER_AUTH_COOKIE_NAME);
+}
+
+/**
+ * The look token a request carries in `LOOK_TOKEN_COOKIE` (ADR 0032), set by the browser the
+ * agent's `look` tool drives for the website's host only. Empty when there's none.
+ */
+export function getLookToken(headers: Headers): string {
+  return readCookie(headers.get("Cookie") ?? "", LOOK_TOKEN_COOKIE);
+}
+
+/** The cookie `name`'s value in a `Cookie` header's value, decoded, or empty when there's none. */
+function readCookie(cookieHeader: string, name: string): string {
   const cookies = cookieHeader.split(";").map((part) => part.trim());
-  const mirror = cookies.find((part) => part.startsWith(`${SERVER_AUTH_COOKIE_NAME}=`));
-  if (!mirror) return "";
+  const cookie = cookies.find((part) => part.startsWith(`${name}=`));
+  if (!cookie) return "";
   try {
-    return decodeURIComponent(mirror.slice(SERVER_AUTH_COOKIE_NAME.length + 1));
+    return decodeURIComponent(cookie.slice(name.length + 1));
   } catch {
-    // A malformed mirror is no session.
+    // A malformed cookie is none.
     return "";
   }
 }

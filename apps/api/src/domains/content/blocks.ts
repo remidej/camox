@@ -44,13 +44,15 @@ type BlockRow = typeof blocks.$inferSelect;
 type ItemRow = typeof repeatableItems.$inferSelect;
 
 /**
- * The blocks a read covers: those placed on a page, those in a layout's slots, and blocks the
- * caller already holds. A page and its layout are read together.
+ * The blocks a read covers: those placed on a page, those in a layout's slots, blocks the
+ * caller already holds, and blocks it holds with their items that were never stored, which show
+ * their own content even when their definition is synced. A page and its layout are read together.
  */
 export type BlockSource = readonly (
   | { pageId: string }
   | { layoutId: string }
   | { block: BlockRow }
+  | { unstored: BlockRow; items: readonly ItemRow[] }
 )[];
 
 /**
@@ -118,8 +120,19 @@ const loadSource = Effect.fn("content.loadSource")(function* (
     ],
     { concurrency: "unbounded" },
   );
-  const byId = new Map([...held, ...placed].map((block) => [block.id, block]));
-  const items = new Map([...heldItems, ...placedItems].map((item) => [item.id, item]));
+  const unstored = source.flatMap((entry) => ("unstored" in entry ? [entry] : []));
+  const byId = new Map(
+    [...held, ...placed, ...unstored.map((entry) => entry.unstored)].map((block) => [
+      block.id,
+      block,
+    ]),
+  );
+  const items = new Map(
+    [...heldItems, ...placedItems, ...unstored.flatMap((entry) => entry.items)].map((item) => [
+      item.id,
+      item,
+    ]),
+  );
   return {
     blocks: overlay.sortByPosition([...byId.values()]),
     items: [...items.values()],

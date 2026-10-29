@@ -347,6 +347,8 @@ describe("dispatch Worker", () => {
 
 /** The session a signed-in member's browser holds on a project's host, in the SDK's mirror cookie. */
 const MEMBER_SESSION = "__Secure-better-auth.session_token=member.c2lnbmVk";
+/** A look token the API signed for `DRAFT` (ADR 0032), as only the API can tell. */
+const LOOK_TOKEN = "eyJkcmFmdCI6ImFjbWUifQ.c2lnbmVk";
 const mirrored = (session: string) => `camox_auth_cookie=${encodeURIComponent(session)}`;
 
 /**
@@ -364,6 +366,7 @@ async function previewingEnv({
     [SDK_BUNDLE_ARCHIVE_KEYS.workerd]: await archivedSdkBundle(WORKERD_SDK_BUNDLE),
   });
   const asked: { project: string; draft: string; session: string }[] = [];
+  const looks: { project: string; draft: string; token: string }[] = [];
   const env = {
     ...fakeEnv({
       slugs: { acme: PROJECT },
@@ -387,6 +390,11 @@ async function previewingEnv({
           ? revision
           : null;
       },
+      lookedRevision: async (question: { project: string; draft: string; token: string }) => {
+        looks.push(question);
+        const { project, draft, token } = question;
+        return project === PROJECT && draft === DRAFT && token === LOOK_TOKEN ? revision : null;
+      },
     },
   } as unknown as Env;
   const fetch = (path: string, headers: Record<string, string> = {}) =>
@@ -395,7 +403,7 @@ async function previewingEnv({
       env,
       context(env),
     );
-  return { env, asked, loader, builds, fetch };
+  return { env, asked, looks, loader, builds, fetch };
 }
 
 const PREFIX = `/_camox/r/${REVISION}/`;
@@ -821,5 +829,74 @@ describe("Live built against an SDK Bundle", () => {
     expect(await response.text()).toBe(
       `Live's code at /_camox/sdk/${SDK_BUNDLE.browser}/entry.mjs`,
     );
+  });
+});
+
+describe("the look document", () => {
+  // ADR 0032: the browser the agent's `look` tool drives carries a look token, not a session.
+  const LOOK = `/_camox/look?camox-draft=${DRAFT}&path=%2Fpricing`;
+
+  it("reaches the draft's previewed revision with a look token for the draft", async () => {
+    const { fetch, looks } = await previewingEnv();
+
+    const response = await fetch(LOOK, { cookie: `theme=dark; camox_look=${LOOK_TOKEN}` });
+
+    expect(await response.text()).toBe(`The revision under ${PREFIX} at ${LOOK}`);
+    expect(looks).toEqual([{ project: PROJECT, draft: DRAFT, token: LOOK_TOKEN }]);
+  });
+
+  it("asks the API afresh for each look document, so a look after a new build gets it", async () => {
+    const { fetch, looks } = await previewingEnv();
+    const cookie = `camox_look=${LOOK_TOKEN}`;
+
+    await fetch(LOOK, { cookie });
+    await fetch(LOOK, { cookie });
+
+    expect(looks).toHaveLength(2);
+  });
+
+  it.each([
+    ["a look token the API refuses", "camox_look=forged.c2lnbmVk"],
+    ["a member's session but no look token", mirrored(MEMBER_SESSION)],
+    ["no credential", "theme=dark"],
+  ])("reaches Live's code with %s", async (_, cookie) => {
+    const { fetch } = await previewingEnv();
+
+    const response = await fetch(LOOK, { cookie });
+
+    expect(await response.text()).toBe(`Live's code at ${LOOK}`);
+  });
+
+  it("reaches Live's code with the look token, for a draft without a revision", async () => {
+    const asked: unknown[] = [];
+    const env = {
+      ...fakeEnv({
+        slugs: { acme: ACME_UUID },
+        workers: {
+          [ACME_UUID]: (request) => {
+            const url = new URL(request.url);
+            return new Response(
+              `Live's code at ${url.pathname}${url.search} with ${request.headers.get("cookie")}`,
+            );
+          },
+        },
+      }),
+      API: {
+        liveScript: async () => null,
+        lookedRevision: async (question: unknown) => {
+          asked.push(question);
+          return null;
+        },
+      },
+    } as unknown as Env;
+
+    const response = await worker.fetch(
+      new Request(`https://acme.camox.site${LOOK}`, { headers: { cookie: "camox_look=token" } }),
+      env,
+      context(env),
+    );
+
+    expect(await response.text()).toBe(`Live's code at ${LOOK} with camox_look=token`);
+    expect(asked).toEqual([{ project: ACME_UUID, draft: DRAFT, token: "token" }]);
   });
 });

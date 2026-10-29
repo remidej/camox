@@ -20,9 +20,10 @@ import {
 } from "../../../test/threads";
 import { router } from "../../router";
 import type { Bindings } from "../../types";
+import { LOOK_TOKEN_TTL_MS, signLookToken } from "../drafts/look-token";
 import { INFRASTRUCTURE_ATTEMPTS } from "./build";
 import type { RevisionToLoad } from "./dispatch";
-import type { PreviewQuestion } from "./previewed-revision";
+import type { LookQuestion, PreviewQuestion } from "./previewed-revision";
 
 // A draft's preview shows its latest revision (ADR 0023): once a build passes, dispatch prewarms
 // the revision, its definitions become the draft's, and the draft's viewers hear of it in the
@@ -47,7 +48,10 @@ type Fakes = {
 const fakes = (env as unknown as { RELEASE_FAKES: Fakes }).RELEASE_FAKES;
 const previews = (
   exports as unknown as {
-    CamoxPreviews: { previewedRevision(question: PreviewQuestion): Promise<RevisionToLoad | null> };
+    CamoxPreviews: {
+      previewedRevision(question: PreviewQuestion): Promise<RevisionToLoad | null>;
+      lookedRevision(question: LookQuestion): Promise<RevisionToLoad | null>;
+    };
   }
 ).CamoxPreviews;
 const builds = (env as unknown as { REVISION_BUILDS: R2Bucket }).REVISION_BUILDS;
@@ -445,6 +449,85 @@ describe("the revision dispatch sends a request to", () => {
       project: other.project.uuid,
       draft: draftId,
       session: `better-auth.session_token=${token}`,
+    });
+
+    expect(answer).toBeNull();
+  });
+});
+
+describe("the revision dispatch sends a look document to", () => {
+  // ADR 0032: the browser the agent's `look` drives reads the draft with a look token.
+  const lookToken = (website: Website, draftId: string) =>
+    signLookToken(env as unknown as Bindings, { projectId: website.project.id, draftId });
+
+  it("is the draft's previewed revision, for a look token for the draft", async () => {
+    const { website, draftId, thread, result } = await draftWithPricing();
+    thread.close();
+
+    const answer = await previews.lookedRevision({
+      project: website.project.uuid,
+      draft: draftId,
+      token: await lookToken(website, draftId),
+    });
+
+    expect(answer).toMatchObject({
+      revision: result.revision,
+      project: website.project.uuid,
+      draft: draftId,
+      archiveKey: expect.stringContaining(result.revision!),
+    });
+  });
+
+  it("is none for a draft that previews no revision", async () => {
+    const { website } = await websiteWithCode();
+    const draftId = await startDraft(website.db, website.project.id, website.memberUser.id);
+
+    const answer = await previews.lookedRevision({
+      project: website.project.uuid,
+      draft: draftId,
+      token: await lookToken(website, draftId),
+    });
+
+    expect(answer).toBeNull();
+  });
+
+  it.each([
+    ["a token the API didn't sign", async () => "eyJkcmFmdElkIjoiYSJ9.c2lnbmVk"],
+    [
+      "another draft's token",
+      async (website: Website) =>
+        lookToken(website, await startDraft(website.db, website.project.id, website.memberUser.id)),
+    ],
+    [
+      "an expired token",
+      async (website: Website, draftId: string) => {
+        const signedAt = Date.now() - LOOK_TOKEN_TTL_MS - 1;
+        vi.spyOn(Date, "now").mockReturnValueOnce(signedAt);
+        return lookToken(website, draftId);
+      },
+    ],
+  ])("is none for %s", async (_, token) => {
+    const { website, draftId, thread } = await draftWithPricing();
+    thread.close();
+
+    const answer = await previews.lookedRevision({
+      project: website.project.uuid,
+      draft: draftId,
+      token: await token(website, draftId),
+    });
+
+    expect(answer).toBeNull();
+  });
+
+  it("is none on another project's website", async () => {
+    const { website, draftId, thread } = await draftWithPricing();
+    thread.close();
+    const other = await websiteFixture({ home: "Elsewhere" });
+
+    const answer = await previews.lookedRevision({
+      project: other.project.uuid,
+      draft: draftId,
+      token: await lookToken(website, draftId),
     });
 
     expect(answer).toBeNull();

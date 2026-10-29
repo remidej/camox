@@ -11,6 +11,7 @@ import { useAuthState, useSignInRedirect } from "../../lib/auth";
 import { type DraftScope, DraftScopeContext } from "../../lib/draft-scope";
 import { CuratedPageContent } from "../page/CuratedPageContent";
 import { DerivedPageContent } from "../page/DerivedPageContent";
+import { UnplacedBlockContent } from "../page/UnplacedBlockContent";
 import { Frame } from "../preview/components/Frame";
 import { PreviewActivation } from "../preview/components/PreviewActivation";
 import { CoreCamoxProvider } from "../provider/CoreCamoxProvider";
@@ -51,10 +52,14 @@ export function PageApp({
                 projectUuid={input.projectUuid}
                 initialAuthenticated={input.presentation === "studio"}
                 initialProject={currentInput.project}
+                sessionless={input.look}
               >
                 <PreviewDocumentContext.Provider value={currentInput.previewDocument}>
                   {input.previewHandoff ? (
                     <PreviewSignInPage />
+                  ) : input.look ? (
+                    // The look document only shows the draft: no sign-in.
+                    <PageContent camoxApp={camoxApp} input={currentInput} />
                   ) : (
                     <PageExperience
                       camoxApp={camoxApp}
@@ -125,10 +130,8 @@ function PageExperience({
   const loading = <div className="text-muted-foreground p-6 text-sm">Loading Studio…</div>;
   const readOnlyPage = input.routeKind ? (
     loading
-  ) : input.canvasOnly ? null : input.derived ? (
-    <DerivedPageContent camoxApp={camoxApp} derived={input.derived} />
-  ) : (
-    <CuratedPageContent />
+  ) : input.canvasOnly ? null : (
+    <PageContent camoxApp={camoxApp} input={input} />
   );
 
   const isolatedPage = <Frame>{readOnlyPage}</Frame>;
@@ -162,6 +165,13 @@ function PageExperience({
   // suddenly put site markup under its styles or theme while auth reconciles.
   if (studioDocument) return <div style={{ height: "100vh" }}>{isolatedPage}</div>;
   return readOnlyPage;
+}
+
+/** The page's blocks, read-only, or the look document's one unplaced block. */
+function PageContent({ camoxApp, input }: { camoxApp: CamoxApp; input: PageRenderInput }) {
+  if (input.lookBlock) return <UnplacedBlockContent blockId={input.lookBlock} />;
+  if (input.derived) return <DerivedPageContent camoxApp={camoxApp} derived={input.derived} />;
+  return <CuratedPageContent />;
 }
 
 function StudioLoadError() {

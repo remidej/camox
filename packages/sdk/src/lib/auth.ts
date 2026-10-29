@@ -288,6 +288,8 @@ interface AuthContextValue {
   initialAuthenticated?: boolean;
   /** Whether a `?ott=` one-time token is still being exchanged for a session. */
   exchangingToken?: boolean;
+  /** Whether the page has no session to ask about, as the look document: always signed out. */
+  sessionless?: boolean;
   authClient: CamoxAuthClient;
   authenticationUrl: string;
   apiUrl: string;
@@ -334,7 +336,12 @@ function useSessionState(authClient: CamoxAuthClient, track: boolean) {
 }
 
 export function useAuthState() {
-  const { authClient, initialAuthenticated = false, exchangingToken = false } = useAuthContext();
+  const {
+    authClient,
+    initialAuthenticated = false,
+    exchangingToken = false,
+    sessionless = false,
+  } = useAuthContext();
   const hydrated = React.useSyncExternalStore(
     subscribeToHydration,
     () => true,
@@ -342,7 +349,8 @@ export function useAuthState() {
   );
   // Sessions live in localStorage, or the server saw one. Without either the visitor is
   // anonymous: don't ask the API.
-  const tracksSession = initialAuthenticated || (hydrated && hasStoredAuthCookie());
+  const tracksSession =
+    !sessionless && (initialAuthenticated || (hydrated && hasStoredAuthCookie()));
   const { data: session, isPending } = useSessionState(authClient, tracksSession);
   // Not signed in yet, but about to be: a sign-in redirect now would fetch another token, and
   // land back here before this one is exchanged, forever.

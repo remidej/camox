@@ -76,6 +76,9 @@ export const START_DRAFT_TOOL = "startDraft";
 /** The agent's tool building its code changes mid-turn, which the end of a turn also does. */
 export const BUILD_TOOL = "build";
 
+/** The agent's tool rendering the draft in a browser and returning screenshots to the model. */
+export const LOOK_TOOL = "look";
+
 /**
  * The tools whose calls change a draft: the content tools that write, and the code tools that
  * write files. The model calls the code tools, and code mode scripts call both. A test in the API
@@ -274,6 +277,8 @@ export type ThreadMessage =
  * - `changing`: a call of that round changes the draft (`CHANGING_TOOLS`), as soon as it's written
  *   or, in a code mode script, as soon as the script calls one.
  * - `building`: its `build` call runs, or the end of the turn builds its code changes.
+ * - `checking`: it looks at what it designed, from writing a `look` call until the model is
+ *   called again.
  * - `fixing`: the end of the turn's build failed, and the agent fixes it.
  * - `startingDraft`: on Live, its `startDraft` call runs.
  */
@@ -282,6 +287,7 @@ export type AgentActivity =
   | "exploring"
   | "changing"
   | "building"
+  | "checking"
   | "fixing"
   | "startingDraft";
 
@@ -313,6 +319,8 @@ export type ThreadState = {
    * or making it until the model is called again.
    */
   changing?: boolean;
+  /** Whether the model's latest round calls `look`: from writing the call until it's called again. */
+  checking?: boolean;
   /** The drafts the thread's cards name, as the thread last looked them up. */
   drafts?: DraftCardStates;
 };
@@ -547,6 +555,7 @@ export function threadViewOf({
   toolCalls = [],
   callingTools = false,
   changing = false,
+  checking = false,
   drafts = {},
 }: ThreadState): ThreadView {
   const messages: ThreadMessage[] = [];
@@ -680,7 +689,7 @@ export function threadViewOf({
   return {
     messages,
     running,
-    activity: activityOf({ status, toolCalls, callingTools, changing }),
+    activity: activityOf({ status, toolCalls, callingTools, changing, checking }),
   };
 }
 
@@ -690,16 +699,19 @@ function activityOf({
   toolCalls,
   callingTools,
   changing,
+  checking,
 }: {
   status: BuildStatus | undefined;
   toolCalls: NonNullable<ThreadState["toolCalls"]>;
   callingTools: boolean;
   changing: boolean;
+  checking: boolean;
 }): AgentActivity {
   const calling = (name: string) => toolCalls.some((call) => call.name === name);
   // Fixing a build error takes thinking, reading and writing, which all read as fixing, but its
   // builds show as building.
   if (status === "building" || calling(BUILD_TOOL)) return "building";
+  if (checking) return "checking";
   if (status === "fixing") return "fixing";
   if (calling(START_DRAFT_TOOL)) return "startingDraft";
   if (changing) return "changing";
@@ -713,6 +725,10 @@ const changes = (name: string) => CHANGING_TOOLS.has(name);
 /** Whether a block of the model's message is a call of a tool that changes the draft. */
 const callsChangingTool = (block: AssistantMessage["content"][number]) =>
   block.type === "toolCall" && changes(block.name);
+
+/** Whether a block of the model's message is a call of `look`. */
+const callsLook = (block: AssistantMessage["content"][number]) =>
+  block.type === "toolCall" && block.name === LOOK_TOOL;
 
 const append = (state: ThreadState, entry: EntryRecord | undefined): ThreadState => {
   const step = entry && threadStepOf(entry);
@@ -734,6 +750,7 @@ export function reduceThreadState(state: ThreadState, event: AgentEvent): Thread
         running: event.run !== undefined,
         toolCalls,
         callingTools: generated.some((part) => part.type === "toolCall"),
+        checking: generated.some(callsLook) || toolCalls.some((call) => call.name === LOOK_TOOL),
         // A script's calls count while the script runs, finished or not.
         changing:
           generated.some(callsChangingTool) ||
@@ -752,11 +769,18 @@ export function reduceThreadState(state: ThreadState, event: AgentEvent): Thread
     case "run_start":
       return { ...state, running: true };
     case "run_end":
-      return { ...state, running: false, toolCalls: [], callingTools: false, changing: false };
+      return {
+        ...state,
+        running: false,
+        toolCalls: [],
+        callingTools: false,
+        changing: false,
+        checking: false,
+      };
     case "message_start":
       // The model is called again: it thinks until it writes a tool call.
       return event.message.role === "assistant"
-        ? { ...state, callingTools: false, changing: false }
+        ? { ...state, callingTools: false, changing: false, checking: false }
         : state;
     case "message_update": {
       // A call's name may come with its start, a later change to its block, or the whole message.
@@ -772,6 +796,7 @@ export function reduceThreadState(state: ThreadState, event: AgentEvent): Thread
         ...state,
         callingTools: state.callingTools || calls.some((block) => block.type === "toolCall"),
         changing: state.changing || calls.some(callsChangingTool),
+        checking: state.checking || calls.some(callsLook),
       };
     }
     case "tool_execution_start": {
@@ -780,6 +805,7 @@ export function reduceThreadState(state: ThreadState, event: AgentEvent): Thread
       return {
         ...state,
         changing,
+        checking: state.checking || event.toolName === LOOK_TOOL,
         toolCalls: [...(state.toolCalls ?? []), { callId: event.toolCallId, name: event.toolName }],
       };
     }

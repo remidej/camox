@@ -1,5 +1,14 @@
 import type { PageUrlMarker } from "@camox/api-contract";
-import { LOCALE_HEADER } from "@camox/api-contract/drafts";
+import {
+  DRAFT_SEARCH_PARAM,
+  LOCALE_HEADER,
+  LOOK_BLOCK_DEFINITION_PARAM,
+  LOOK_CONTENT_PARAM,
+  LOOK_LOCALE_PARAM,
+  LOOK_PATH_PARAM,
+  LOOK_SETTINGS_PARAM,
+  UNPLACED_BLOCK_ID,
+} from "@camox/api-contract/drafts";
 import { QueryClient, dehydrate } from "@tanstack/react-query";
 import { createHead, renderSSRHead } from "@unhead/react/server";
 import type { Link, Meta, Script, UseHeadInput } from "unhead/types";
@@ -31,9 +40,11 @@ import {
   type RequestLocale,
 } from "../../lib/locale-path";
 import { PLATFORM_SCRIPT } from "../../lib/platform";
+import type { BlockBundle } from "../../lib/queries";
 import {
   buildClearServerAuthCookieHeader,
   buildServerAuthCookieHeader,
+  getLookToken,
   getServerAuthCookieHeader,
 } from "../../lib/server-auth-cookie";
 import { getCookie, getSetCookie } from "../../lib/stored-auth-cookies";
@@ -50,7 +61,10 @@ import {
   parseMarkdownPath,
   createServerApiClient,
   createServerStudioCache,
+  buildCamoxPageLoaderData,
+  isAuthSessionError,
   isNotFoundError,
+  loadCamoxPage,
   loadCamoxPageForRequest,
   prefersMarkdown,
   withFrontMatter,
@@ -144,6 +158,16 @@ export interface PageRenderInput extends DraftRead {
   analytics?: AnalyticsProviders;
   /** Authenticate before rendering, to show the Studio around the page. */
   previewHandoff?: boolean;
+  /**
+   * The look document's Block Definition mode (ADR 0032): the id of the one block it shows, alone,
+   * instead of a page. Its block bundle is in the dehydrated state.
+   */
+  lookBlock?: string;
+  /**
+   * Whether this is the look document (ADR 0032), whose client only shows the draft: it asks
+   * nothing about a session and offers no sign-in, which would add requests to its captures.
+   */
+  look?: boolean;
   previewDocument?: string;
   routeKind?: StudioRouteKind;
   /** Whether the location is the Canvas with nothing selected, which only the Canvas shows. */
@@ -788,6 +812,239 @@ function createRendererDocumentResponse(options: RuntimeOptions): Response {
       },
     },
   );
+}
+
+/**
+ * Marks the look document ready (`data-camox-ready` on its root element) for the browser to wait
+ * on, once the page's client hydrated it (`camox:hydrated`), the window loaded, and every frame
+ * on the page, its Artifacts' included, loaded or failed to, then a frame later, once painted.
+ * Artifacts' frames load lazily, and their documents may fetch libraries as they start, so the
+ * window's `load` alone comes before them: the frames are made eager once hydrated, so those
+ * below the first screen load too, and each frame's own `load` is awaited. A frame that never
+ * loads leaves the document unready, and the capture waiting on it times out.
+ */
+const LOOK_READY_SCRIPT = `(()=>{const loaded=new WeakSet();let hydrated=false,marked=false;const mark=()=>{if(marked||!hydrated||document.readyState!=="complete")return;const frames=[...document.querySelectorAll("iframe")];for(const frame of frames)if(frame.getAttribute("loading")==="lazy")frame.setAttribute("loading","eager");if(!frames.every((frame)=>loaded.has(frame)))return;marked=true;requestAnimationFrame(()=>requestAnimationFrame(()=>document.documentElement.setAttribute("data-camox-ready","")))};const settle=(event)=>{if(event.target&&event.target.tagName==="IFRAME")loaded.add(event.target);mark()};document.addEventListener("load",settle,true);document.addEventListener("error",settle,true);addEventListener("load",mark,{once:true});addEventListener("camox:hydrated",()=>{hydrated=true;mark()},{once:true})})()`;
+
+/** The headers every look document answer carries: private, never cached, never indexed. */
+const LOOK_HEADERS = { "Cache-Control": "private, no-store", "X-Robots-Tag": "noindex" };
+
+/** What the look document answers when it shows nothing: no token, or one the API refused. */
+function lookNotFound(): Response {
+  return new Response("Not found", { status: 404, headers: LOOK_HEADERS });
+}
+
+/** What the look document answers when the API refuses what it was asked to show, and why. */
+function lookRefused(message: string): Response {
+  return new Response(message, {
+    status: 422,
+    headers: { ...LOOK_HEADERS, "Content-Type": "text/plain; charset=utf-8" },
+  });
+}
+
+/** What the look document shows: a page, or a Block Definition's block, and what it read. */
+type LookShown = Pick<
+  PageRenderInput,
+  "head" | "href" | "layoutIdentity" | "loaderData" | "pathname" | "lookBlock"
+>;
+
+/** A JSON override of the look document's URL: absent, the value it holds, or why it's refused. */
+type Override = { ok: true; value: unknown } | { ok: false; error: string };
+
+function overrideParam(searchParams: URLSearchParams, name: string): Override {
+  const raw = searchParams.get(name);
+  if (raw === null) return { ok: true, value: undefined };
+  try {
+    return { ok: true, value: JSON.parse(raw) as unknown };
+  } catch {
+    return { ok: false, error: `The ${name} override isn't JSON.` };
+  }
+}
+
+/**
+ * The lightweight document the agent's `look` tool captures (ADR 0032), for the draft
+ * `camox-draft` names, read with the look token the request's cookie carries, in the Locale
+ * `locale` names by its tag (the Default Locale without one). It shows the page at `path` as a
+ * visitor would, or in its Block Definition mode the block of the Block Definition
+ * `blockDefinition` names, placed nowhere, alone in the site's shell, with the `content` and
+ * `settings` overrides merged on. Either way it has the site's head and stylesheets and the
+ * page's client to hydrate its blocks, but nothing of the studio. It answers nothing without a
+ * token the API accepts.
+ */
+async function createLookDocumentResponse(
+  request: Request,
+  options: RuntimeOptions,
+): Promise<Response> {
+  const { apiUrl, authenticationUrl, projectUuid, renderPage } = options;
+  const { searchParams } = new URL(request.url);
+  const lookToken = getLookToken(request.headers);
+  const draftId = searchParams.get(DRAFT_SEARCH_PARAM) ?? undefined;
+  if (!lookToken || !draftId || !apiUrl || !authenticationUrl || !projectUuid || !renderPage)
+    return lookNotFound();
+  const tag = searchParams.get(LOOK_LOCALE_PARAM)?.toLowerCase();
+  const blockDefinition = searchParams.get(LOOK_BLOCK_DEFINITION_PARAM);
+
+  const queryClient = new QueryClient();
+  let locales: LocaleView[];
+  let locale: LocaleView | undefined;
+  let shown: LookShown | Response;
+  try {
+    locales = await createServerApiClient(apiUrl, { lookToken, draftId }).locales.list({
+      projectUuid,
+    });
+    locale = locales.find((each) => (tag ? each.tag.toLowerCase() === tag : each.isDefault));
+    if (!locale) return lookNotFound();
+    const reading = { apiUrl, lookToken, draftId, locale, projectUuid, queryClient };
+    shown = blockDefinition
+      ? await lookAtBlockDefinition(request, options, reading, blockDefinition)
+      : await lookAtPage(request, options, reading);
+  } catch (error) {
+    if (isAuthSessionError(error) || isNotFoundError(error)) return lookNotFound();
+    throw error;
+  }
+  if (shown instanceof Response) return shown;
+
+  const document = (await options.getDocument?.()) ?? {};
+  const dehydratedState = dehydrate(queryClient);
+  const input: PageRenderInput = {
+    ...shown,
+    look: true,
+    presentation: "public",
+    apiUrl,
+    authenticationUrl,
+    dehydratedState,
+    draftId,
+    projectUuid,
+    runtimeBasePath: normalizeRuntimeBasePath(options.runtimeBasePath),
+    locale,
+    locales,
+  };
+  const appHtml = await renderPage(input);
+  const renderedHead = renderHead(
+    document,
+    createPageHeadInput(shown.head as PageHead),
+    options.stylesheetUrl,
+    undefined,
+    locale,
+  );
+  return new Response(
+    `<!doctype html>
+<html${renderedHead.htmlAttrs}>
+<head>
+${renderedHead.headTags}
+<meta name="robots" content="noindex">
+<script>${LOOK_READY_SCRIPT}</script>
+${renderBlockPreloads(options, dehydratedState)}
+<script id="__CAMOX_DATA__" type="application/json">${serializeJsonForHtml(hydrationInputFor(input, appHtml))}</script>
+</head>
+<body${renderedHead.bodyAttrs}>
+${renderedHead.bodyTagsOpen}
+<div id="root">${appHtml}</div>
+${renderedHead.bodyTags}
+${renderClientEntryScript(options.pageClientEntryUrl)}
+</body>
+</html>`,
+    {
+      headers: {
+        ...LOOK_HEADERS,
+        "Content-Type": "text/html; charset=utf-8",
+        "Referrer-Policy": "no-referrer",
+      },
+    },
+  );
+}
+
+/** How the look document reads the draft: with its look token, in one Locale. */
+interface LookReading {
+  apiUrl: string;
+  lookToken: string;
+  draftId: string;
+  locale: LocaleView;
+  projectUuid: string;
+  queryClient: QueryClient;
+}
+
+/** Where the look document's client believes it is: `path` of the draft, in its Locale. */
+function lookHref(request: Request, options: RuntimeOptions, pathname: string, draftId: string) {
+  const href = new URL(withRuntimeBasePath(pathname, options.runtimeBasePath), request.url);
+  href.searchParams.set(DRAFT_SEARCH_PARAM, draftId);
+  return href;
+}
+
+/** The look document's page at `path`, with its head, as a visitor would see it. */
+async function lookAtPage(
+  request: Request,
+  options: RuntimeOptions,
+  reading: LookReading,
+): Promise<LookShown> {
+  const { apiUrl, draftId, locale } = reading;
+  const path = normalizePagePath(new URL(request.url).searchParams.get(LOOK_PATH_PARAM));
+  const page = await loadCamoxPage({ ...reading, pathname: path });
+  const camoxApp = await options.getCamoxApp?.();
+  const pathname = localizedPath(path, locale);
+  const href = lookHref(request, options, pathname, draftId);
+  const loaderData = buildCamoxPageLoaderData(apiUrl, page, href.origin);
+  return {
+    head: camoxApp ? buildCamoxPageHead(camoxApp, loaderData, locale) : {},
+    href: href.href,
+    layoutIdentity: getLayoutIdentity(page.layout),
+    loaderData,
+    pathname,
+  };
+}
+
+/**
+ * The look document's Block Definition mode: the block of the Block Definition `type` as the
+ * draft would show it placed, with its default content and Block Settings and the overrides the
+ * URL gives merged on, by the API, which checks them against its schemas. An override it refuses
+ * answers its message. The block is read as a page reads its blocks, so it renders and hydrates
+ * as a page's block does; its page is the Locale's home, which links resolve against.
+ */
+async function lookAtBlockDefinition(
+  request: Request,
+  options: RuntimeOptions,
+  reading: LookReading,
+  type: string,
+): Promise<LookShown | Response> {
+  const { apiUrl, lookToken, draftId, locale, projectUuid, queryClient } = reading;
+  const { searchParams } = new URL(request.url);
+  const content = overrideParam(searchParams, LOOK_CONTENT_PARAM);
+  const settings = overrideParam(searchParams, LOOK_SETTINGS_PARAM);
+  if (!content.ok) return lookRefused(content.error);
+  if (!settings.ok) return lookRefused(settings.error);
+  const studioCache = createServerStudioCache(queryClient, { apiUrl, lookToken, locale });
+  const inDraft = { in: draftId };
+  let bundle: BlockBundle;
+  try {
+    [bundle] = await Promise.all([
+      createServerApiClient(apiUrl, { lookToken, draftId, locale }).blocks.getUnplaced({
+        projectUuid,
+        type,
+        content: content.value,
+        settings: settings.value,
+      }),
+      // Links resolve against the site's pages, which a render can do without.
+      studioCache.ensure(reads.pageList({ projectUuid }), inDraft).catch(() => null),
+    ]);
+  } catch (error) {
+    if (isBadRequestError(error)) return lookRefused((error as Error).message);
+    throw error;
+  }
+  studioCache.set(reads.blockBundle(UNPLACED_BLOCK_ID), bundle, inDraft);
+  const pathname = localizedPath("/", locale);
+  return {
+    head: {},
+    href: lookHref(request, options, pathname, draftId).href,
+    layoutIdentity: null,
+    loaderData: null,
+    pathname,
+    lookBlock: UNPLACED_BLOCK_ID,
+  };
+}
+
+/** Whether an API error refused the request's input, such as an override its schema refuses. */
+function isBadRequestError(error: unknown) {
+  const { code, status } = (error ?? {}) as { code?: unknown; status?: unknown };
+  return code === "BAD_REQUEST" || status === 400;
 }
 
 function renderClientEntryScript(src?: string): string {
@@ -2103,6 +2360,10 @@ export async function handleCamoxRequest(
 
   if (match.kind === "renderer") {
     return createRendererDocumentResponse(options);
+  }
+
+  if (match.kind === "look") {
+    return createLookDocumentResponse(request, options);
   }
 
   if (match.kind === "logo") {

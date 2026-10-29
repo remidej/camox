@@ -9,6 +9,11 @@
 export const RUNTIME_ROUTE_PATHS = {
   data: "/_camox/data",
   health: "/_camox/health",
+  /**
+   * The lightweight document the agent's `look` tool captures (ADR 0032): one page of a draft,
+   * read with a look token, without the studio.
+   */
+  look: "/_camox/look",
   registry: "/_camox/registry",
   /** The renderer frame's document (ADR 0023), which the studio loads to render its pages. */
   renderer: "/_camox/renderer",

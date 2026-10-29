@@ -4,7 +4,12 @@ import { createDb } from "./db";
 import { refreshFontsSnapshot } from "./domains/fonts/catalog";
 import { liveScriptOfProject } from "./domains/publishes/scripts";
 import type { RevisionToLoad } from "./domains/revisions/dispatch";
-import { type PreviewQuestion, previewedRevision } from "./domains/revisions/previewed-revision";
+import {
+  type LookQuestion,
+  lookedRevision,
+  type PreviewQuestion,
+  previewedRevision,
+} from "./domains/revisions/previewed-revision";
 import { isEdgeCached, withoutCredentials } from "./edge-cache";
 import app from "./index";
 import type { Bindings } from "./types";
@@ -32,6 +37,11 @@ export class CamoxPreviews extends WorkerEntrypoint<Bindings> {
   /** The revision a draft previews, if the request's session can see the draft. */
   previewedRevision(question: PreviewQuestion): Promise<RevisionToLoad | null> {
     return previewedRevision(this.env, question);
+  }
+
+  /** The revision a draft previews, for a look document carrying a look token for the draft. */
+  lookedRevision(question: LookQuestion): Promise<RevisionToLoad | null> {
+    return lookedRevision(this.env, question);
   }
 
   /**

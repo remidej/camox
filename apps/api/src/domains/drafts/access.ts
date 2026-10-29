@@ -15,6 +15,7 @@ import type { Journal } from "../../lib/journal";
 import { blocks, files, locales, member, pages, projects, repeatableItems } from "../../schema";
 import type { ServiceContext } from "../_shared/service-context";
 import { projectNamed, type ProjectRef } from "../projects/ref";
+import type { LookGrant } from "./look-token";
 import * as overlay from "./overlay";
 import { drafts } from "./schema";
 import { draftIn, draftOf, type Draft, type DraftScope, type ReadScope } from "./scope";
@@ -25,7 +26,8 @@ import { dropIfEmpty, findEndedDraft, startDraft } from "./service";
 // acting on content starts here, so routes, AI tools and the CLI get the same checks.
 //
 // The checks run in a fixed order, and the first that fails wins:
-// 1. 401: the request names a draft, or needs a member, and nobody is signed in.
+// 1. 401: the request names a draft, or needs a member, and nobody is signed in. A public read
+//    naming the draft of the look token it carries needs no one (ADR 0032).
 // 2. 404: the entity, or the project, isn't in Live or in the named draft, or isn't in the
 //    project the request is bound to (`ctx.projectId`).
 // 3. 403: a member is needed (a draft is named, or the mode isn't `public`) and the caller isn't
@@ -85,7 +87,7 @@ export type ContentAccess<R extends ContentRef, M extends AccessMode> = {
 
 type AccessContext = Pick<
   ServiceContext,
-  "db" | "user" | "draft" | "projectId" | "locale" | "publishingDraft"
+  "db" | "user" | "draft" | "projectId" | "locale" | "publishingDraft" | "look"
 >;
 
 /** One table's rows an entity id names: Live's, and the named draft's. */
@@ -290,6 +292,32 @@ const publishingScope = Effect.fn("access.publishingScope")(function* (
   return row ? draftOf(row) : null;
 });
 
+/**
+ * The look token's grant, when a request reads the draft it names with one (ADR 0032): a public
+ * read naming the token's own draft. A look token writes nothing, reads no other draft, and none
+ * of Live's private data, which then need a member as without one.
+ */
+function lookRead(ctx: AccessContext, mode: AccessMode): LookGrant | undefined {
+  const { look, draft } = ctx;
+  return look && mode === "public" && draft?.id === look.draftId ? look : undefined;
+}
+
+/**
+ * The scope a look token reads, with no session: its draft, when it's open in the project the
+ * request reads, which must be the token's. It never starts a draft.
+ */
+const lookScope = Effect.fn("access.lookScope")(function* (
+  ctx: AccessContext,
+  look: LookGrant,
+  project: Project,
+  named: typeof drafts.$inferSelect | null,
+) {
+  if (look.projectId !== project.id || named?.projectId !== project.id) {
+    return yield* missingDraft(ctx.db, project.id, look.draftId);
+  }
+  return draftOf(named);
+});
+
 type LocaleRow = typeof locales.$inferSelect;
 
 /**
@@ -396,8 +424,10 @@ const access = <R extends ContentRef, M extends AccessMode>(
 > =>
   Effect.gen(function* () {
     const { user } = ctx;
+    // A look token reads its own draft without a session (ADR 0032).
+    const look = lookRead(ctx, mode);
     // Live is public; naming a draft, or reading as a member, needs one.
-    const needsMember = ctx.draft !== null || mode !== "public";
+    const needsMember = !look && (ctx.draft !== null || mode !== "public");
     if (!user && needsMember) return yield* new UnauthenticatedError();
     // A project is read with the membership check; an entity is located first, for its project.
     let located: Candidates | undefined;
@@ -421,11 +451,13 @@ const access = <R extends ContentRef, M extends AccessMode>(
     const { project } = authorized;
 
     if (needsMember && !authorized.member) return yield* new ForbiddenError();
-    const drafted = needsMember
-      ? yield* memberScope({ ...ctx, user: user! }, project, authorized.draft)
-      : mode === "public"
-        ? yield* publishingScope(ctx, project)
-        : null;
+    const drafted = look
+      ? yield* lookScope(ctx, look, project, authorized.draft)
+      : needsMember
+        ? yield* memberScope({ ...ctx, user: user! }, project, authorized.draft)
+        : mode === "public"
+          ? yield* publishingScope(ctx, project)
+          : null;
     const seen = localesSeenBy(localeRows, drafted);
     const scope = yield* inRequestedLocale(drafted, seen, ctx.locale);
 
