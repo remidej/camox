@@ -3,6 +3,8 @@ import { AccountSettingsCards, SecuritySettingsCards } from "@daveyplate/better-
 import { Link, createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useEffect } from "react";
 
+import { ConnectedAgentsCard } from "@/components/ConnectedAgentsCard";
+
 const tabs = ["account", "security"] as const;
 type Tab = (typeof tabs)[number];
 
@@ -51,7 +53,14 @@ function ProfilePage() {
         </Tabs>
       </div>
       <div className="mx-auto flex w-full max-w-4xl flex-col gap-4">
-        {activeTab === "security" ? <SecuritySettingsCards /> : <AccountSettingsCards />}
+        {activeTab === "security" ? (
+          <>
+            <SecuritySettingsCards />
+            <ConnectedAgentsCard />
+          </>
+        ) : (
+          <AccountSettingsCards />
+        )}
       </div>
     </div>
   );
