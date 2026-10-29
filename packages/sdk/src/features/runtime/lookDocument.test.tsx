@@ -8,6 +8,8 @@ import * as React from "react";
 
 import { createApp } from "../../core/createApp";
 import { createBlock, type Block, type ContentFieldBuilder } from "../../core/createBlock";
+import { createCollection } from "../../core/createCollection";
+import { createLayout } from "../../core/createLayout";
 import { localesResponse, pageListResponse } from "./api.fixtures";
 import { handleCamoxRequest } from "./runtime";
 
@@ -82,7 +84,61 @@ const banner = createBlock({
   toMarkdown: ({ content }) => [content.title],
   toTitle: () => "Banner",
 });
-const camoxApp = createApp({ blocks: [hero as unknown as Block, banner as unknown as Block] });
+/** A block only layouts place, with an Artifact. */
+const offer = createBlock({
+  id: "offer",
+  title: "Offer",
+  description: "An offer",
+  layoutOnly: true,
+  content: (field) => ({
+    title: field.string({ default: "" }),
+    visual: field.artifact({ size: "fill" }),
+  }),
+  toReact: () => (
+    <aside>
+      <offer.Field name="title">{(props) => <h2 {...props} />}</offer.Field>
+      <offer.Artifact name="visual">{(props) => <iframe {...props} />}</offer.Artifact>
+    </aside>
+  ),
+  toMarkdown: ({ content }) => [content.title],
+  toTitle: () => "Offer",
+});
+const articles = createCollection({
+  id: "articles",
+  title: "Articles",
+  description: "",
+  content: (field) => ({ title: field.string(), slug: field.string() }),
+  toTitle: ({ content }) => content.title,
+  toDescription: () => undefined,
+});
+/** A Singleton Layout at `/offers`, which places an offer before its page. */
+const offers = createLayout("offers")({
+  title: "Offers",
+  description: "",
+  kind: "singleton",
+  blocks: { before: [offer], after: [] },
+  toReact: () => <offers.BeforeBlocks />,
+  toTitle: () => "Offers",
+  toDescription: () => undefined,
+});
+/** A Derived Layout whose pages each show an article, found by its slug. */
+const article = createLayout("articles.$slug")({
+  title: "Article",
+  description: "",
+  kind: "derived",
+  blocks: { before: [], after: [] },
+  ...articles.pages({ by: "slug", param: "slug" }),
+  toReact: () => <h1>{article.useData().content.title}</h1>,
+  toTitle: ({ page }) => page.title,
+  toDescription: () => undefined,
+});
+const camoxApp = createApp({
+  blocks: [hero as unknown as Block, banner as unknown as Block, offer as unknown as Block],
+  collections: [articles],
+  layouts: [offers, article],
+});
+const layoutBannerId = "0199f0a0-0000-7000-8000-000000000003";
+const articleId = "0199f0a0-0000-7000-8000-000000000004";
 
 /**
  * The banner as the API shows it unplaced, its overrides merged on its defaults: a dark scheme,
@@ -179,7 +235,56 @@ function mockApi(t: { mock: { method: typeof test.mock.method } }) {
       return pageListResponse([
         { id: pageId, fullPath: "/", pathSegment: "", updatedAt: 1, layoutId: null },
       ]);
-    if (url.pathname.endsWith("/getByPath"))
+    if (url.pathname.endsWith("/layouts/get"))
+      return Response.json({
+        json: {
+          projectName: project.name,
+          project,
+          layout: {
+            id: 2,
+            layoutId: "offers",
+            beforeBlockIds: [layoutBannerId],
+            afterBlockIds: [],
+          },
+          blocks: [
+            {
+              id: layoutBannerId,
+              type: "offer",
+              content: { title: `${source} offer`, visual: ARTIFACT },
+              settings: {},
+              position: "a0",
+            },
+          ],
+          files: [],
+          repeatableItems: [],
+        },
+      });
+    if (url.pathname.endsWith("/findRecordsByField")) {
+      const { json } = (await request.clone().json()) as { json: { value: string } };
+      return Response.json({
+        json:
+          json.value === "hello"
+            ? [
+                {
+                  id: articleId,
+                  title: source,
+                  description: null,
+                  content: { title: source, slug: "hello" },
+                },
+              ]
+            : [],
+      });
+    }
+    const pagePath = url.pathname.endsWith("/getByPath")
+      ? ((await request.clone().json()) as { json: { path: string } }).json.path
+      : null;
+    // The curated pages: the home page, and one at a Singleton Layout's route, which it shadows.
+    if (pagePath !== null && pagePath !== "/" && pagePath !== "/offers")
+      return Response.json(
+        { json: { defined: true, code: "NOT_FOUND", status: 404, message: "Page not found" } },
+        { status: 404 },
+      );
+    if (pagePath !== null)
       return Response.json({
         json: {
           page: {
@@ -473,4 +578,39 @@ void test("shows no Block Definition without a look token the API accepts", asyn
 
 void test("hydrates a Block Definition's block, then marks itself ready once its Artifacts loaded", async (t) => {
   await assertHydratesThenReady(t, BANNER_TARGET);
+});
+
+// Pages of Singleton and Derived Layouts, whose blocks all belong to their layout, matched as the
+// website serves them: a Singleton Layout's route first, then a curated page, then a Derived
+// Layout's route.
+
+void test("renders a Singleton Layout's page with the draft's content, over a curated page at its path", async (t) => {
+  const received = mockApi(t);
+  const { response, html } = await look({ target: "path=/offers" });
+  assert.equal(response.status, 200);
+  assert.match(html, /<h2><span>Draft title offer<\/span><\/h2>/);
+  assert.doesNotMatch(html, /<h1>/, "not the curated page at its path");
+  for (const request of received) assert.equal(request.headers.get(LOOK_TOKEN_HEADER), TOKEN);
+});
+
+void test("renders a Derived Layout's page with its record read from the draft", async (t) => {
+  const received = mockApi(t);
+  const { response, html } = await look({ target: "path=/articles/hello" });
+  assert.equal(response.status, 200);
+  assert.match(html, /<h1>Draft title<\/h1>/);
+  const [found] = received.filter((request) => request.url.endsWith("/findRecordsByField"));
+  assert.equal(found!.headers.get(DRAFT_HEADER), DRAFT);
+  assert.equal(found!.headers.get(LOOK_TOKEN_HEADER), TOKEN);
+});
+
+void test("answers why when a Derived Layout's loader finds nothing at the path", async (t) => {
+  mockApi(t);
+  const { response, html } = await look({ target: "path=/articles/nope" });
+  assert.equal(response.status, 404);
+  assert.match(response.headers.get("Content-Type") ?? "", /text\/plain/);
+  assert.match(html, /no page at \/articles\/nope/);
+});
+
+void test("hydrates a Singleton Layout's page, then marks itself ready once its Artifacts loaded", async (t) => {
+  await assertHydratesThenReady(t, "path=/offers");
 });

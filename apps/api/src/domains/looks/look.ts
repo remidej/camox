@@ -9,6 +9,7 @@ import {
   LOOK_TOKEN_COOKIE,
   UNPLACED_BLOCK_ID,
 } from "@camox/api-contract/drafts";
+import { matchLayoutRoute } from "@camox/api-contract/layout-routes";
 import { projectWebsiteUrl } from "@camox/api-contract/projects";
 import { ORPCError } from "@orpc/server";
 import { eq } from "drizzle-orm";
@@ -20,6 +21,7 @@ import type { Bindings } from "../../types";
 import { agentServiceContext } from "../_shared/service-context";
 import { getUnplacedBlock } from "../blocks/service";
 import { signLookToken } from "../drafts/look-token";
+import { getLayout, listLayouts } from "../layouts/service";
 import { getPageStructure } from "../pages/service";
 import { projects } from "../projects/schema";
 import { previewsWorkingCopy } from "../revisions/end-of-turn";
@@ -35,7 +37,10 @@ export const LOOK_IMAGE_CAP = 8;
 /** The sizes a target is captured at when it names none. */
 export const DEFAULT_SIZES: readonly LookSize[] = ["desktop", "mobile"];
 
-/** A page of the draft, by its path in its Locale, the Default Locale without one. */
+/**
+ * A page of the draft, by its path in its Locale, the Default Locale without one: a curated
+ * page, or a page of a Singleton or Derived Layout.
+ */
 export type PageTarget = { path: string; locale?: string };
 
 /**
@@ -200,18 +205,12 @@ async function resolve(
     if (refused) return { error: refused };
     return { url: url.href, element: `[data-camox-viewport-block="${UNPLACED_BLOCK_ID}"]` };
   }
-  const structure = await pageStructure(env, where, projectUuid, target);
-  if ("error" in structure) return structure;
+  const page = await pagePlacements(env, where, projectUuid, target);
+  if ("error" in page) return page;
   url.searchParams.set(LOOK_PATH_PARAM, target.path);
   if (target.locale) url.searchParams.set(LOOK_LOCALE_PARAM, target.locale);
   if (!("block" in target)) return { url: url.href };
-  const { page, layout } = structure;
-  const placements = [
-    ...(layout?.beforeBlockIds ?? []),
-    ...page.blockIds,
-    ...(layout?.afterBlockIds ?? []),
-  ];
-  if (!placements.includes(target.block)) {
+  if (!page.placements.includes(target.block)) {
     return { error: `The page at ${target.path} has no block ${target.block}.` };
   }
   // The site's block render marks each block's element with its Placement ID, Layout blocks too.
@@ -238,19 +237,40 @@ function messageOf(error: unknown) {
 }
 
 /**
- * The structure of the page `target` names, read as the browser will, with the draft's look
- * token, or why it can't be looked at.
+ * The Placements on the page `target` names, its Layout's included, read as the browser will,
+ * with the draft's look token, or why it can't be looked at. A path is matched as the website
+ * serves it: a Singleton Layout's route first, then a curated page, then a Derived Layout's route.
+ * The API can't run a Derived Layout's loader, so a path its route matches but its data doesn't
+ * fails at the capture.
  */
-async function pageStructure(
+async function pagePlacements(
   env: Bindings,
   where: LookIn,
   projectUuid: string,
   { path, locale }: PageTarget,
-) {
+): Promise<{ placements: string[] } | { error: string }> {
+  const context = lookContext(env, where, locale);
   try {
-    return await runService(
-      getPageStructure(lookContext(env, where, locale), { projectUuid, path }),
-    );
+    const layouts = await runService(listLayouts(context, { projectId: where.projectId }));
+    const match = matchLayoutRoute(layouts, path, ({ layoutId, kind }) => ({ id: layoutId, kind }));
+    const layoutPage = async (layoutId: string) => {
+      const { layout } = await runService(getLayout(context, { projectUuid, layoutId }));
+      return { placements: [...layout.beforeBlockIds, ...layout.afterBlockIds] };
+    };
+    if (match?.layout.kind === "singleton") return await layoutPage(match.layout.layoutId);
+    try {
+      const { page, layout } = await runService(getPageStructure(context, { projectUuid, path }));
+      return {
+        placements: [
+          ...(layout?.beforeBlockIds ?? []),
+          ...page.blockIds,
+          ...(layout?.afterBlockIds ?? []),
+        ],
+      };
+    } catch (error) {
+      if (!match || (error as ORPCError<string, unknown>).code !== "NOT_FOUND") throw error;
+      return await layoutPage(match.layout.layoutId);
+    }
   } catch (error) {
     const message = messageOf(error);
     return {

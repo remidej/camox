@@ -51,6 +51,10 @@
     "./router": {
       "types": "./src/router.ts",
       "default": "./src/router.ts"
+    },
+    "./layout-routes": {
+      "types": "./src/layout-routes.ts",
+      "default": "./src/layout-routes.ts"
     }
   },
   "publishConfig": {
@@ -98,6 +102,10 @@
       "./router": {
         "types": "./dist/router.d.ts",
         "default": "./dist/router.js"
+      },
+      "./layout-routes": {
+        "types": "./dist/layout-routes.d.ts",
+        "default": "./dist/layout-routes.js"
       }
     }
   },

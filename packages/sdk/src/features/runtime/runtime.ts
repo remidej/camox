@@ -841,10 +841,13 @@ function lookRefused(message: string): Response {
   });
 }
 
-/** What the look document shows: a page, or a Block Definition's block, and what it read. */
+/**
+ * What the look document shows: a page, curated or of a singleton or derived layout, or a Block
+ * Definition's block, and what it read.
+ */
 type LookShown = Pick<
   PageRenderInput,
-  "head" | "href" | "layoutIdentity" | "loaderData" | "pathname" | "lookBlock"
+  "head" | "href" | "layoutIdentity" | "loaderData" | "pathname" | "lookBlock" | "derived"
 >;
 
 /** A JSON override of the look document's URL: absent, the value it holds, or why it's refused. */
@@ -970,16 +973,30 @@ function lookHref(request: Request, options: RuntimeOptions, pathname: string, d
   return href;
 }
 
-/** The look document's page at `path`, with its head, as a visitor would see it. */
+/**
+ * The look document's page at `path`, with its head, as a visitor would see it. A path is
+ * matched as the website serves it: a singleton layout's route first, then a curated page, then a
+ * derived layout's route.
+ */
 async function lookAtPage(
   request: Request,
   options: RuntimeOptions,
   reading: LookReading,
-): Promise<LookShown> {
+): Promise<LookShown | Response> {
   const { apiUrl, draftId, locale } = reading;
   const path = normalizePagePath(new URL(request.url).searchParams.get(LOOK_PATH_PARAM));
-  const page = await loadCamoxPage({ ...reading, pathname: path });
   const camoxApp = await options.getCamoxApp?.();
+  const match = camoxApp && matchDerivedLayout(camoxApp.getLayouts(), path);
+  if (match?.layout._internal.kind === "singleton")
+    return lookAtLayoutPage(request, options, reading, path, match);
+  let page: Awaited<ReturnType<typeof loadCamoxPage>>;
+  try {
+    page = await loadCamoxPage({ ...reading, pathname: path });
+  } catch (error) {
+    if (match && isNotFoundError(error))
+      return lookAtLayoutPage(request, options, reading, path, match);
+    throw error;
+  }
   const pathname = localizedPath(path, locale);
   const href = lookHref(request, options, pathname, draftId);
   const loaderData = buildCamoxPageLoaderData(apiUrl, page, href.origin);
@@ -989,6 +1006,86 @@ async function lookAtPage(
     layoutIdentity: getLayoutIdentity(page.layout),
     loaderData,
     pathname,
+  };
+}
+
+/**
+ * The look document's page of a singleton or derived layout at `path`: the layout's blocks, read
+ * with the look token, around what its loader returns, its records read from the draft. A loader
+ * that finds nothing answers why.
+ */
+async function lookAtLayoutPage(
+  request: Request,
+  options: RuntimeOptions,
+  reading: LookReading,
+  path: string,
+  match: DerivedMatch,
+): Promise<LookShown | Response> {
+  const { apiUrl, lookToken, draftId, locale, projectUuid, queryClient } = reading;
+  const app = await options.getCamoxApp?.();
+  const layout = match.layout._internal;
+  const pathname = localizedPath(path, locale);
+  let result: AnyLayoutLoaderResult | undefined;
+  let shared: Awaited<ReturnType<ReturnType<typeof createServerApiClient>["layouts"]["get"]>>;
+  try {
+    [result, shared] = await Promise.all([
+      loadLayoutResult(
+        app,
+        match,
+        createLayoutRequestContext(options, "draft", { lookToken, draftId, locale }),
+        locale,
+      ),
+      createServerApiClient(apiUrl, { lookToken, draftId, locale }).layouts.get({
+        projectUuid,
+        layoutId: layout.id,
+      }),
+    ]);
+  } catch (error) {
+    if (!isNotFoundError(error)) throw error;
+    return new Response(
+      `The draft has no page at ${path}: the ${layout.id} layout's loader found nothing to show.`,
+      { status: 404, headers: { ...LOOK_HEADERS, "Content-Type": "text/plain; charset=utf-8" } },
+    );
+  }
+  const studioCache = createServerStudioCache(queryClient, { apiUrl, lookToken, locale });
+  const inDraft = { in: draftId };
+  const runtimeBasePath = normalizeRuntimeBasePath(options.runtimeBasePath);
+  studioCache.land(reads.layoutStructure({ projectUuid, layoutId: layout.id }), shared, inDraft);
+  studioCache.set(
+    reads.derivedPageData({ projectUuid, runtimeBasePath, pathname }),
+    result ?? null,
+    inDraft,
+  );
+  const href = lookHref(request, options, pathname, draftId);
+  const record = asCollectionItem(result);
+  const collection = record && app?.getCollectionById(record.collectionId);
+  const context = buildLayoutContext(layout, {
+    path: pathname,
+    locale: locale.tag,
+    projectName: shared.projectName,
+    data: result?.data,
+    params: match.params,
+    record: record && collection ? recordPageValues(collection, record) : undefined,
+  });
+  return {
+    head: buildPageHead({
+      layout,
+      context,
+      origin: href.origin,
+      faviconUrl: buildFaviconUrl(apiUrl, shared.project),
+      hasMarkdown: layout.toMarkdown !== undefined,
+      recordType: record?.structuredData?.node?.["@type"] as string | undefined,
+    }),
+    href: href.href,
+    layoutIdentity: getLayoutIdentity(shared.layout),
+    loaderData: null,
+    pathname,
+    derived: {
+      layoutId: layout.id,
+      page: { params: match.params, path: pathname, projectName: shared.projectName },
+      result,
+      layout: shared.layout,
+    },
   };
 }
 
@@ -1659,6 +1756,8 @@ function createLayoutRequestContext(
 interface RecordReading {
   /** The editor's session, which only draft reads carry. */
   authCookieHeader?: string;
+  /** The look document's look token, which reads its draft without a session (ADR 0032). */
+  lookToken?: string;
   /** The draft read. Without it, Live. */
   draftId?: string;
   /** The locale read. Without it, the default locale. */
@@ -1672,12 +1771,13 @@ interface RecordReading {
 function createRecordLookup(
   options: RuntimeOptions,
   source: RecordSource,
-  { authCookieHeader, draftId, locale }: RecordReading = {},
+  { authCookieHeader, lookToken, draftId, locale }: RecordReading = {},
 ): RecordLookup | undefined {
   const { apiUrl, projectUuid } = options;
   if (!apiUrl || !projectUuid) return undefined;
   const api = createServerApiClient(apiUrl, {
     authCookieHeader: source === "draft" ? authCookieHeader : undefined,
+    lookToken: source === "draft" ? lookToken : undefined,
     draftId,
     locale,
   });

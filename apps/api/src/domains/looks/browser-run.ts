@@ -157,7 +157,11 @@ async function captureWith(
     timeout: LOAD_TIMEOUT_MS,
   });
   if (response && !response.ok()) {
-    return { error: `The page answered ${response.status()}.` };
+    // The look document says why it shows nothing in plain text, such as a page that isn't there.
+    const why = response.headers()["content-type"]?.startsWith("text/plain")
+      ? (await response.text()).slice(0, 500)
+      : "";
+    return { error: `The page answered ${response.status()}${why ? `: ${why}` : "."}` };
   }
   try {
     await page.waitForSelector(READY_SELECTOR, { timeout: READY_TIMEOUT_MS });

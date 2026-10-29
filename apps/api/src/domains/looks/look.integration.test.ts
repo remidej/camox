@@ -24,6 +24,7 @@ import {
   type Website,
 } from "../../../test/threads";
 import { verifyLookToken } from "../drafts/look-token";
+import { layoutProcedures } from "../layouts/routes";
 import { pageProcedures } from "../pages/routes";
 import { END_OF_TURN_BUILD_FAILURES } from "../revisions/end-of-turn";
 import { LOOK_IMAGE_CAP, LOOK_MAX_DELAY_MS, LOOK_MAX_URL_LENGTH } from "./look";
@@ -467,6 +468,99 @@ describe("the agent's look", () => {
         undefined,
       ]);
     });
+  });
+});
+
+/**
+ * A draft thread of a website whose code adds a Singleton Layout at `/offers` and a Derived
+ * Layout at `/articles/$slug`, each placing a text block before its page.
+ */
+async function draftThreadWithLayoutPages() {
+  const opened = await draftThread();
+  const { website } = opened;
+  const before = (body: string) => [{ type: "text", content: { body }, slot: "before" as const }];
+  await syncDefinitionSet(website.db, website.project, {
+    blocks: [textDefinition],
+    layouts: [
+      { layoutId: website.layout.layoutId, description: "Default", blocks: [] },
+      { layoutId: "offers", kind: "singleton", description: "", blocks: before("Offers") },
+      { layoutId: "articles.$slug", kind: "derived", description: "", blocks: before("Blog") },
+    ],
+  });
+  return opened;
+}
+
+/** The ID of the first block a layout places, as the studio reads it. */
+async function layoutBlockOf({ db, memberUser, project }: Website, layoutId: string) {
+  const { layout } = await call(
+    layoutProcedures.get,
+    { projectUuid: project.uuid, layoutId },
+    { context: createRpcContext(db, memberUser) },
+  );
+  return layout.beforeBlockIds[0]!;
+}
+
+describe("the agent's look at a page of a Singleton or Derived Layout", () => {
+  it("captures a Singleton Layout's page and a Derived Layout's, whose loader the website runs", async () => {
+    const { draftId, thread } = await draftThreadWithLayoutPages();
+
+    const { results } = await look(thread, {
+      targets: [
+        { path: "/offers", sizes: ["desktop"] },
+        { path: "/articles/hello", sizes: ["desktop"] },
+      ],
+    });
+    thread.close();
+
+    expect(results).toEqual([
+      { path: "/offers", size: "desktop" },
+      { path: "/articles/hello", size: "desktop" },
+    ]);
+    const captures = await browserRunFakes.captures(draftId);
+    expect(captures.map(({ url }) => pathOf(url))).toEqual(["/offers", "/articles/hello"]);
+  });
+
+  it("captures a block its layout places, and fails alone a block that isn't on the page", async () => {
+    const { website, draftId, thread } = await draftThreadWithLayoutPages();
+    const offer = await layoutBlockOf(website, "offers");
+    const blog = await layoutBlockOf(website, "articles.$slug");
+
+    const { results } = await look(thread, {
+      targets: [
+        { path: "/offers", block: offer, sizes: ["desktop"] },
+        { path: "/articles/hello", block: blog, sizes: ["desktop"] },
+        { path: "/offers", block: blog, sizes: ["desktop"] },
+      ],
+    });
+    thread.close();
+
+    expect(results).toEqual([
+      { path: "/offers", block: offer, size: "desktop" },
+      { path: "/articles/hello", block: blog, size: "desktop" },
+      { path: "/offers", block: blog, size: "desktop", error: expect.stringContaining(blog) },
+    ]);
+    expect((await browserRunFakes.captures(draftId)).map(({ element }) => element)).toEqual([
+      `[data-camox-viewport-block="${offer}"]`,
+      `[data-camox-viewport-block="${blog}"]`,
+    ]);
+  });
+
+  it("fails a path no layout's route and no page matches", async () => {
+    const { draftId, thread } = await draftThreadWithLayoutPages();
+
+    const { results } = await look(thread, {
+      targets: [{ path: "/articles/hello/comments", sizes: ["desktop"] }],
+    });
+    thread.close();
+
+    expect(results).toEqual([
+      {
+        path: "/articles/hello/comments",
+        size: "desktop",
+        error: expect.stringContaining("/articles/hello/comments"),
+      },
+    ]);
+    expect(await browserRunFakes.captures(draftId)).toEqual([]);
   });
 });
 
