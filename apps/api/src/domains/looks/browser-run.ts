@@ -1,4 +1,4 @@
-import playwright, { type Browser, type Page } from "@cloudflare/playwright";
+import playwright, { type Browser, type BrowserContext, type Page } from "@cloudflare/playwright";
 
 import { errorField, timed } from "../../lib/timing";
 import type { Bindings } from "../../types";
@@ -25,9 +25,21 @@ const SESSION_KEY = "camox.look-session";
  */
 const KEEP_ALIVE_MS = 120_000;
 
-/** How long a document may take to load, then to mark itself ready. Tuning values. */
+/**
+ * How long a document may take to load, then to mark itself ready, which waits for its Artifacts:
+ * a 3D one takes a few seconds under Browser Run's software WebGL. Tuning values.
+ */
 const LOAD_TIMEOUT_MS = 30_000;
 const READY_TIMEOUT_MS = 15_000;
+
+/** How long any other step of a capture may take, such as the screenshot. A tuning value. */
+const STEP_TIMEOUT_MS = 10_000;
+
+/**
+ * How long a whole capture may take beyond its delay, so a step that hangs fails its own capture
+ * and never the call. A tuning value, above the steps' own timeouts.
+ */
+const CAPTURE_TIMEOUT_MS = LOAD_TIMEOUT_MS + READY_TIMEOUT_MS + STEP_TIMEOUT_MS;
 
 /** What the lightweight document marks itself with once it rendered and its Artifacts loaded. */
 const READY_SELECTOR = "html[data-camox-ready]";
@@ -81,56 +93,102 @@ async function browserOf(env: Bindings, storage: DurableObjectStorage): Promise<
   return playwright.connect(env.BROWSER, sessionId);
 }
 
+/** One capture, in its own context, failing alone when it takes too long. */
 async function captureIn(
   browser: Browser,
   cookie: CaptureCookie,
   capture: Capture,
 ): Promise<Captured> {
-  const viewport = LOOK_SIZES[capture.size];
-  const context = await browser.newContext({ viewport, deviceScaleFactor: 1 });
-  try {
-    // A `url` and no `domain` make the cookie the host's only.
-    await context.addCookies([
-      {
-        name: cookie.name,
-        value: cookie.value,
-        url: `https://${cookie.host}`,
-        httpOnly: true,
-        secure: true,
-        sameSite: "Lax",
+  let context: BrowserContext | undefined;
+  let givenUp = false;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timedOut = new Promise<Captured>((resolve) => {
+    timer = setTimeout(
+      () => {
+        givenUp = true;
+        resolve({ error: "The capture took too long, and was given up." });
       },
-    ]);
-    const page = await context.newPage();
-    const checks = watch(page);
-    const response = await page.goto(capture.url, {
-      waitUntil: "load",
-      timeout: LOAD_TIMEOUT_MS,
-    });
-    if (response && !response.ok()) {
-      return { error: `The page answered ${response.status()}.` };
-    }
-    await page.waitForSelector(READY_SELECTOR, { timeout: READY_TIMEOUT_MS });
-    await page.waitForTimeout(SETTLE_MS + (capture.delayMs ?? 0));
-    // Run in the page, which has a DOM: as a string, since the API's types have none.
-    checks.overflow = await page.evaluate<boolean>(
-      "document.documentElement.scrollWidth > document.documentElement.clientWidth",
+      CAPTURE_TIMEOUT_MS + (capture.delayMs ?? 0),
     );
-    const { image, cut } = capture.element
-      ? await elementImage(page, capture.element, viewport.height * ELEMENT_SCREENS)
-      : {
-          image: await page.screenshot({ type: "jpeg", quality: JPEG_QUALITY }),
-          cut: false,
-        };
-    return {
-      image: { data: image.toString("base64"), mimeType: "image/jpeg" },
-      cut,
-      checks,
-    };
-  } catch (error) {
-    return { error: errorField(error) };
+  });
+  try {
+    return await Promise.race([
+      timedOut,
+      // Its own errors are its result: it may still fail after the capture was given up.
+      (async (): Promise<Captured> => {
+        try {
+          context = await browser.newContext({
+            viewport: LOOK_SIZES[capture.size],
+            deviceScaleFactor: 1,
+          });
+          // A context that came after the capture was given up has nobody else to close it.
+          if (givenUp) await context.close();
+          context.setDefaultTimeout(STEP_TIMEOUT_MS);
+          return await captureWith(context, cookie, capture);
+        } catch (error) {
+          return { error: errorField(error) };
+        }
+      })(),
+    ]);
   } finally {
-    await context.close().catch(() => {});
+    clearTimeout(timer);
+    // Closing the context also ends a step still running after the capture was given up.
+    await context?.close().catch(() => {});
   }
+}
+
+async function captureWith(
+  context: BrowserContext,
+  cookie: CaptureCookie,
+  capture: Capture,
+): Promise<Captured> {
+  const viewport = LOOK_SIZES[capture.size];
+  // A `url` and no `domain` make the cookie the host's only.
+  await context.addCookies([
+    {
+      name: cookie.name,
+      value: cookie.value,
+      url: `https://${cookie.host}`,
+      httpOnly: true,
+      secure: true,
+      sameSite: "Lax",
+    },
+  ]);
+  const page = await context.newPage();
+  const checks = watch(page);
+  const response = await page.goto(capture.url, {
+    waitUntil: "load",
+    timeout: LOAD_TIMEOUT_MS,
+  });
+  if (response && !response.ok()) {
+    return { error: `The page answered ${response.status()}.` };
+  }
+  try {
+    await page.waitForSelector(READY_SELECTOR, { timeout: READY_TIMEOUT_MS });
+  } catch (error) {
+    if (!(error instanceof Error && error.name === "TimeoutError")) throw error;
+    return {
+      error:
+        `The page wasn't ready after ${READY_TIMEOUT_MS / 1000} seconds: something on it, ` +
+        "such as an Artifact, never finished loading.",
+    };
+  }
+  await page.waitForTimeout(SETTLE_MS + (capture.delayMs ?? 0));
+  // Run in the page, which has a DOM: as a string, since the API's types have none.
+  checks.overflow = await page.evaluate<boolean>(
+    "document.documentElement.scrollWidth > document.documentElement.clientWidth",
+  );
+  const { image, cut } = capture.element
+    ? await elementImage(page, capture.element, viewport.height * ELEMENT_SCREENS)
+    : {
+        image: await page.screenshot({ type: "jpeg", quality: JPEG_QUALITY }),
+        cut: false,
+      };
+  return {
+    image: { data: image.toString("base64"), mimeType: "image/jpeg" },
+    cut,
+    checks,
+  };
 }
 
 /** The element `selector` names, cut at `maxHeight`. */
