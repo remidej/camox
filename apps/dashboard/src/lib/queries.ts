@@ -53,3 +53,11 @@ export const projectQueries = {
           : false,
     }),
 };
+
+export const connectedAgentQueries = {
+  list: () =>
+    queryOptions({
+      queryKey: ["connectedAgents", "list"] as const,
+      queryFn: () => api.connectedAgents.list({}),
+    }),
+};
