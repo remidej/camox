@@ -21,7 +21,8 @@ import {
 } from "../../../test/threads";
 
 // The API opens a draft's thread itself, with no studio connected: as a Live thread handing a
-// request off to a draft does (ADR 0025), with a message from Camox, then the editor's own.
+// request off to a draft does (ADR 0025), with a Brief from Camox, then the editor's messages, or
+// with messages alone, each under its own sender.
 
 vi.mock("../../lib/thread-model", async () => {
   const { testThreadModel } = await import("../../../test/thread-model");
@@ -56,10 +57,10 @@ async function draftWithThread(website: Website) {
   return { draftId, threadId };
 }
 
-const senderOf = (editor: { id: string; name: string; image: string | null }): ThreadSender => ({
-  id: editor.id,
-  name: editor.name,
-  image: editor.image,
+/** An editor, as an opening message names its sender. */
+const editorOf = (editor: { id: string; name: string; image: string | null }) => ({
+  kind: "editor" as const,
+  editor: { id: editor.id, name: editor.name, image: editor.image } satisfies ThreadSender,
 });
 
 describe("a draft's thread the API opens", () => {
@@ -78,10 +79,13 @@ describe("a draft's thread the API opens", () => {
       identity: { projectId: project.id, draftId, ownerId: null },
       apiOrigin: "http://api.camox.test",
       brief: BRIEF,
-      editor: senderOf(teammate),
       messages: [
-        { operationId: crypto.randomUUID(), text: "Add a launch page" },
-        { operationId: crypto.randomUUID(), text: "Link it from pricing" },
+        { operationId: crypto.randomUUID(), text: "Add a launch page", from: editorOf(teammate) },
+        {
+          operationId: crypto.randomUUID(),
+          text: "Link it from pricing",
+          from: editorOf(teammate),
+        },
       ],
     });
 
@@ -109,6 +113,40 @@ describe("a draft's thread the API opens", () => {
     member.close();
   });
 
+  it("opens without a Brief, each message under its own sender, the run acting as the last's", async () => {
+    const website = await websiteFixture({ pricing: "Plans start at $9." });
+    const { db, memberUser, project } = website;
+    const teammate = await addMember(db, project.organizationId);
+    const { draftId, threadId } = await draftWithThread(website);
+    answerWithScript(CREATE_LAUNCH_PAGE);
+    answerFrom(
+      ({ editorMessages, scriptOutput }) =>
+        `Saw: ${editorMessages.join(" | ")}. By ${scriptOutput}.`,
+    );
+
+    await env.THREAD.getByName(threadId).open({
+      identity: { projectId: project.id, draftId, ownerId: null },
+      apiOrigin: "http://api.camox.test",
+      messages: [
+        { operationId: crypto.randomUUID(), text: "Add a launch page", from: editorOf(memberUser) },
+        { operationId: crypto.randomUUID(), text: "Call it Launch", from: editorOf(teammate) },
+      ],
+    });
+
+    const member = await connectDraftThread(project.id, draftId, await signIn(db, memberUser.id));
+    await member.untilIdle(3);
+    expect(said(member.view())).toEqual([
+      { from: "editor", text: "Add a launch page" },
+      { from: "editor", text: "Call it Launch" },
+      { from: "agent", text: `Saw: Add a launch page | Call it Launch. By ${teammate.name}.` },
+    ]);
+    const senders = member
+      .view()
+      .messages.flatMap((message) => (message.from === "editor" ? [message.sender.name] : []));
+    expect(senders).toEqual([memberUser.name, teammate.name]);
+    member.close();
+  });
+
   it("changes nothing when opened again", async () => {
     const website = await websiteFixture({ pricing: "Plans start at $9." });
     const { db, memberUser, project } = website;
@@ -118,10 +156,13 @@ describe("a draft's thread the API opens", () => {
       identity: { projectId: project.id, draftId, ownerId: null },
       apiOrigin: "http://api.camox.test",
       brief: BRIEF,
-      editor: senderOf(memberUser),
       messages: [
-        { operationId: crypto.randomUUID(), text: "Add a launch page" },
-        { operationId: crypto.randomUUID(), text: "Link it from pricing" },
+        { operationId: crypto.randomUUID(), text: "Add a launch page", from: editorOf(memberUser) },
+        {
+          operationId: crypto.randomUUID(),
+          text: "Link it from pricing",
+          from: editorOf(memberUser),
+        },
       ],
     };
     const thread = env.THREAD.getByName(threadId);

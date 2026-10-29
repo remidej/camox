@@ -248,16 +248,32 @@ const participantSchema = z.object({
 });
 
 /**
+ * Who sent a message a draft's thread opens with, and their kind, which sets how the transcript
+ * records it, how studios show it and how the model reads it. Editors are the only kind for now.
+ */
+export type OpeningSender = { kind: "editor"; editor: ThreadSender };
+
+/** A message a draft's thread opens with: its text, the operation id it was sent with, and who sent it. */
+export type OpeningMessage = { operationId: string; text: string; from: OpeningSender };
+
+/**
  * How the API opens a draft's thread with no studio connected (`Thread.open`): what it belongs
- * to, the API's public origin, the Brief from Camox, and the messages the editor sent, oldest
- * first, each with the operation id it was sent with.
+ * to, the API's public origin, the Brief from Camox if any, and the opening messages, oldest
+ * first, the last starting the agent's run.
  */
 export type ThreadOpening = {
   identity: ThreadIdentity;
   apiOrigin: string;
-  brief: string;
-  editor: ThreadSender;
-  messages: { operationId: string; text: string }[];
+  brief?: string;
+  messages: OpeningMessage[];
+};
+
+/** The transcript entry recording an opening message, by its sender's kind, without its content. */
+const openingEntryOf = ({ operationId, from }: OpeningMessage) => {
+  switch (from.kind) {
+    case "editor":
+      return { kind: EDITOR_MESSAGE_ENTRY, data: { ...from.editor, operationId } };
+  }
 };
 
 /** The text of an entry's user message, as an editor's message entry records it. */
@@ -265,6 +281,12 @@ const textOfEntry = (entry: EntryRecord) => {
   const message = entry.model?.find((candidate) => candidate.role === "user");
   return message ? editorTextOf(message.content) : "";
 };
+
+/** An editor as an opening message's sender, of what their message entry records. */
+const editorFrom = ({ id, name, image }: ThreadSender): OpeningSender => ({
+  kind: "editor",
+  editor: { id, name, image },
+});
 
 /** `messages`, then those of `more` it doesn't hold yet. */
 const mergeMessages = (messages: ThreadOpening["messages"], more: ThreadOpening["messages"]) => [
@@ -1271,11 +1293,12 @@ export class Thread extends DurableObject<Bindings> {
       identity: { projectId: identity.projectId, draftId, ownerId: null },
       apiOrigin,
       brief,
-      editor: { id: editor.id, name: editor.name, image: editor.image },
-      messages: entries.flatMap((entry) => {
-        const operationId = editorMessageDataSchema.safeParse(entry.data).data?.operationId;
+      messages: entries.flatMap((entry): OpeningMessage[] => {
+        const data = editorMessageDataSchema.safeParse(entry.data).data;
         const text = textOfEntry(entry);
-        return operationId && text ? [{ operationId, text }] : [];
+        return data?.operationId && text
+          ? [{ operationId: data.operationId, text, from: editorFrom(data) }]
+          : [];
       }),
     };
     const opening: ThreadOpening = {
@@ -1356,7 +1379,7 @@ export class Thread extends DurableObject<Bindings> {
         },
         context,
       );
-      withdrawn.push({ operationId: data.operationId, text });
+      withdrawn.push({ operationId: data.operationId, text, from: editorFrom(data) });
     }
     return withdrawn;
   }
@@ -1490,17 +1513,17 @@ export class Thread extends DurableObject<Bindings> {
   }
 
   /**
-   * Opens the thread from the API, with no studio connected, as a Live thread handing a request
-   * off to a draft does (ADR 0025): records what it belongs to and the API's origin, adds the
-   * Brief, which the model reads and studios show as from Camox, then the editor's messages
-   * under their name, and starts the agent's run, which acts as that editor. Every message but
-   * the last goes in before the run, the last starting it, so the model reads them all on its
-   * first call. Repeating it changes nothing.
+   * Opens the thread from the API, with no studio connected: records what it belongs to and the
+   * API's origin, adds the Brief if any, which the model reads and studios show as from Camox
+   * (ADR 0025), then the opening messages, each recorded as its sender's kind has it, and starts
+   * the agent's run, which acts as the last message's sender. Every message but the last goes in
+   * before the run, the last starting it, so the model reads them all on its first call.
+   * Repeating it changes nothing.
    */
-  async open({ identity, apiOrigin, brief, editor, messages }: ThreadOpening): Promise<void> {
+  async open({ identity, apiOrigin, brief, messages }: ThreadOpening): Promise<void> {
     const [first] = messages;
     const last = messages.at(-1);
-    if (!first || !last) throw new Error("A thread opens with at least one editor's message");
+    if (!first || !last) throw new Error("A thread opens with at least one message");
     if (await this.#hasEnded()) throw new Error("The thread ended with its draft");
     if (!(await this.#start(identity))) {
       throw new Error("The thread belongs to another project, draft or owner");
@@ -1508,25 +1531,23 @@ export class Thread extends DurableObject<Bindings> {
     await this.#recordApiOrigin(apiOrigin);
     const root = await (await this.harness.pi()).conversation(ROOT_CONVERSATION_ID, BACKGROUND);
     if (!root) throw new Error("The thread has no conversation to open");
-    const entryOf = (operationId: string) => ({
-      kind: EDITOR_MESSAGE_ENTRY,
-      data: { ...editor, operationId },
-    });
     // Request ids keep each entry to one write, however many times the thread is opened.
-    await root.submit(
-      {
-        type: "write",
-        requestId: `${BRIEF_ENTRY}:${first.operationId}`,
-        entry: { kind: BRIEF_ENTRY, model: [userMessage(brief)] },
-      },
-      BACKGROUND,
-    );
-    for (const { operationId, text } of messages.slice(0, -1)) {
+    if (brief !== undefined) {
       await root.submit(
         {
           type: "write",
-          requestId: operationId,
-          entry: { ...entryOf(operationId), model: [userMessage(text)] },
+          requestId: `${BRIEF_ENTRY}:${first.operationId}`,
+          entry: { kind: BRIEF_ENTRY, model: [userMessage(brief)] },
+        },
+        BACKGROUND,
+      );
+    }
+    for (const message of messages.slice(0, -1)) {
+      await root.submit(
+        {
+          type: "write",
+          requestId: message.operationId,
+          entry: { ...openingEntryOf(message), model: [userMessage(message.text)] },
         },
         BACKGROUND,
       );
@@ -1534,7 +1555,7 @@ export class Thread extends DurableObject<Bindings> {
     await this.harness.submit(last.text, {
       whenBusy: "steer",
       operationId: last.operationId,
-      entry: entryOf(last.operationId),
+      entry: openingEntryOf(last),
     });
   }
 
