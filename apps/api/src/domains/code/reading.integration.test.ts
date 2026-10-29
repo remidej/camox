@@ -20,6 +20,12 @@ vi.mock("../../lib/thread-model", async () => {
   return { threadModel: testThreadModel };
 });
 
+// No platform skills, so the tree shows only what the camox version main installs mounts.
+vi.mock("./platform-skills", async () => {
+  const { skillsSection } = await import("./skills");
+  return { PLATFORM_SKILLS: {}, PLATFORM_SKILLS_SECTION: skillsSection({}) };
+});
+
 afterEach(async () => {
   await abortAllDurableObjects();
   forgetThreadModel();
