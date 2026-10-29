@@ -1,9 +1,14 @@
-import { LOCALE_HEADER, PUBLISHING_DRAFT_HEADER } from "@camox/api-contract/drafts";
+import {
+  LOCALE_HEADER,
+  LOOK_TOKEN_HEADER,
+  PUBLISHING_DRAFT_HEADER,
+} from "@camox/api-contract/drafts";
 import { uuidv7Schema } from "@camox/api-contract/ids";
 import { os, ORPCError } from "@orpc/server";
 
 import type { Database } from "./db";
 import type { Auth } from "./domains/auth/routes";
+import { verifyLookToken } from "./domains/drafts/look-token";
 import type { DraftRequest } from "./domains/drafts/scope";
 import { draftRequestOf, INVALID_DRAFT_HEADER } from "./lib/draft-request";
 import { LiveReadOnlyError } from "./lib/errors";
@@ -45,6 +50,12 @@ function publishingDraftOf(headers: Headers): string | undefined {
   return named && uuidv7Schema.safeParse(named).success ? named : undefined;
 }
 
+/** What the look token a request carries grants (ADR 0032), if it's one the API signed and valid. */
+async function lookGrantOf(headers: Headers, env: Bindings) {
+  const token = headers.get(LOOK_TOKEN_HEADER);
+  return (token && (await verifyLookToken(env, token))) || undefined;
+}
+
 /**
  * Public procedure — available to anyone, no auth required. Every procedure gets the draft
  * its request names as `context.draft`, and the locale as `context.locale`; services check both
@@ -63,12 +74,13 @@ export const pub = os
       throw error;
     }
   })
-  .use(({ context, next }) =>
+  .use(async ({ context, next }) =>
     next({
       context: {
         draft: requestedDraft(context.headers),
         locale: context.headers.get(LOCALE_HEADER) ?? undefined,
         publishingDraft: publishingDraftOf(context.headers),
+        look: await lookGrantOf(context.headers, context.env),
       },
     }),
   );

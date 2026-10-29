@@ -1,5 +1,5 @@
 import type { PageUrlMarker } from "@camox/api-contract";
-import { LOCALE_HEADER } from "@camox/api-contract/drafts";
+import { DRAFT_SEARCH_PARAM, LOCALE_HEADER } from "@camox/api-contract/drafts";
 import { QueryClient, dehydrate } from "@tanstack/react-query";
 import { createHead, renderSSRHead } from "@unhead/react/server";
 import type { Link, Meta, Script, UseHeadInput } from "unhead/types";
@@ -34,6 +34,7 @@ import { PLATFORM_SCRIPT } from "../../lib/platform";
 import {
   buildClearServerAuthCookieHeader,
   buildServerAuthCookieHeader,
+  getLookToken,
   getServerAuthCookieHeader,
 } from "../../lib/server-auth-cookie";
 import { getCookie, getSetCookie } from "../../lib/stored-auth-cookies";
@@ -50,7 +51,10 @@ import {
   parseMarkdownPath,
   createServerApiClient,
   createServerStudioCache,
+  buildCamoxPageLoaderData,
+  isAuthSessionError,
   isNotFoundError,
+  loadCamoxPage,
   loadCamoxPageForRequest,
   prefersMarkdown,
   withFrontMatter,
@@ -785,6 +789,125 @@ function createRendererDocumentResponse(options: RuntimeOptions): Response {
         "Content-Type": "text/html; charset=utf-8",
         "Cache-Control": "private, no-store",
         "X-Robots-Tag": "noindex",
+      },
+    },
+  );
+}
+
+/**
+ * Marks the look document ready (`data-camox-ready` on its root element) for the browser to wait
+ * on, once the page's client hydrated it (`camox:hydrated`) and the window loaded, which includes
+ * its artifacts' frames, then a frame later, once painted.
+ */
+const LOOK_READY_SCRIPT = `(()=>{let hydrated=false;const mark=()=>{if(!hydrated||document.readyState!=="complete")return;requestAnimationFrame(()=>requestAnimationFrame(()=>document.documentElement.setAttribute("data-camox-ready","")))};addEventListener("camox:hydrated",()=>{hydrated=true;mark()},{once:true});addEventListener("load",mark,{once:true})})()`;
+
+/** What the look document answers when it shows nothing: no token, or one the API refused. */
+function lookNotFound(): Response {
+  return new Response("Not found", {
+    status: 404,
+    headers: { "Cache-Control": "private, no-store", "X-Robots-Tag": "noindex" },
+  });
+}
+
+/**
+ * The lightweight document the agent's `look` tool captures (ADR 0032): the page at `path`, in
+ * the Locale `locale` names by its tag (the Default Locale without one), of the draft
+ * `camox-draft` names, read with the look token the request's cookie carries. It shows the page
+ * as a visitor would, with the site's head and stylesheets and the page's client to hydrate its
+ * blocks, but nothing of the studio. It answers nothing without a token the API accepts.
+ */
+async function createLookDocumentResponse(
+  request: Request,
+  options: RuntimeOptions,
+): Promise<Response> {
+  const { apiUrl, authenticationUrl, projectUuid, renderPage } = options;
+  const { searchParams } = new URL(request.url);
+  const lookToken = getLookToken(request.headers);
+  const draftId = searchParams.get(DRAFT_SEARCH_PARAM) ?? undefined;
+  if (!lookToken || !draftId || !apiUrl || !authenticationUrl || !projectUuid || !renderPage)
+    return lookNotFound();
+  const path = normalizePagePath(searchParams.get("path"));
+  const tag = searchParams.get("locale")?.toLowerCase();
+
+  const queryClient = new QueryClient();
+  let locales: LocaleView[];
+  let page: Awaited<ReturnType<typeof loadCamoxPage>>;
+  let locale: LocaleView | undefined;
+  try {
+    locales = await createServerApiClient(apiUrl, { lookToken, draftId }).locales.list({
+      projectUuid,
+    });
+    locale = locales.find((each) => (tag ? each.tag.toLowerCase() === tag : each.isDefault));
+    if (!locale) return lookNotFound();
+    page = await loadCamoxPage({
+      apiUrl,
+      lookToken,
+      draftId,
+      locale,
+      pathname: path,
+      projectUuid,
+      queryClient,
+    });
+  } catch (error) {
+    if (isAuthSessionError(error) || isNotFoundError(error)) return lookNotFound();
+    throw error;
+  }
+
+  const camoxApp = await options.getCamoxApp?.();
+  const document = (await options.getDocument?.()) ?? {};
+  const pathname = localizedPath(path, locale);
+  const href = new URL(withRuntimeBasePath(pathname, options.runtimeBasePath), request.url);
+  href.searchParams.set(DRAFT_SEARCH_PARAM, draftId);
+  const loaderData = buildCamoxPageLoaderData(apiUrl, page, href.origin);
+  const head = camoxApp ? buildCamoxPageHead(camoxApp, loaderData, locale) : {};
+  const dehydratedState = dehydrate(queryClient);
+  const input: PageRenderInput = {
+    presentation: "public",
+    apiUrl,
+    authenticationUrl,
+    dehydratedState,
+    draftId,
+    head,
+    href: href.href,
+    layoutIdentity: getLayoutIdentity(page.layout),
+    loaderData,
+    pathname,
+    projectUuid,
+    runtimeBasePath: normalizeRuntimeBasePath(options.runtimeBasePath),
+    locale,
+    locales,
+  };
+  const appHtml = await renderPage(input);
+  const renderedHead = renderHead(
+    document,
+    createPageHeadInput(head),
+    options.stylesheetUrl,
+    undefined,
+    locale,
+  );
+  return new Response(
+    `<!doctype html>
+<html${renderedHead.htmlAttrs}>
+<head>
+${renderedHead.headTags}
+<meta name="robots" content="noindex">
+<script>${LOOK_READY_SCRIPT}</script>
+${renderBlockPreloads(options, dehydratedState)}
+<script id="__CAMOX_DATA__" type="application/json">${serializeJsonForHtml(hydrationInputFor(input, appHtml))}</script>
+</head>
+<body${renderedHead.bodyAttrs}>
+${renderedHead.bodyTagsOpen}
+<div id="root">${appHtml}</div>
+${renderedHead.bodyTags}
+${renderClientEntryScript(options.pageClientEntryUrl)}
+</body>
+</html>`,
+    {
+      headers: {
+        "Content-Type": "text/html; charset=utf-8",
+        "Cache-Control": "private, no-store",
+        "X-Robots-Tag": "noindex",
+        "Referrer-Policy": "no-referrer",
       },
     },
   );
@@ -2103,6 +2226,10 @@ export async function handleCamoxRequest(
 
   if (match.kind === "renderer") {
     return createRendererDocumentResponse(options);
+  }
+
+  if (match.kind === "look") {
+    return createLookDocumentResponse(request, options);
   }
 
   if (match.kind === "logo") {
