@@ -168,6 +168,7 @@ void test("the agent's squareling says what the agent does, in words too, never 
   assert.deepEqual(shown("exploring"), { squareling: "exploring", said: "Looking around…" });
   assert.deepEqual(shown("changing"), { squareling: "changing", said: "Making changes…" });
   assert.deepEqual(shown("building"), { squareling: "building", said: "Building…" });
+  assert.deepEqual(shown("checking"), { squareling: "checking", said: "Checking the design…" });
   assert.deepEqual(shown("fixing"), { squareling: "fixing", said: "Fixing the build…" });
   assert.deepEqual(shown("startingDraft"), { squareling: "changing", said: "Starting a draft…" });
   // A run the thread hasn't said anything of yet starts with thinking.
