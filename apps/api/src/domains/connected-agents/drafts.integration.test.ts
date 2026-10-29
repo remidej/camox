@@ -309,14 +309,14 @@ describe("send_message", () => {
     `);
     const release = holdNextScript(`text("checking");`);
     answerFrom(({ editorMessages }) => `Done, and noted: ${editorMessages.at(-1)}`);
-    const { draft } = answerOf(
+    const draft = answerOf(
       await callTool(accessToken, "start_draft", { name: "New prices", message: "Raise prices." }),
-    );
-    const thread = await editorOnDraft(website, draft as string);
+    ).draft as string;
+    const thread = await editorOnDraft(website, draft);
     delete bindings.CONNECTED_AGENT_TURN_WAIT_MS;
 
     const answering = callTool(accessToken, "send_message", {
-      draft: draft as string,
+      draft,
       message: "Keep the yearly plan as is.",
     });
     await thread.until(() =>

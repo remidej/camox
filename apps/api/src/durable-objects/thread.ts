@@ -8,6 +8,7 @@ import {
   connectedAgentMessageDataSchema,
   DRAFT_ENDED_ENTRY,
   EMPTY_THREAD_STATE,
+  EMPTY_THREAD_VIEW,
   type BuildStatus,
   EDITOR_MESSAGE_ENTRY,
   editorMessageDataSchema,
@@ -28,6 +29,7 @@ import {
   type ThreadClientMessage,
   type ThreadSender,
   type ThreadServerMessage,
+  type ThreadView,
   type Touch,
   type TouchedBatch,
   reduceThreadEvents,
@@ -1771,6 +1773,17 @@ export class Thread extends DurableObject<Bindings> {
         await this.#stop(participant.data.sender);
         return;
     }
+  }
+
+  /**
+   * The thread as studios show it now: its messages, and whether a run is going. Empty for a
+   * thread nobody messaged yet, without opening Pi, which would store, or one that ended.
+   */
+  async view(): Promise<ThreadView> {
+    if ((await this.#hasEnded()) || !(await this.#knownIdentity())) return EMPTY_THREAD_VIEW;
+    const stream = await this.harness.session().events();
+    await stream.stop();
+    return threadViewOf(reduceThreadEvents(EMPTY_THREAD_STATE, [stream.snapshot]));
   }
 
   /**

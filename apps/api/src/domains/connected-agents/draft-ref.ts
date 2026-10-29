@@ -1,4 +1,4 @@
-import { DRAFT_SEARCH_PARAM } from "@camox/api-contract/drafts";
+import { DRAFT_SEARCH_PARAM, type DraftOutcome } from "@camox/api-contract/drafts";
 import { uuidv7Schema } from "@camox/api-contract/ids";
 import { eq } from "drizzle-orm";
 import { Effect } from "effect";
@@ -35,14 +35,18 @@ function draftIdNamedBy(ref: string) {
   return id && uuidv7Schema.safeParse(id).success ? id : undefined;
 }
 
+/** How a draft a Connected Agent names ended: published or deleted, by whom and when. */
+export type DraftEnd = { outcome: DraftOutcome; endedBy: string; endedAt: number };
+
 /**
- * The open draft a Connected Agent names by id or studio link, among those its member can see,
- * or why it can't have it. The draft implies its project, so tools naming one need no project.
+ * The draft a Connected Agent names by id or studio link, among those its member can see, open
+ * or ended, or why it can't have it. The draft implies its project, so tools naming one need no
+ * project.
  */
-export async function reachDraft(
+export async function seeDraft(
   call: ConnectedAgentCall,
   ref: string,
-): Promise<{ draft: ReachedDraft } | { refusal: string }> {
+): Promise<{ draft: ReachedDraft; ended?: DraftEnd } | { refusal: string }> {
   const id = draftIdNamedBy(ref);
   if (!id) {
     return {
@@ -66,11 +70,29 @@ export async function reachDraft(
     found && call.member.projects.find(({ project }) => project.id === found.projectId);
   // A draft of a project the member can't reach reads as one that doesn't exist.
   if (!found || !project) return { refusal: `No draft you can see has the id ${id}.` };
-  if (open) return { draft: { id, name: open.name, project } };
+  const draft = { id, name: found.name, project };
+  if (open) return { draft };
   const how = (await Effect.runPromise(findEndedDraft(call.db, project.project.id, id)))!;
-  const named = found.name ? `The draft "${found.name}"` : `The draft ${id}`;
-  const when = new Date(how.endedAt).toISOString().slice(0, 10);
   return {
-    refusal: `${named} has ended: ${how.endedBy.name} ${how.outcome} it on ${when}. Its changes ${how.outcome === "published" ? "are on Live" : "are gone"}; start a new draft to change the website further.`,
+    draft,
+    ended: { outcome: how.outcome, endedBy: how.endedBy.name, endedAt: how.endedAt },
+  };
+}
+
+/**
+ * The open draft a Connected Agent names by id or studio link, among those its member can see,
+ * or why it can't have it: a draft that ended is refused, saying how.
+ */
+export async function reachDraft(
+  call: ConnectedAgentCall,
+  ref: string,
+): Promise<{ draft: ReachedDraft } | { refusal: string }> {
+  const seen = await seeDraft(call, ref);
+  if ("refusal" in seen || !seen.ended) return seen;
+  const { draft, ended } = seen;
+  const named = draft.name ? `The draft "${draft.name}"` : `The draft ${draft.id}`;
+  const when = new Date(ended.endedAt).toISOString().slice(0, 10);
+  return {
+    refusal: `${named} has ended: ${ended.endedBy} ${ended.outcome} it on ${when}. Its changes ${ended.outcome === "published" ? "are on Live" : "are gone"}; start a new draft to change the website further.`,
   };
 }
