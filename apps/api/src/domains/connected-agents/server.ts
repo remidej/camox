@@ -1,5 +1,6 @@
 import { McpServer } from "@modelcontextprotocol/server";
 
+import { registerReadPage } from "./read-page";
 import type { ConnectedAgentCall } from "./routes";
 import { registerWebsiteTools } from "./website";
 
@@ -10,5 +11,6 @@ import { registerWebsiteTools } from "./website";
 export function connectedAgentServer(call: ConnectedAgentCall) {
   const server = new McpServer({ name: "camox", title: "Camox", version: "1.0.0" });
   registerWebsiteTools(server, call);
+  registerReadPage(server, call);
   return server;
 }
