@@ -278,7 +278,8 @@ jobs:
   # Deploys the release sandbox again, so its image installs the Template just refreshed: a new
   # revision sandbox then skips `pnpm install` for projects on it, as the Upgrades below move
   # them there (apps/api/release-sandbox/Dockerfile). The deploy job's image holds the Template it
-  # found then, a version behind.
+  # found then, a version behind. The image rolls out at once, and the Upgrades wait until it's on
+  # every instance: a draft's merge of an Upgrade in a sandbox on the image before installed again.
   refresh-sandbox-install:
     needs: refresh-template
     runs-on: ubuntu-latest
@@ -300,16 +301,25 @@ jobs:
       - run: pnpm install --frozen-lockfile
 
       - name: Deploy the release sandbox
-        run: pnpm --filter @camox/api run deploy:release-sandbox
+        run: pnpm --filter @camox/api run deploy:release-sandbox --containers-rollout immediate
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+
+      - name: Wait for the revision sandbox's image to roll out
+        run: node apps/api/release-sandbox/wait-for-rollout.mjs
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
 
   # Moves every project to the SDK just published, once new projects fork it, with the API's
   # `camox-upgrade` Workflow (apps/api/src/domains/upgrades/README.md). Projects that build are
-  # pushed to `main` and released; the Workflow emails the ones that don't.
+  # pushed to `main` and released; the Workflow emails the ones that don't. It waits for the
+  # release sandbox's new image, so the drafts merging an Upgrade build without installing, but
+  # not on its success: a sandbox that failed to deploy only makes those builds install.
   upgrade-projects:
-    needs: refresh-template
+    needs: [refresh-template, refresh-sandbox-install]
+    if: ${{ !cancelled() && needs.refresh-template.result == 'success' }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
     environment: production
