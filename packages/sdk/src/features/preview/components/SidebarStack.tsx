@@ -149,9 +149,19 @@ function prefersMotion() {
   );
 }
 
+/** Where a card is laid out, relative to the stack. */
+type CardBox = { left: number; top: number; width: number; height: number };
+
 type StackMotion = {
   /** Whether the stack has rendered once: cards don't move into a stack as it first shows. */
   ready: boolean;
+  /**
+   * Where each card was last laid out. A card that leaves copies itself from there: by the time
+   * it goes, the cards before it may be gone already, and it would show where they were.
+   */
+  boxes: Map<HTMLElement, CardBox>;
+  /** Watches the cards and the stack, whose sizes move the cards after them. */
+  observer: ResizeObserver | null;
   /** The front view's depth, once a view shows. */
   front: number | null;
   /** Where cards that leave go: behind the views, or in front of them. */
@@ -173,6 +183,8 @@ export function SidebarStack({ children }: { children: React.ReactNode }) {
   const [count, setCount] = React.useState(0);
   const motion = React.useRef<StackMotion>({
     ready: false,
+    boxes: new Map(),
+    observer: null,
     front: null,
     behind: null,
     inFront: null,
@@ -180,9 +192,17 @@ export function SidebarStack({ children }: { children: React.ReactNode }) {
   React.useLayoutEffect(() => {
     const current = motion.current;
     current.ready = true;
+    if (typeof ResizeObserver !== "undefined") {
+      const observer = new ResizeObserver(() => measureCards(current));
+      current.observer = observer;
+      for (const card of current.boxes.keys()) observer.observe(card);
+      if (current.inFront?.parentElement) observer.observe(current.inFront.parentElement);
+    }
     // Runs before its cards' cleanups, so a stack that goes takes its cards without moving them.
     return () => {
       current.ready = false;
+      current.observer?.disconnect();
+      current.observer = null;
     };
   }, []);
   return (
@@ -210,20 +230,60 @@ export function SidebarStack({ children }: { children: React.ReactNode }) {
   );
 }
 
-/** A still copy of a card, where it was, so it can move away once the card is gone. */
-function copyCard(card: HTMLElement, layer: HTMLElement) {
-  const layerRect = layer.getBoundingClientRect();
+/**
+ * Where a card is laid out relative to `stack`, whose box its layers fill. Offsets leave out the
+ * transforms that move cards as they come.
+ */
+function layoutBox(card: HTMLElement, stack: HTMLElement): CardBox {
+  let left = 0;
+  let top = 0;
+  let node: HTMLElement | null = card;
+  while (node && node !== stack) {
+    left += node.offsetLeft;
+    top += node.offsetTop;
+    const parent = node.offsetParent as HTMLElement | null;
+    // Offsets start inside the parent's border.
+    if (parent && parent !== stack) {
+      left += parent.clientLeft;
+      top += parent.clientTop;
+    }
+    node = parent;
+  }
+  if (node === stack) {
+    return { left, top, width: card.offsetWidth, height: card.offsetHeight };
+  }
+  // Laid out outside the stack's own positioning: measure what shows.
+  const stackRect = stack.getBoundingClientRect();
   const rect = card.getBoundingClientRect();
+  return {
+    left: rect.left - stackRect.left,
+    top: rect.top - stackRect.top,
+    width: rect.width,
+    height: rect.height,
+  };
+}
+
+/** Notes where each card of the stack is laid out now. */
+function measureCards(motion: StackMotion) {
+  const stack = motion.inFront?.parentElement;
+  if (!stack) return;
+  for (const card of motion.boxes.keys()) {
+    if (card.isConnected) motion.boxes.set(card, layoutBox(card, stack));
+  }
+}
+
+/** A still copy of a card, at `box`, so it can move away once the card is gone. */
+function copyCard(card: HTMLElement, box: CardBox) {
   const copy = card.cloneNode(true) as HTMLElement;
   copy.setAttribute("aria-hidden", "true");
   copy.setAttribute("inert", "");
   Object.assign(copy.style, {
     position: "absolute",
     margin: "0",
-    left: `${rect.left - layerRect.left}px`,
-    top: `${rect.top - layerRect.top}px`,
-    width: `${rect.width}px`,
-    height: `${rect.height}px`,
+    left: `${box.left}px`,
+    top: `${box.top}px`,
+    width: `${box.width}px`,
+    height: `${box.height}px`,
   });
   // Clones don't keep where they were scrolled to.
   const scrolled: [path: number[], top: number][] = [];
@@ -256,6 +316,9 @@ function useStackCard(
     const card = ref.current;
     const motion = stack?.current;
     if (!card || !motion || depth == null) return;
+    // Measured once the whole stack has laid out, below.
+    if (!motion.boxes.has(card)) motion.boxes.set(card, { left: 0, top: 0, width: 0, height: 0 });
+    motion.observer?.observe(card);
     const previousFront = motion.front;
     // Cards lay out front to back, so every header sees the front from before the view.
     if (isView) motion.front = depth;
@@ -271,12 +334,23 @@ function useStackCard(
     }
     return () => {
       const { behind, inFront } = motion;
-      if (!motion.ready || !behind || !inFront || !prefersMotion()) return;
-      // Copied now, while the card is still laid out; moved once the new front is known.
-      const { copy, restoreScroll } = copyCard(card, inFront);
+      const box = motion.boxes.get(card);
+      const forget = () => {
+        motion.boxes.delete(card);
+        motion.observer?.unobserve(card);
+      };
+      if (!motion.ready || !behind || !inFront || !box || !prefersMotion()) {
+        queueMicrotask(() => {
+          if (!card.isConnected) forget();
+        });
+        return;
+      }
+      // Copied now, while the card is still in the document; moved once the new front is known.
+      const { copy, restoreScroll } = copyCard(card, box);
       queueMicrotask(() => {
         // It stayed: its effect only ran again.
         if (card.isConnected) return;
+        forget();
         const how = motionFor(depth, motion.front ?? depth);
         (how === "front" ? inFront : behind).append(copy);
         restoreScroll();
@@ -290,6 +364,11 @@ function useStackCard(
     // A card moves as it comes and goes, not as it moves within the stack.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+  // Every change to the stack may move its cards, which a resize doesn't always show in time.
+  React.useLayoutEffect(() => {
+    const motion = stack?.current;
+    if (motion) measureCards(motion);
+  });
 }
 
 /** Where a header's card and content were laid out, relative to the header. */
