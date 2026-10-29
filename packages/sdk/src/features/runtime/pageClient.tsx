@@ -1,4 +1,5 @@
 import { QueryClient } from "@tanstack/react-query";
+import * as React from "react";
 import { hydrateRoot } from "react-dom/client";
 
 import type { CamoxApp } from "../../core/createApp";
@@ -9,6 +10,17 @@ import { PageApp } from "./pageApp";
 import { getPageBlockTypes } from "./pageBlockTypes";
 import type { PageRenderInput } from "./runtime";
 import { loadRuntimeChrome } from "./runtimeChromeLoader";
+
+/**
+ * Announces, as `camox:hydrated` on the window, that React hydrated the page: the look document
+ * waits on it before it marks itself ready (ADR 0032).
+ */
+function AnnounceHydrated({ children }: { children: React.ReactNode }) {
+  React.useEffect(() => {
+    window.dispatchEvent(new window.Event("camox:hydrated"));
+  }, []);
+  return children;
+}
 
 export async function hydratePageWithApp(camoxApp: CamoxApp) {
   const root = document.getElementById("root");
@@ -33,6 +45,13 @@ export async function hydratePageWithApp(camoxApp: CamoxApp) {
   const draftScope = createDraftScope({ queryClient, browser: window });
   hydrateRoot(
     root,
-    <PageApp camoxApp={camoxApp} draftScope={draftScope} input={input} queryClient={queryClient} />,
+    <AnnounceHydrated>
+      <PageApp
+        camoxApp={camoxApp}
+        draftScope={draftScope}
+        input={input}
+        queryClient={queryClient}
+      />
+    </AnnounceHydrated>,
   );
 }

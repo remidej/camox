@@ -1,3 +1,5 @@
+import { LOOK_TOKEN_COOKIE } from "@camox/api-contract/drafts";
+
 export const SERVER_AUTH_COOKIE_NAME = "camox_auth_cookie";
 
 /** How long the mirror lasts. The API still refuses a session that expired before it. */
@@ -31,6 +33,21 @@ export function readServerAuthCookie(cookieHeader: string): string {
     return decodeURIComponent(mirror.slice(SERVER_AUTH_COOKIE_NAME.length + 1));
   } catch {
     // A malformed mirror is no session.
+    return "";
+  }
+}
+
+/**
+ * The look token a request carries in `LOOK_TOKEN_COOKIE` (ADR 0032), set by the browser the
+ * agent's `look` tool drives for the website's host only. Empty when there's none.
+ */
+export function getLookToken(headers: Headers): string {
+  const cookies = (headers.get("Cookie") ?? "").split(";").map((part) => part.trim());
+  const look = cookies.find((part) => part.startsWith(`${LOOK_TOKEN_COOKIE}=`));
+  if (!look) return "";
+  try {
+    return decodeURIComponent(look.slice(LOOK_TOKEN_COOKIE.length + 1));
+  } catch {
     return "";
   }
 }

@@ -1,6 +1,7 @@
 import {
   DRAFT_ENDED_ERROR_CODE,
   DRAFT_HEADER,
+  LOOK_TOKEN_HEADER,
   PUBLISHING_DRAFT_HEADER,
   type EndedDraft,
 } from "@camox/api-contract/drafts";
@@ -45,7 +46,9 @@ export interface CamoxPageLoaderData {
 interface LoadPageOptions {
   apiUrl: string;
   authCookieHeader?: string;
-  /** The draft to read instead of Live. Only sent along with a session. */
+  /** The look token to read the draft with instead of a session (ADR 0032). */
+  lookToken?: string;
+  /** The draft to read instead of Live. Only sent along with a session or a look token. */
   draftId?: string;
   /** The locale to read the page in. Without it, the default locale. */
   locale?: LocaleView;
@@ -136,11 +139,19 @@ export function parseMarkdownPath(pathname: string): string | null {
 
 export function createServerApiClient(
   apiUrl: string,
-  options?: { authCookieHeader?: string; draftId?: string; locale?: LocaleView },
+  options?: {
+    authCookieHeader?: string;
+    /** A look token, which reads the draft it was signed for without a session (ADR 0032). */
+    lookToken?: string;
+    draftId?: string;
+    locale?: LocaleView;
+  },
 ): RouterClient<Router> {
   const headers = localeHeaders(options?.locale);
-  // Only a session can read a draft, so a draft is only ever named along with one.
-  if (options?.draftId && options.authCookieHeader) headers[DRAFT_HEADER] = options.draftId;
+  if (options?.lookToken) headers[LOOK_TOKEN_HEADER] = options.lookToken;
+  // Only a session or a look token can read a draft, so a draft is only ever named with one.
+  if (options?.draftId && (options.authCookieHeader || options.lookToken))
+    headers[DRAFT_HEADER] = options.draftId;
   else {
     // The Worker a publish with code uploaded reads Live overlaid with its draft while it
     // publishes.
@@ -241,15 +252,21 @@ export function renderedHref(url: string, read: DraftRead): string {
 export async function loadCamoxPage({
   apiUrl,
   authCookieHeader,
+  lookToken,
   draftId,
   locale,
   pathname,
   projectUuid,
   queryClient,
 }: LoadPageOptions): Promise<PageStructure> {
-  const studioCache = createServerStudioCache(queryClient, { apiUrl, authCookieHeader, locale });
-  // Only a session names the draft, so without one the read is Live's.
-  const inDraft = { in: draftId && authCookieHeader ? draftId : null };
+  const studioCache = createServerStudioCache(queryClient, {
+    apiUrl,
+    authCookieHeader,
+    lookToken,
+    locale,
+  });
+  // Only a session or a look token names the draft, so without one the read is Live's.
+  const inDraft = { in: draftId && (authCookieHeader || lookToken) ? draftId : null };
   const fallback = locale && linkFallbackLocale(locale);
   const [page] = await Promise.all([
     studioCache.ensure(reads.pageStructure({ path: pathname, projectUuid }), inDraft),
@@ -273,10 +290,13 @@ export function createServerStudioCache(
   {
     apiUrl,
     authCookieHeader,
+    lookToken,
     locale,
   }: {
     apiUrl: string;
     authCookieHeader?: string;
+    /** The look token the request reads its draft with, instead of a session (ADR 0032). */
+    lookToken?: string;
     /** The locale the request renders. Without it, the default locale. */
     locale?: LocaleView;
   },
@@ -287,6 +307,7 @@ export function createServerStudioCache(
     api: (draft, inLocale) =>
       createServerApiClient(apiUrl, {
         authCookieHeader,
+        lookToken,
         draftId: draft ?? undefined,
         locale: inLocale,
       }),
