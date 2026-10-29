@@ -165,6 +165,37 @@ describe("the agent's look", () => {
     ]);
   });
 
+  it("returns, as text with each image, the errors, failed requests and overflow its page reported, or says briefly there were none", async () => {
+    const { draftId, thread, host } = await draftThread();
+    await browserRunFakes.scriptChecksOf(
+      draftId,
+      {
+        errors: ["Uncaught TypeError: price is undefined", "Minified React error #418"],
+        failedRequests: [`404 https://${host}/hero.jpg`],
+        overflow: true,
+      },
+      "mobile",
+    );
+
+    const { text, images } = await look(thread, { targets: [{ path: "/home" }] });
+    thread.close();
+
+    expect(text).toBe(
+      [
+        JSON.stringify({ path: "/home", size: "desktop" }),
+        "No console or page errors, overflow or failed requests.",
+        JSON.stringify({ path: "/home", size: "mobile" }),
+        "Console and page errors:",
+        "- Uncaught TypeError: price is undefined",
+        "- Minified React error #418",
+        "Content overflows horizontally at this width.",
+        "Failed requests:",
+        `- 404 https://${host}/hero.jpg`,
+      ].join("\n"),
+    );
+    expect(images).toHaveLength(2);
+  });
+
   it("refuses a call over the image cap, capturing nothing", async () => {
     const { draftId, thread } = await draftThread();
     const targets = Array.from({ length: LOOK_IMAGE_CAP / 2 + 1 }, () => ({ path: "/home" }));
