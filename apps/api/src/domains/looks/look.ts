@@ -33,8 +33,17 @@ export const DEFAULT_SIZES: readonly LookSize[] = ["desktop", "mobile"];
 /** A page of the draft, by its path in its Locale, the Default Locale without one. */
 export type PageTarget = { path: string; locale?: string };
 
-/** What the agent asks `look` to capture, with the sizes it wants. */
-export type LookTarget = PageTarget & { sizes?: LookSize[] };
+/**
+ * The longest a target may have the browser wait, once its document is ready and settled, before
+ * it captures: enough to see an animation at a later moment.
+ */
+export const LOOK_MAX_DELAY_MS = 5000;
+
+/**
+ * What the agent asks `look` to capture, with the sizes it wants and how long to wait before
+ * capturing, in milliseconds.
+ */
+export type LookTarget = PageTarget & { sizes?: LookSize[]; delay?: number };
 
 /** One result: a target at one size, with its image, or why it failed. */
 export type Looked = { target: LookTarget; size: LookSize } & Captured;
@@ -90,13 +99,16 @@ export async function look(
     await Promise.all(
       targets.map(
         async (target) =>
-          [target, await resolve(env, where, project.uuid, origin, target)] as const,
+          [
+            target,
+            delayRefused(target) ?? (await resolve(env, where, project.uuid, origin, target)),
+          ] as const,
       ),
     ),
   );
   const toCapture = asked.flatMap(({ target, size }) => {
     const found = resolved.get(target)!;
-    return "error" in found ? [] : [{ ...found, size }];
+    return "error" in found ? [] : [{ ...found, size, delayMs: target.delay }];
   });
   const captured = toCapture.length
     ? await capturer.capture(
@@ -119,6 +131,14 @@ export async function look(
     const found = resolved.get(target)!;
     return { target, size, ...("error" in found ? found : captured[next++]!) };
   });
+}
+
+/** Why the delay `target` asks for is refused, failing that target, or undefined when it's fine. */
+function delayRefused({ delay }: LookTarget): { error: string } | undefined {
+  if (delay === undefined || (delay >= 0 && delay <= LOOK_MAX_DELAY_MS)) return undefined;
+  return {
+    error: `A delay is at most ${LOOK_MAX_DELAY_MS} milliseconds, and this one is ${delay}.`,
+  };
 }
 
 /** What `target` is captured as: the lightweight document of its page, once it's in the draft. */

@@ -4,7 +4,7 @@ import { defineTool } from "@earendil-works/pi-durable";
 
 import type { ToolInvocation } from "../threads/tools";
 import { LOOK_SIZES } from "./capture";
-import { LOOK_IMAGE_CAP, type Looked, type LookTarget } from "./look";
+import { LOOK_IMAGE_CAP, LOOK_MAX_DELAY_MS, type Looked, type LookTarget } from "./look";
 
 const SIZE = Type.Union(
   Object.keys(LOOK_SIZES).map((size) => Type.Literal(size)),
@@ -15,15 +15,30 @@ const SIZE = Type.Union(
   },
 );
 
+/** How any target is captured: at which sizes, and when. */
+const CAPTURE_OPTIONS = {
+  sizes: Type.Optional(
+    Type.Array(SIZE, { minItems: 1, description: "The sizes to capture: both by default." }),
+  ),
+  // No maximum here: a longer delay fails its own target, not the whole call.
+  delay: Type.Optional(
+    Type.Number({
+      description:
+        "How long to wait before capturing, in milliseconds, at most " +
+        `${LOOK_MAX_DELAY_MS}. The capture already waits for the page and its Artifacts to ` +
+        "load, then a short settle for entrance animations: delay only to see an animation " +
+        "at a later moment.",
+    }),
+  ),
+};
+
 /** A page of the draft, captured as a visitor sees it: its first screen. */
 const PAGE_TARGET = Type.Object({
   path: Type.String({ description: "The page's path in its Locale, such as `/pricing`." }),
   locale: Type.Optional(
     Type.String({ description: "The Locale's tag, such as `fr`. The Default Locale without." }),
   ),
-  sizes: Type.Optional(
-    Type.Array(SIZE, { minItems: 1, description: "The sizes to capture: both by default." }),
-  ),
+  ...CAPTURE_OPTIONS,
 });
 
 /**
