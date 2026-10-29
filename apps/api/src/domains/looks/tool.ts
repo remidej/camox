@@ -38,7 +38,11 @@ const CAPTURE_OPTIONS = {
  * that block's element.
  */
 const PAGE_TARGET = Type.Object({
-  path: Type.String({ description: "The page's path in its Locale, such as `/pricing`." }),
+  path: Type.String({
+    description:
+      "The page's path in its Locale, such as `/pricing`: a curated page, a Singleton " +
+      "Layout's page, or a page of a Derived Layout, such as `/blog/my-post`.",
+  }),
   block: Type.Optional(
     Type.String({
       description:
@@ -115,7 +119,7 @@ export const lookTool = (
     name: LOOK_TOOL,
     description:
       "See the draft as visitors will, in a real browser, at each target's sizes. A target is " +
-      "a page, captured at its first screen; one block on a page, captured with the page " +
+      "a page, curated or of a Singleton or Derived Layout, captured at its first screen; one block on a page, captured with the page " +
       "around it; or a Block Definition, captured alone, with overrides to try its variants " +
       "and edge cases. Look at all you need in one call: its targets render in parallel, at " +
       `most ${LOOK_IMAGE_CAP} images per call. Content shows as the draft has it now; code ` +

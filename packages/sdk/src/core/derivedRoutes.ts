@@ -1,49 +1,20 @@
+import { matchLayoutRoute, routeSegments } from "@camox/api-contract/layout-routes";
+
+export { routeSegments };
+
 import type { Layout } from "./createLayout";
 import { asCollectionItem } from "./recordItem";
 import type { LayoutRequestContext } from "./requestContext";
 
-export function routeSegments(id: string) {
-  return id.split(".");
-}
-
 /** A layout as route matching reads it: its code, or its synced definition. */
 export type RoutedLayout = { _internal: Pick<Layout["_internal"], "id" | "kind"> };
 
+/** The singleton or derived layout whose route matches `pathname`, with its params, or null. */
 export function matchDerivedLayout<L extends RoutedLayout>(
   layouts: readonly L[],
   pathname: string,
-): { layout: L; params: Record<string, string> } | null {
-  const path = pathname.replace(/^\/|\/$/g, "").split("/");
-  const candidates = layouts
-    .filter((layout) => layout._internal.kind !== "curated")
-    .sort(
-      (a, b) =>
-        routeSegments(a._internal.id).filter((s) => s.startsWith("$")).length -
-        routeSegments(b._internal.id).filter((s) => s.startsWith("$")).length,
-    );
-  for (const layout of candidates) {
-    const segments = routeSegments(layout._internal.id);
-    if (segments.length !== path.length) continue;
-    const params: Record<string, string> = {};
-    let matches = true;
-    for (const [index, segment] of segments.entries()) {
-      let value: string;
-      try {
-        value = decodeURIComponent(path[index]!);
-      } catch {
-        matches = false;
-        break;
-      }
-      if (segment.startsWith("$") && value && !value.includes("/"))
-        params[segment.slice(1)] = value;
-      else if (segment !== value) {
-        matches = false;
-        break;
-      }
-    }
-    if (matches) return { layout, params };
-  }
-  return null;
+) {
+  return matchLayoutRoute(layouts, pathname, (layout) => layout._internal);
 }
 
 /** Builds the path of one discovered page, rejecting params the route could not match. */

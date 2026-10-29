@@ -16,6 +16,7 @@ export default defineConfig({
       "src/projects.ts",
       "src/locales.ts",
       "src/patrol.ts",
+      "src/layout-routes.ts",
     ],
     format: "esm",
     platform: "neutral",
