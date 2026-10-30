@@ -14,7 +14,8 @@ import * as React from "react";
 import { renderToString } from "react-dom/server";
 
 Object.assign(globalThis, { React });
-const { PatrolRoster, PatrollerDetails, inHeldOrder } = await import("./Patrol");
+const { Popover } = await import("@camox/ui/popover");
+const { PatrolRoster, PatrollerCard } = await import("./Patrol");
 
 const now = Date.UTC(2026, 9, 27, 12);
 const minutes = (count: number) => now - count * 60_000;
@@ -142,17 +143,20 @@ function render(
         onOpenPatrolDraft={() => {}}
       />
       {opened && (
-        <PatrollerDetails
-          patroller={opened}
-          now={now}
-          inDraft={inDraft}
-          patrolDraft={view.patrolDraft}
-          onShow={() => {}}
-          onApply={() => {}}
-          onAsk={() => {}}
-          onDismiss={() => {}}
-          onOpenPatrolDraft={() => {}}
-        />
+        <Popover open>
+          <PatrollerCard
+            patroller={opened}
+            now={now}
+            inDraft={inDraft}
+            singleLocale={options.singleLocale ?? false}
+            patrolDraft={view.patrolDraft}
+            onShow={() => {}}
+            onApply={() => {}}
+            onAsk={() => {}}
+            onDismiss={() => {}}
+            onOpenPatrolDraft={() => {}}
+          />
+        </Popover>
       )}
     </>,
   );
@@ -161,9 +165,12 @@ function render(
     element?.textContent?.replace(/\s+/g, " ").trim() ?? "";
   return {
     roles: patrollers.map((patroller) => text(patroller.querySelector("[data-patroller-role]"))),
-    subtitles: patrollers.map((patroller) =>
-      text(patroller.querySelector("[data-patroller-subtitle]")),
-    ),
+    // All each patroller shows in the roster, in words.
+    roster: patrollers.map(text),
+    // The open patroller's card: what it does, when it works, and what it's on, if working.
+    about: text(document.querySelector("[data-patroller-about]")),
+    when: text(document.querySelector("[data-patroller-when]")),
+    working: text(document.querySelector("[data-patroller-working]")),
     // A report's sentence, tag and time, apart.
     reports: (id: string) =>
       [...document.querySelectorAll(`[data-reports="${id}"] [data-report]`)].map((row) =>
@@ -212,20 +219,41 @@ void test("the Patrol lists patrollers in the order it's given, by role", () => 
   assert.deepEqual(swapped.roles, ["Translator", "SEO manager"]);
 });
 
-void test("an idle patroller says when it last worked, and one that never worked says nothing", () => {
-  const shown = render({ patrolDraft: null, patrollers: [seoManager(), translator] });
+void test("the roster shows each patroller by its role only, and its card introduces what it does and when", () => {
+  const view = { patrolDraft: null, patrollers: [seoManager(), translator] };
+  const closed = render(view);
+  // Not when it last worked: its reports say that.
+  assert.deepEqual(closed.roster, ["SEO manager", "Translator"]);
 
-  assert.deepEqual(shown.subtitles, ["2 minutes ago", ""]);
+  const opened = render(view, { open: "seoManager" });
+  assert.equal(
+    opened.about,
+    "Writes what search engines read: each page's SEO, and each file's alt text and filename.",
+  );
+  assert.equal(opened.when, "Runs as you edit");
+  assert.equal(opened.working, "");
 });
 
-void test("in a single-locale project, the Translator invites the editor to add a language, whenever it last worked", () => {
-  const worked = { ...translator, lastActivityAt: minutes(2) };
+void test("a patroller's card tags when it works where the editor is: in a draft, or on Live", () => {
+  const onLive = (patroller: PatrollerView) =>
+    render({ patrolDraft: null, patrollers: [patroller] }, { open: patroller.id, inDraft: false })
+      .when;
+
+  assert.equal(onLive(seoManager({ duty: "off" })), "Doesn't run on Live");
+  assert.equal(onLive(linkChecker({ duty: "asYouGo" })), "Runs every 6 hours");
+  assert.equal(
+    render({ patrolDraft: null, patrollers: [linkChecker()] }, { open: "linkChecker" }).when,
+    "Runs when you publish",
+  );
+});
+
+void test("in a single-locale project, the Translator's card invites the editor to add a language", () => {
   const shown = render(
-    { patrolDraft: null, patrollers: [seoManager(), worked] },
-    { singleLocale: true },
+    { patrolDraft: null, patrollers: [translator] },
+    { open: "translator", singleLocale: true },
   );
 
-  assert.deepEqual(shown.subtitles, ["2 minutes ago", "Add a language to translate into"]);
+  assert.equal(shown.when, "Runs once you add a language");
 });
 
 void test("a patroller's reports are closed until opened", () => {
@@ -323,34 +351,53 @@ void test("the reports not shown are counted by locale", () => {
 
 const hero = { entity: "block" as const, id: "block-1", name: "hero" };
 
-/** Renders one patroller, and reads its subtitle, working indicator and announced state. */
+/**
+ * Renders one patroller, and reads its working indicator and announced state, and what its card
+ * says it's on.
+ */
 function renderOne(patroller: PatrollerView) {
   const { document } = new Window();
   document.body.innerHTML = renderToString(
-    <PatrolRoster
-      view={{ patrolDraft: null, patrollers: [patroller] }}
-      now={now}
-      inDraft
-      singleLocale={false}
-      open={null}
-      onOpenChange={() => {}}
-      onShow={() => {}}
-      onApply={() => {}}
-      onAsk={() => {}}
-      onDismiss={() => {}}
-      onOpenPatrolDraft={() => {}}
-    />,
+    <>
+      <div data-roster>
+        <PatrolRoster
+          view={{ patrolDraft: null, patrollers: [patroller] }}
+          now={now}
+          inDraft
+          singleLocale={false}
+          open={null}
+          onOpenChange={() => {}}
+          onShow={() => {}}
+          onApply={() => {}}
+          onAsk={() => {}}
+          onDismiss={() => {}}
+          onOpenPatrolDraft={() => {}}
+        />
+      </div>
+      <Popover open>
+        <PatrollerCard
+          patroller={patroller}
+          now={now}
+          inDraft
+          singleLocale={false}
+          patrolDraft={null}
+          onShow={() => {}}
+          onApply={() => {}}
+          onAsk={() => {}}
+          onDismiss={() => {}}
+          onOpenPatrolDraft={() => {}}
+        />
+      </Popover>
+    </>,
   );
   const row = document.querySelector("[data-patroller]")!;
   const text = (element: { textContent: string | null } | null) =>
     element?.textContent?.replace(/\s+/g, " ").trim() ?? "";
-  const subtitle = row.querySelector("[data-patroller-subtitle]");
   const button = row.querySelector("button")!;
   const live = row.querySelector('[aria-live="polite"], [role="status"]');
   const describedBy = button.getAttribute("aria-describedby");
   return {
-    subtitle: text(subtitle),
-    subtitleHidden: subtitle?.getAttribute("aria-hidden") === "true",
+    working: text(document.querySelector("[data-patroller-working]")),
     /** The polite live region's text, null without one. */
     announced: live && text(live),
     /** What the button reads as itself, without what it's described by. */
@@ -367,16 +414,16 @@ const translating = (working: PatrollerView["working"]): PatrollerView => ({
   working,
 });
 
-void test("a working patroller's subtitle names its one subject and the locale", () => {
+void test("a working patroller's card names its one subject and the locale", () => {
   const shown = renderOne(translating({ subject: hero, locales: [{ locale: "es", count: 1 }] }));
 
-  assert.equal(shown.subtitle, "Translating hero into Spanish");
+  assert.equal(shown.working, "Translating hero into Spanish");
 });
 
-void test("a working patroller's subtitle counts a burst into a locale", () => {
+void test("a working patroller's card counts a burst into a locale", () => {
   const shown = renderOne(translating({ subject: null, locales: [{ locale: "de", count: 38 }] }));
 
-  assert.equal(shown.subtitle, "Translating 38 items into German");
+  assert.equal(shown.working, "Translating 38 items into German");
 });
 
 void test("a burst across locales is counted in each locale, the most first", () => {
@@ -390,7 +437,7 @@ void test("a burst across locales is counted in each locale, the most first", ()
     }),
   );
 
-  assert.equal(shown.subtitle, "Translating 38 items into German and 12 into Spanish");
+  assert.equal(shown.working, "Translating 38 items into German and 12 into Spanish");
 });
 
 void test("a burst across many locales names the first and counts the rest together", () => {
@@ -407,7 +454,7 @@ void test("a burst across many locales names the first and counts the rest toget
   );
 
   assert.equal(
-    shown.subtitle,
+    shown.working,
     "Translating 38 items into German, 12 into Spanish and 9 into 2 other languages",
   );
 });
@@ -426,24 +473,24 @@ void test("a burst across three locales names each one", () => {
     }),
   );
 
-  assert.equal(shown.subtitle, "Writing SEO for 3 items in German, 2 in Spanish and 1 in French");
+  assert.equal(shown.working, "Writing SEO for 3 items in German, 2 in Spanish and 1 in French");
 });
 
 void test("the SEO manager says what it's writing, or which file it's describing", () => {
   const writing = renderOne(
     seoManager({ working: { subject: pricing, locales: [{ locale: "fr", count: 1 }] } }),
   );
-  assert.equal(writing.subtitle, "Writing SEO for Pricing in French");
+  assert.equal(writing.working, "Writing SEO for Pricing in French");
 
   const describing = renderOne(
     seoManager({ working: { subject: team, locales: [{ locale: "en", count: 1 }] } }),
   );
-  assert.equal(describing.subtitle, "Describing team.png in English");
+  assert.equal(describing.working, "Describing team.png in English");
 
   const burst = renderOne(
     seoManager({ working: { subject: null, locales: [{ locale: "de", count: 3 }] } }),
   );
-  assert.equal(burst.subtitle, "Writing SEO for 3 items in German");
+  assert.equal(burst.working, "Writing SEO for 3 items in German");
 });
 
 void test("the avatar circle shows a working indicator only while working", () => {
@@ -513,7 +560,6 @@ void test("an asleep patroller still opens its popover, with its reports", () =>
 void test("assistive technology hears the working state in words as it changes, once", () => {
   const working = renderOne(translating({ subject: hero, locales: [{ locale: "es", count: 1 }] }));
   assert.equal(working.announced, "Working: translating hero into Spanish");
-  assert.ok(working.subtitleHidden);
   // Focusing the patroller reads it too, as its description rather than a second time in its name.
   assert.equal(working.description, "Working: translating hero into Spanish");
   assert.doesNotMatch(working.buttonText, /Working/);
@@ -522,43 +568,6 @@ void test("assistive technology hears the working state in words as it changes, 
   const idle = renderOne(seoManager());
   assert.equal(idle.announced, "");
   assert.equal(idle.description, "");
-  assert.ok(!idle.subtitleHidden);
-});
-
-void test("without a held order, the Patrol shows the order it's given", () => {
-  const view = { patrolDraft: null, patrollers: [translator, seoManager()] };
-
-  assert.deepEqual(
-    inHeldOrder(view, null).patrollers.map(({ id }) => id),
-    ["translator", "seoManager"],
-  );
-});
-
-void test("a held order keeps patrollers in place but shows their latest content", () => {
-  const working = seoManager({ lastActivityAt: minutes(0) });
-
-  const shown = inHeldOrder({ patrolDraft: null, patrollers: [working, translator] }, [
-    "translator",
-    "seoManager",
-  ]);
-
-  assert.deepEqual(
-    shown.patrollers.map(({ id }) => id),
-    ["translator", "seoManager"],
-  );
-  assert.equal(shown.patrollers[1], working);
-});
-
-void test("a patroller missing from the held order shows after the held ones, and a gone one is dropped", () => {
-  const shown = inHeldOrder({ patrolDraft: null, patrollers: [seoManager(), translator] }, [
-    "translator",
-    "gone" as PatrollerView["id"],
-  ]);
-
-  assert.deepEqual(
-    shown.patrollers.map(({ id }) => id),
-    ["translator", "seoManager"],
-  );
 });
 
 void test("an open patroller stays open when it moves", () => {
@@ -643,17 +652,20 @@ void test("a Live report seen from a draft leads to Live", () => {
   ]);
 });
 
-void test("a patroller that checks at publish says so while idle, and what it's on while working", () => {
-  const idle = render({ patrolDraft: null, patrollers: [linkChecker()] });
-  assert.deepEqual(idle.subtitles, ["Checks when you publish"]);
+void test("a patroller that checks at publish says what it's on while working, and nothing while idle", () => {
+  const idle = render({ patrolDraft: null, patrollers: [linkChecker()] }, { open: "linkChecker" });
+  assert.equal(idle.working, "");
 
-  const working = render({
-    patrolDraft: null,
-    patrollers: [
-      linkChecker({ working: { subject: footer, locales: [{ locale: "en", count: 1 }] } }),
-    ],
-  });
-  assert.deepEqual(working.subtitles, ["Checking links in Footer in English"]);
+  const working = render(
+    {
+      patrolDraft: null,
+      patrollers: [
+        linkChecker({ working: { subject: footer, locales: [{ locale: "en", count: 1 }] } }),
+      ],
+    },
+    { open: "linkChecker" },
+  );
+  assert.equal(working.working, "Checking links in Footer in English");
 });
 
 void test("a patroller's open findings are counted at the end of its row, and a row without any shows no count", () => {
@@ -789,13 +801,16 @@ const proofreader = (overrides: Partial<PatrollerView> = {}): PatrollerView => (
 });
 
 void test("the Proofreader says what it's proofreading, and offers to replace what it flagged", () => {
-  const working = render({
-    patrolDraft: null,
-    patrollers: [
-      proofreader({ working: { subject: welcome, locales: [{ locale: "en", count: 1 }] } }),
-    ],
-  });
-  assert.deepEqual(working.subtitles, ["Proofreading Welcome in English"]);
+  const working = render(
+    {
+      patrolDraft: null,
+      patrollers: [
+        proofreader({ working: { subject: welcome, locales: [{ locale: "en", count: 1 }] } }),
+      ],
+    },
+    { open: "proofreader" },
+  );
+  assert.equal(working.working, "Proofreading Welcome in English");
 
   const shown = render(
     {

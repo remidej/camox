@@ -23,7 +23,6 @@ import { useViewLocale } from "../../../lib/view-locale-context";
 import { useNavigate } from "../../navigation/navigation";
 import { AssetLightbox } from "../../preview/components/AssetLightbox";
 import { BOTTOM_CARD_EDGES, CARD_BODY_EDGES } from "../../preview/components/SidebarStack";
-import { timeAgo } from "../draftLabel";
 import {
   askAgentMessage,
   dismissLabel,
@@ -31,11 +30,12 @@ import {
   findingSentence,
   fixLabel,
 } from "../findingSentence";
+import { aboutSentence, whenTag } from "../patrollerBio";
 import { moreSentence, reportSentence, shortTimeAgo, whereReportLeads } from "../reportSentence";
 import { editCollectionItemPath } from "../routes";
 import { useShowInCanvas } from "../showInCanvas";
 import { studioStore } from "../studioStore";
-import { singleLocaleSentence, workingSentence } from "../workingSentence";
+import { workingSentence } from "../workingSentence";
 import { Squareling } from "./Squareling";
 
 /**
@@ -58,7 +58,12 @@ export function Patrol({ className }: { className?: string }) {
       >
         <h2 className="truncate text-sm font-medium">Patrol</h2>
       </header>
-      <div className={cn("bg-background min-h-0 flex-1 overflow-y-auto", CARD_BODY_EDGES)}>
+      <div
+        className={cn(
+          "bg-background flex min-h-0 flex-1 flex-col overflow-y-auto",
+          CARD_BODY_EDGES,
+        )}
+      >
         {project && <ProjectPatrol projectId={project.id} inDraft={draftId !== null} />}
       </div>
     </section>
@@ -72,58 +77,35 @@ function ProjectPatrol({ projectId, inDraft }: { projectId: number; inDraft: boo
   const [open, setOpen] = React.useState<PatrollerId | null>(null);
   // The relative times move on while the Patrol stays open.
   const now = useNow(30_000);
-  // While the pointer is over the Patrol, or a patroller's reports are open, its order holds, so a
-  // report doesn't move away just as it's about to be clicked. Then the latest order applies.
-  const [heldOrder, setHeldOrder] = React.useState<readonly PatrollerId[] | null>(null);
-  const pointerIn = React.useRef(false);
-  const shown = view && inHeldOrder(view, heldOrder);
-  const roster = useMovingRows(shown?.patrollers.map(({ id }) => id).join(" "));
   const [openFileId, setOpenFileId] = React.useState<string | null>(null);
   const showReport = useShowReport(inDraft, setOpenFileId);
   const navigate = useNavigate();
   const applyFix = useMutation(patrolMutations.applyFix());
   const dismissFinding = useMutation(patrolMutations.dismissFinding());
-  if (!shown) return null;
-  const hold = () => setHeldOrder((held) => held ?? shown.patrollers.map(({ id }) => id));
-  const openReports = (id: PatrollerId | null) => {
-    setOpen(id);
-    if (id) hold();
-    else if (!pointerIn.current) setHeldOrder(null);
-  };
+  if (!view) return null;
   return (
-    <div
-      ref={roster}
-      className="relative"
-      onPointerEnter={() => {
-        pointerIn.current = true;
-        hold();
-      }}
-      onPointerLeave={() => {
-        pointerIn.current = false;
-        if (!open) setHeldOrder(null);
-      }}
-    >
+    <div>
       <PatrolRoster
-        view={shown}
+        view={view}
         now={now}
         inDraft={inDraft}
         singleLocale={locales?.length === 1}
         open={open}
-        onOpenChange={openReports}
+        onOpenChange={setOpen}
         onShow={(shown) => {
           // Showing it moves the editor on, which leaves the reports.
-          openReports(null);
+          setOpen(null);
           showReport(shown);
         }}
         onApply={(finding) => applyFix.mutate({ projectId, findingId: finding.id })}
         onAsk={(patroller, finding) => {
           // The chat takes over from the popover.
-          openReports(null);
+          setOpen(null);
           studioStore.trigger.askAgent({ text: askAgentMessage(finding, patroller.role) });
         }}
         onDismiss={(finding) => dismissFinding.mutate({ projectId, findingId: finding.id })}
         onOpenPatrolDraft={(draft) => {
-          openReports(null);
+          setOpen(null);
           void navigate({ to: window.location.href, draft: draft.id });
         }}
       />
@@ -180,55 +162,6 @@ function useShowReport(inDraft: boolean, openFile: (fileId: string) => void) {
   };
 }
 
-/**
- * The view with its patrollers in the order held, if any, and its latest content: patrollers the
- * order doesn't hold follow, in the view's order, and those no longer in the view are dropped.
- */
-export function inHeldOrder(view: PatrolView, order: readonly PatrollerId[] | null): PatrolView {
-  if (!order) return view;
-  const place = (id: PatrollerId) => {
-    const index = order.indexOf(id);
-    return index === -1 ? order.length : index;
-  };
-  // A stable sort keeps the view's order among the patrollers the order doesn't hold.
-  return { ...view, patrollers: [...view.patrollers].sort((a, b) => place(a.id) - place(b.id)) };
-}
-
-/** How long a patroller takes to move to its new place, in ms. */
-const MOVE_DURATION = 250;
-/** A strong ease-out: the move starts at once and settles gently. */
-const MOVE_EASING = "cubic-bezier(0.23, 1, 0.32, 1)";
-
-/**
- * Moves each patroller from where it showed to its new place when the order (a key of their ids)
- * changes, rather than jumping there. Without motion for editors who reduce it.
- */
-function useMovingRows(order: string | undefined) {
-  const node = React.useRef<HTMLDivElement>(null);
-  /** Where each patroller showed, as of the last render, and in which order. */
-  const last = React.useRef<{ order: string | undefined; tops: Map<string, number> }>(null);
-  React.useLayoutEffect(() => {
-    const roster = node.current;
-    if (!roster) return;
-    const rows = [...roster.querySelectorAll<HTMLElement>("[data-patroller]")];
-    const tops = new Map(rows.map((row) => [row.dataset.patroller!, row.offsetTop]));
-    const previous = last.current;
-    last.current = { order, tops };
-    if (!previous || previous.order === order) return;
-    if (matchMedia("(prefers-reduced-motion: reduce)").matches) return;
-    for (const row of rows) {
-      const from = previous.tops.get(row.dataset.patroller!);
-      const to = tops.get(row.dataset.patroller!)!;
-      if (from === undefined || from === to) continue;
-      row.animate([{ transform: `translateY(${from - to}px)` }, { transform: "none" }], {
-        duration: MOVE_DURATION,
-        easing: MOVE_EASING,
-      });
-    }
-  });
-  return node;
-}
-
 /** The time now, updated every `intervalMs`. */
 function useNow(intervalMs: number) {
   const [now, setNow] = React.useState(() => Date.now());
@@ -240,9 +173,10 @@ function useNow(intervalMs: number) {
 }
 
 /**
- * A `PatrolView`, in the order it gives: each patroller's avatar, role, and when it last worked,
- * opening its reports in a popover to the left. Live's reports carry a tag when a draft is viewed. In a
- * project with a single locale, the Translator invites the editor to add a language instead.
+ * A `PatrolView`, in the order it gives, as avatars in rows of three, each over its role like a
+ * story. Each opens its reports in a popover to the left, under its role and when it last worked,
+ * or what it's on. Live's reports carry a tag when a draft is viewed. In a project with a single
+ * locale, the Translator invites the editor to add a language instead.
  */
 export function PatrolRoster({
   view,
@@ -276,44 +210,46 @@ export function PatrolRoster({
   onOpenPatrolDraft: (draft: PatrolDraft) => void;
 }) {
   return (
-    <ul className="flex flex-col gap-px p-1">
-      {view.patrollers.map((patroller) => (
-        <PatrollerRow
-          key={patroller.id}
-          patroller={patroller}
-          now={now}
-          inDraft={inDraft}
-          idle={singleLocale ? singleLocaleSentence(patroller.id) : undefined}
-          open={open === patroller.id}
-          onOpenChange={(next) => onOpenChange(next ? patroller.id : null)}
-          onShow={onShow}
-          onApply={onApply}
-          onAsk={onAsk}
-          onDismiss={onDismiss}
-          patrolDraft={view.patrolDraft}
-          onOpenPatrolDraft={onOpenPatrolDraft}
-        />
-      ))}
-    </ul>
+    <div className="px-1 py-3">
+      <ul className="mx-auto grid w-fit grid-cols-[repeat(3,5rem)] gap-y-3.5">
+        {view.patrollers.map((patroller) => (
+          <PatrollerRow
+            key={patroller.id}
+            patroller={patroller}
+            now={now}
+            inDraft={inDraft}
+            singleLocale={singleLocale}
+            open={open === patroller.id}
+            onOpenChange={(next) => onOpenChange(next ? patroller.id : null)}
+            onShow={onShow}
+            onApply={onApply}
+            onAsk={onAsk}
+            onDismiss={onDismiss}
+            patrolDraft={view.patrolDraft}
+            onOpenPatrolDraft={onOpenPatrolDraft}
+          />
+        ))}
+      </ul>
+    </div>
   );
 }
 
 /**
- * A thin, low-contrast arc travelling around a working patroller's avatar circle, or the whole
- * circle pulsing slowly under reduced motion. The motion lives in `studio.css`.
+ * A thin, low-contrast arc travelling around a working patroller's avatar, where its story ring
+ * goes, or the whole ring pulsing slowly under reduced motion. The motion lives in `studio.css`.
  */
 function WorkingArc() {
   return (
     <svg
       data-working-indicator
       aria-hidden
-      viewBox="0 0 32 32"
-      className="patrol-working text-foreground/30 pointer-events-none absolute inset-0 size-full"
+      viewBox="0 0 36 36"
+      className="patrol-working text-foreground/40 pointer-events-none absolute -inset-[3px] size-[calc(100%+6px)]"
     >
       <circle
-        cx="16"
-        cy="16"
-        r="15.25"
+        cx="18"
+        cy="18"
+        r="17.25"
         pathLength="100"
         fill="none"
         stroke="currentColor"
@@ -329,7 +265,7 @@ function PatrollerRow({
   patroller,
   now,
   inDraft,
-  idle,
+  singleLocale,
   open,
   onOpenChange,
   onShow,
@@ -342,8 +278,7 @@ function PatrollerRow({
   patroller: PatrollerView;
   now: number;
   inDraft: boolean;
-  /** What the patroller says while idle instead of when it last worked. */
-  idle: string | undefined;
+  singleLocale: boolean;
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onShow: (shown: Shown) => void;
@@ -355,59 +290,59 @@ function PatrollerRow({
 }) {
   const statusId = React.useId();
   const working = patroller.working && workingSentence(patroller.id, patroller.working);
-  // One that checks at publish says so: its check is coming.
-  const subtitle =
-    working ??
-    idle ??
-    (patroller.duty === "atPublish" ? "Checks when you publish" : undefined) ??
-    (patroller.lastActivityAt === null ? "" : timeAgo(patroller.lastActivityAt, now));
   const count = patroller.findings.length;
   return (
-    <li data-patroller={patroller.id} data-open={open || undefined} className="flex flex-col">
+    <li data-patroller={patroller.id} data-open={open || undefined} className="flex justify-center">
       <Popover open={open} onOpenChange={onOpenChange}>
         <PopoverTrigger
           aria-describedby={working ? statusId : undefined}
-          // A card of its own on hover, and while its reports are open.
-          className="hover:bg-muted/60 data-popup-open:bg-muted/60 focus-visible:ring-ring/50 flex cursor-pointer items-center gap-2.5 rounded-lg px-2 py-1.5 text-left outline-none focus-visible:ring-[3px]"
+          className="group/patroller flex max-w-full min-w-0 cursor-pointer flex-col items-center gap-1 pt-[3px] outline-none"
         >
-          <span className="bg-muted relative flex size-8 shrink-0 items-center justify-center rounded-full">
-            <Squareling
-              variant={patroller.id}
-              status={working ? "working" : patroller.duty === "off" ? "asleep" : "idle"}
-              className="size-5"
-            />
+          {/* Grows a little under the pointer and gives under a press, like an app on a watch. */}
+          <span className="relative flex size-10 shrink-0 transition-[scale] duration-200 ease-out group-hover/patroller:scale-105 group-active/patroller:scale-95 motion-reduce:transition-none">
+            {/* Its story ring, clear of the avatar: drawn while it has findings to look at, a
+                travelling arc while it works, and faint otherwise. */}
+            {!working && (
+              <span
+                aria-hidden
+                className={cn(
+                  "group-focus-visible/patroller:ring-ring/50 pointer-events-none absolute -inset-[3px] rounded-full border group-focus-visible/patroller:ring-[3px]",
+                  count > 0 ? "border-foreground border-[1.5px]" : "border-border",
+                )}
+              />
+            )}
             {working && <WorkingArc />}
+            <span className="bg-muted group-hover/patroller:bg-muted-foreground/15 group-data-popup-open/patroller:bg-muted-foreground/15 flex size-full items-center justify-center rounded-full transition-colors">
+              <Squareling
+                variant={patroller.id}
+                status={working ? "working" : patroller.duty === "off" ? "asleep" : "idle"}
+                className="size-6"
+              />
+            </span>
+            {/* Its open findings, counted like an unread badge, cut out of the ring. */}
+            {count > 0 && (
+              <span
+                data-findings-count
+                aria-label={`${count} open ${count === 1 ? "finding" : "findings"}`}
+                className="bg-foreground text-background ring-background absolute -top-1.5 -right-1.5 flex h-4 min-w-4 items-center justify-center rounded-full px-1 text-[10px] font-medium tabular-nums ring-2"
+              >
+                {count}
+              </span>
+            )}
           </span>
-          <span className="flex min-w-0 flex-col">
-            <span data-patroller-role className="truncate text-sm font-medium">
-              {patroller.role}
-            </span>
-            <span
-              data-patroller-subtitle
-              aria-hidden={working ? true : undefined}
-              className="text-muted-foreground truncate text-xs"
-            >
-              {subtitle}
-            </span>
+          <span
+            data-patroller-role
+            className="max-w-full truncate text-[11px] leading-4 font-medium"
+          >
+            {patroller.role}
           </span>
-          {/* Its open findings, counted like unread messages from a colleague. */}
-          {count > 0 && (
-            <span
-              data-findings-count
-              aria-label={`${count} open ${count === 1 ? "finding" : "findings"}`}
-              className="bg-foreground text-background ml-auto flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full px-1.5 text-xs font-medium tabular-nums"
-            >
-              {count}
-            </span>
-          )}
         </PopoverTrigger>
-        {/* To the left, over the Canvas, clear of the sidebar's card around the roster. */}
-        <PopoverContent side="left" align="start" sideOffset={12} className="w-80 gap-2 p-3">
-          <PopoverTitle className="text-sm">{patroller.role}</PopoverTitle>
-          <PatrollerDetails
+        <PopoverContent sideOffset={8} className="w-96 gap-3 p-4">
+          <PatrollerCard
             patroller={patroller}
             now={now}
             inDraft={inDraft}
+            singleLocale={singleLocale}
             onShow={onShow}
             onApply={onApply}
             onAsk={(finding) => onAsk(patroller, finding)}
@@ -423,6 +358,61 @@ function PatrollerRow({
         {working && `Working: ${working.charAt(0).toLowerCase()}${working.slice(1)}`}
       </span>
     </li>
+  );
+}
+
+/**
+ * A patroller's popover, a profile card: its avatar and role, a tag of when it works where the
+ * editor is over what it does, what it's on while it works, then what it did.
+ */
+export function PatrollerCard({
+  singleLocale,
+  ...props
+}: React.ComponentProps<typeof PatrollerDetails> & { singleLocale: boolean }) {
+  const { patroller, inDraft } = props;
+  const working = patroller.working && workingSentence(patroller.id, patroller.working);
+  const when = whenTag(patroller.id, patroller.duty, inDraft, singleLocale);
+  return (
+    <>
+      <header className="flex items-center gap-3">
+        <span className="bg-muted relative flex size-12 shrink-0 items-center justify-center rounded-full">
+          <Squareling
+            variant={patroller.id}
+            status={working ? "working" : patroller.duty === "off" ? "asleep" : "idle"}
+            className="size-7"
+          />
+          {working && <WorkingArc />}
+        </span>
+        <PopoverTitle className="min-w-0 text-base">{patroller.role}</PopoverTitle>
+      </header>
+      <div className="flex flex-col items-start gap-1.5">
+        <span
+          data-patroller-when
+          className="bg-muted text-muted-foreground inline-flex items-center gap-1.5 rounded-full py-0.5 pr-2.5 pl-2 text-xs font-medium"
+        >
+          {/* Green while it runs where the editor is, grey where it doesn't. */}
+          <span
+            aria-hidden
+            className={cn(
+              "size-1.5 rounded-full",
+              when.runs ? "bg-emerald-500" : "bg-muted-foreground/40",
+            )}
+          />
+          {when.label}
+        </span>
+        <p data-patroller-about className="text-sm">
+          {aboutSentence(patroller.id)}
+        </p>
+      </div>
+      {working && (
+        <p data-patroller-working className="bg-muted rounded-md px-2.5 py-1.5 text-xs">
+          {working}
+        </p>
+      )}
+      <div className="flex flex-col gap-2 border-t pt-3">
+        <PatrollerDetails {...props} />
+      </div>
+    </>
   );
 }
 

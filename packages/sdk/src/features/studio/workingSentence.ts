@@ -7,23 +7,17 @@ import type {
 
 import { localeName } from "./localeOptions";
 
-// What a patroller says it's on, as its subtitle says it (ADR 0024).
+// What a patroller says it's on, as its profile card says it (ADR 0024).
 
 type Phrase = {
   verb: string;
   /** The verb for a subject of an entity it does other work on. */
   verbFor?: Partial<Record<ReportEntity, string>>;
   locale: "into" | "in";
-  /** What it says while idle in a project with a single locale, instead of when it last worked. */
-  singleLocale?: string;
 };
 
 const PHRASES: Record<PatrollerId, Phrase> = {
-  translator: {
-    verb: "Translating",
-    locale: "into",
-    singleLocale: "Add a language to translate into",
-  },
+  translator: { verb: "Translating", locale: "into" },
   // A file's SEO is its description: its alt text and filename.
   seoManager: { verb: "Writing SEO for", verbFor: { file: "Describing" }, locale: "in" },
   linkChecker: { verb: "Checking links in", locale: "in" },
@@ -66,9 +60,4 @@ export function workingSentence(id: PatrollerId, working: PatrollerWorking): str
   const first = locales[0]?.count ?? 0;
   const what = subject?.name ?? `${first} ${first === 1 ? "item" : "items"}`;
   return [verb, what, inLocales(locales, phrase.locale)].filter(Boolean).join(" ");
-}
-
-/** What a patroller says while idle in a project with a single locale, if anything. */
-export function singleLocaleSentence(id: PatrollerId): string | undefined {
-  return PHRASES[id].singleLocale;
 }

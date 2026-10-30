@@ -5,8 +5,8 @@ import { ChatWidget } from "./ChatWidget";
 import { Patrol } from "./Patrol";
 
 /**
- * The sidebar on the Canvas's right side, where editors work with Camox's agent: the Patrol
- * over the Chat widget, which gets the larger share of the height. Laid over the Canvas,
+ * The sidebar on the Canvas's right side, where editors work with Camox's agent: the Patrol, as
+ * tall as its patrollers, over the Chat widget, which gets the rest of the height. Laid over the Canvas,
  * as the Content Sidebar is over its left: only the cards have a background, and the Canvas shows
  * around them. Elsewhere in the studio it is only hidden, so the chat keeps its thread and the
  * Preview and Studio pages follow the editor's runs too.
@@ -23,7 +23,7 @@ export function AgentSidebar({ hidden = false }: { hidden?: boolean }) {
       )}
       style={{ width: CMS_SIDEBAR_WIDTH }}
     >
-      <Patrol className="min-h-0 flex-[3_1_0]" />
+      <Patrol className="min-h-0 flex-[0_1_auto]" />
       <ChatWidget className="min-h-0 flex-[7_1_0]" />
     </aside>
   );

@@ -61,6 +61,14 @@ export const getPatrolInput = z.object({
  */
 const BEFORE_LISTED_PATROLLERS: readonly string[] = ["translator", "seoManager"];
 
+/** The order the Patrol lists patrollers in. */
+const PATROL_ORDER: readonly PatrollerId[] = [
+  "seoManager",
+  "translator",
+  "proofreader",
+  "linkChecker",
+];
+
 type ReportRow = typeof reports.$inferSelect;
 
 /** A subject a scope holds: its name, as the Canvas names it, and where the studio shows it. */
@@ -539,11 +547,11 @@ export const getPatrol = Effect.fn("patrol.get")(function* (
         })),
     };
   });
-  // The latest activity first, those that never worked last, in the registry's order.
-  const order = (patroller: PatrollerView) => patroller.lastActivityAt ?? 0;
+  // Always in the same order, so that each patroller keeps its place whatever it did.
+  const order = (patroller: PatrollerView) => PATROL_ORDER.indexOf(patroller.id);
   const patrolDraft = yield* patrolDraftOf(ctx.db, projectId);
   return {
-    patrollers: patrollers.sort((a, b) => order(b) - order(a)),
+    patrollers: patrollers.sort((a, b) => order(a) - order(b)),
     patrolDraft: patrolDraft ? { id: patrolDraft.id, name: patrolDraft.name } : null,
   } satisfies PatrolView;
 }, Effect.scoped);
