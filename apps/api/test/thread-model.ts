@@ -30,6 +30,7 @@ export const testThreadModel = (): ThreadModel => {
     models,
     model: { provider, id },
     thinkingLevel: "off",
+    codeAgent: { model: { provider, id }, thinkingLevel: "off" },
     pageReader: { provider, id },
   };
 };

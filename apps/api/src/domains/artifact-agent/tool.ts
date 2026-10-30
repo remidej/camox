@@ -1,4 +1,4 @@
-import { ARTIFACT_TOOL, type ArtifactDetails } from "@camox/api-contract/threads";
+import { ARTIFACT_TOOL, type HandOffDetails } from "@camox/api-contract/threads";
 import { Type } from "@earendil-works/pi-ai";
 import { defineTool, type ToolRegistration } from "@earendil-works/pi-durable";
 
@@ -27,7 +27,7 @@ export const artifactTool = (
   run: (
     invocation: ToolInvocation,
     call: ArtifactCall,
-    onActivity: (activity: NonNullable<ArtifactDetails["activity"]>) => Promise<void>,
+    onActivity: (activity: NonNullable<HandOffDetails["activity"]>) => Promise<void>,
   ) => Promise<ArtifactOutcome>,
 ): ToolRegistration =>
   defineTool({
@@ -65,9 +65,9 @@ export const artifactTool = (
     replay: "safe",
     async execute(args, api, context) {
       const outcome = await run({ api, context }, args, (activity) =>
-        api.details({ activity } satisfies ArtifactDetails, context),
+        api.details({ activity } satisfies HandOffDetails, context),
       );
-      const details: ArtifactDetails = { answer: outcome.answer, final: outcome.final };
+      const details: HandOffDetails = { answer: outcome.answer, final: outcome.final };
       return {
         output: [{ type: "text" as const, text: outcome.answer }],
         details,

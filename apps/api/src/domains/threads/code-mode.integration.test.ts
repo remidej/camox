@@ -114,7 +114,7 @@ describe("the agent reading the website through code mode", () => {
     }
   });
 
-  it("offers the model in a draft code mode, the web and code tools, look and artifact, its scripts reaching the content tools", async () => {
+  it("offers the model in a draft code mode, the web and code tools, look, artifact and code, its scripts reaching the content tools", async () => {
     const website = await websiteFixture({ pricing: "Plans start at $9." });
     answerWithScript(`text(ALL_TOOLS.map((tool) => tool.name).join(", "));`);
     let offered: string[] = [];
@@ -128,6 +128,7 @@ describe("the agent reading the website through code mode", () => {
     expect(offered.toSorted()).toEqual([
       "artifact",
       "build",
+      "code",
       "codemode",
       "conflicts",
       "edit",

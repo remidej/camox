@@ -142,10 +142,14 @@ export class TurnEndBuilds {
     const failedInARow = (await thread.storage.get<number>(failures)) ?? 0;
     const baseKey = `${TURN_BASE_PREFIX}${turn}`;
     const wroteKey = `${TURN_WROTE_CODE_PREFIX}${turn}`;
+    // Live's code merges once the thread's turn ends, never between a Code Agent's requests.
+    const merge = async () => {
+      if (api.conversationId === ROOT_CONVERSATION_ID) await thread.mergeAfterTheTurn(draftId);
+    };
     // The agent was told to explain the errors it couldn't fix, and did: its turn ends.
     if (failedInARow >= END_OF_TURN_BUILD_FAILURES) {
       await thread.storage.delete([failures, baseKey, wroteKey]);
-      await thread.mergeAfterTheTurn(draftId);
+      await merge();
       return undefined;
     }
     const base = await thread.storage.get<string>(baseKey);
@@ -189,7 +193,7 @@ export class TurnEndBuilds {
       return { continue: fixLint(built.result) };
     }
     await thread.storage.delete([failures, baseKey, wroteKey]);
-    await thread.mergeAfterTheTurn(draftId);
+    await merge();
     return undefined;
   }
 }
