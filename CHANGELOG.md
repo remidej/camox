@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.65.0](https://github.com/remidej/camox/compare/camox-v0.64.0...camox-v0.65.0) (2026-10-30)
+
+
+### Changes
+
+* **api:** lint the turn's changed files beside its build, and have the agent fix what lint finds ([#756](https://github.com/remidej/camox/issues/756)) ([a866791](https://github.com/remidej/camox/commit/a866791ac331438dc37ee03ce21506f0d1688682))
+* **api:** publishing always waits for translations ([#755](https://github.com/remidej/camox/issues/755)) ([3a062e4](https://github.com/remidej/camox/commit/3a062e4067460c6ef15db0a191845800d604fb06)), closes [#743](https://github.com/remidej/camox/issues/743)
+* decide that patrollers raise findings that hold publishing, and drop Publish Anyway ([c7b27c2](https://github.com/remidej/camox/commit/c7b27c21ce0a668333b3177086767af779adc38c))
+* link ADRs 0033 and 0034 to their specs ([5e6f689](https://github.com/remidej/camox/commit/5e6f689df3407ffbd2132bd7170255afb1e196e1))
+* the Proofreader and the Link checker: findings that hold publishing ([#757](https://github.com/remidej/camox/issues/757)) ([a197a44](https://github.com/remidej/camox/commit/a197a44ce468379e4a62b8c98c171b048353096c))
+
 ## [0.64.0](https://github.com/remidej/camox/compare/camox-v0.63.0...camox-v0.64.0) (2026-10-29)
 
 
