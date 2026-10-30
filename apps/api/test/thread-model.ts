@@ -18,12 +18,20 @@ import type { ThreadModel } from "../src/lib/thread-model";
 
 const faux = fauxProvider();
 
-/** The model every thread runs on, in tests. */
+/**
+ * The model every thread runs on, in tests, which also reads the pages `web_fetch` fetches: a
+ * test scripts the reader's answer in turn, between the agent's call and its next answer.
+ */
 export const testThreadModel = (): ThreadModel => {
   const models = createModels();
   models.setProvider(faux.provider);
   const { provider, id } = faux.getModel();
-  return { models, model: { provider, id }, thinkingLevel: "off" };
+  return {
+    models,
+    model: { provider, id },
+    thinkingLevel: "off",
+    pageReader: { provider, id },
+  };
 };
 
 /**
