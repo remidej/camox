@@ -152,20 +152,17 @@ async function fixture() {
 }
 
 describe("the Patrol", () => {
-  it("lists every patroller, with no time and no reports before any worked", async () => {
+  it("lists every patroller in a fixed order, with no time and no reports before any worked", async () => {
     const { patrol } = await fixture();
 
     const patrollers = await patrol();
 
-    expect(patrollers.map(({ id, role }) => ({ id, role }))).toEqual(
-      expect.arrayContaining([
-        { id: "translator", role: "Translator" },
-        { id: "seoManager", role: "SEO manager" },
-        { id: "linkChecker", role: "Link checker" },
-        { id: "proofreader", role: "Proofreader" },
-      ]),
-    );
-    expect(patrollers).toHaveLength(4);
+    expect(patrollers.map(({ id, role }) => ({ id, role }))).toEqual([
+      { id: "seoManager", role: "SEO manager" },
+      { id: "translator", role: "Translator" },
+      { id: "proofreader", role: "Proofreader" },
+      { id: "linkChecker", role: "Link checker" },
+    ]);
     for (const patroller of patrollers) {
       expect(patroller.lastActivityAt).toBeNull();
       expect(patroller.reports).toEqual([]);
@@ -196,7 +193,7 @@ describe("the Patrol", () => {
 });
 
 describe("the SEO manager", () => {
-  it("reports the SEO it wrote for a page, and moves ahead of patrollers that didn't work", async () => {
+  it("reports the SEO it wrote for a page", async () => {
     const { page, writeSeo, patrol, sentences } = await fixture();
     const before = Date.now();
 
@@ -498,7 +495,7 @@ describe("a patroller at work", () => {
   };
   const patrolKey = (f: Fixture) => [...queryKeys.patrol.get, f.projectId];
 
-  it("shows the SEO manager working on a page from when an edit requests its SEO, and moves it first", async () => {
+  it("shows the SEO manager working on a page from when an edit requests its SEO", async () => {
     const f = await fixture();
     const before = Date.now();
 
@@ -607,7 +604,7 @@ describe("a patroller at work", () => {
     });
   });
 
-  it("moves a patroller that starts working ahead of one that reported since its last work", async () => {
+  it("counts a patroller that starts working as active since, past one that reported since its last work", async () => {
     const f = await fixture();
     await withGerman(f);
     const block = await call(
@@ -627,8 +624,8 @@ describe("a patroller at work", () => {
     expect((await f.patrol()).map(({ id, working }) => ({ id, working }))).toEqual([
       { id: "seoManager", working: null },
       { id: "translator", working: null },
-      { id: "linkChecker", working: null },
       { id: "proofreader", working: null },
+      { id: "linkChecker", working: null },
     ]);
     await new Promise((resolve) => setTimeout(resolve, 5));
 
@@ -638,10 +635,11 @@ describe("a patroller at work", () => {
       f.member(f.inDraft),
     );
 
-    const [first, second] = await f.patrol();
-    expect(first!.id).toBe("translator");
-    expect(first!.working!.locales).toEqual([{ locale: "de", count: 1 }]);
-    expect(first!.lastActivityAt).toBeGreaterThan(second!.lastActivityAt!);
+    // The order stays fixed.
+    const [seoManager, translator] = await f.patrol();
+    expect(translator!.id).toBe("translator");
+    expect(translator!.working!.locales).toEqual([{ locale: "de", count: 1 }]);
+    expect(translator!.lastActivityAt).toBeGreaterThan(seoManager!.lastActivityAt!);
   });
 
   it("shows the Translator working on Live while the catch-up draft translates", async () => {
