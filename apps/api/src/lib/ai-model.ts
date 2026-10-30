@@ -132,8 +132,11 @@ export type DraftOverviewRequest = {
   | { places: readonly OverviewPlace[] }
 );
 
-/** A Draft Overview: a one-sentence headline and bullets covering every change. */
-export type DraftOverview = { headline: string; bullets: string[] };
+/**
+ * A Draft Overview: a short name to keep the draft under, a one-sentence headline and bullets
+ * covering every change.
+ */
+export type DraftOverview = { name: string; headline: string; bullets: string[] };
 
 /** One text people wrote, to proofread, named by a key its fixes keep. */
 export type ProofreadText = { key: string; text: string };

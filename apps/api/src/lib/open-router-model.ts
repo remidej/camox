@@ -147,7 +147,11 @@ export const openRouterModel = (apiKey: string, ledger: UsageLedger = noLedger) 
             adapter: createOpenRouterText(MODEL, apiKey),
             abortController,
             ...metering,
-            outputSchema: z.object({ headline: z.string(), bullets: z.array(z.string()) }),
+            outputSchema: z.object({
+              name: z.string(),
+              headline: z.string(),
+              bullets: z.array(z.string()),
+            }),
             messages: [{ role: "user", content: draftOverviewPrompt(request) }],
           }),
         ),
@@ -299,6 +303,7 @@ function draftOverviewPrompt(request: DraftOverviewRequest) {
     </instruction>
 
     <constraints>
+      - "name": a name for the draft as a list of drafts shows it, 2 to 4 words and at most 30 characters, without ending punctuation, such as "New hero subtitle" or "Cheaper Pro plan"
       - "headline": one sentence about what the draft does as a whole, not a list of its changes
       - "bullets": one bullet per page or category of content, together covering every change
       - Group many similar changes into one bullet with a count ("12 blog posts get new SEO") rather than dropping any

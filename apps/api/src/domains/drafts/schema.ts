@@ -34,6 +34,8 @@ export const drafts = sqliteTable(
     // draft rather than its content, so it's never a change, a conflict or published, and goes
     // with the draft.
     overviewHeadline: text("overview_headline"),
+    // A short name AI suggests for the draft, offered to an editor keeping an unnamed one.
+    overviewName: text("overview_name"),
     overviewBullets: text("overview_bullets", { mode: "json" }).$type<string[]>(),
     overviewRequestedAt: int("overview_requested_at"),
     // When the last request's job is due to run: after the debounce, or right away.

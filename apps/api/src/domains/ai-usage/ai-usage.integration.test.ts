@@ -124,7 +124,11 @@ describe("an AI call's attribution", () => {
     const { db, startDraft, attributed, camox } = await fixture();
     const draft = await startDraft();
 
-    answerNext("draftOverview", { headline: "Retitles the hero", bullets: ["Hero retitled"] });
+    answerNext("draftOverview", {
+      name: "Hero title",
+      headline: "Retitles the hero",
+      bullets: ["Hero retitled"],
+    });
     await runService(runOverviewJob(db, { kind: "overview", draftId: draft }));
 
     expect(attributed("draftOverview")).toEqual([{ ...camox, draftId: draft, patroller: null }]);

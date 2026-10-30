@@ -6,6 +6,8 @@ interface StudioContext {
   /** The current draft's review, opened by the pending changes button or the command palette. */
   reviewDraftSheet: { open: boolean; startRenaming: boolean };
   isDeleteDraftDialogOpen: boolean;
+  /** The Unnamed Draft Bar's name field, opened by "Keep as draft" or the command palette. */
+  isKeepDraftOpen: boolean;
   /** The locale picker's dialog open: adding a locale, or removing the one viewed. */
   localeDialog: "add" | "remove" | null;
   /** Where the Website Section was last, so going back to it lands there. */
@@ -36,6 +38,7 @@ export const studioStore = createStore({
     commandPalettePages: [],
     reviewDraftSheet: { open: false, startRenaming: false },
     isDeleteDraftDialogOpen: false,
+    isKeepDraftOpen: false,
     localeDialog: null,
     websiteLocation: null,
     agentAsk: null,
@@ -88,6 +91,12 @@ export const studioStore = createStore({
     },
     closeDeleteDraftDialog: (context) => {
       return { ...context, isDeleteDraftDialogOpen: false };
+    },
+    openKeepDraft: (context) => {
+      return { ...context, isKeepDraftOpen: true };
+    },
+    closeKeepDraft: (context) => {
+      return { ...context, isKeepDraftOpen: false };
     },
     openLocaleDialog: (context, event: { dialog: "add" | "remove" }) => {
       return { ...context, localeDialog: event.dialog };

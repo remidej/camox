@@ -32,6 +32,7 @@ Object.assign(globalThis, {
 const { createRoot } = await import("react-dom/client");
 const { toast } = await import("@camox/ui/toaster");
 const { DraftPicker, PendingChanges } = await import("./DraftsControl");
+const { UnnamedDraftBar, SETTLE_MS } = await import("./UnnamedDraftBar");
 const { initApiClient } = await import("@/lib/api-client");
 const { AuthContext } = await import("@/lib/auth");
 const { NavigationProvider } = await import("@/features/navigation/navigation");
@@ -108,21 +109,7 @@ function mockApi(
       const id = request.headers.get("x-camox-draft");
       return json(drafts.find((draft) => draft.id === id));
     }
-    if (path === "drafts/previewPublish") {
-      return json({
-        blockers: [],
-        conflicts: [],
-        lost: [],
-        warnings: [],
-        changes: [],
-        translating: [],
-        findings: [],
-        checking: [],
-        defaultLocale: "en",
-        token: "t",
-        overview: { status: "none" },
-      });
-    }
+    if (path === "drafts/previewPublish") return previewWith({ status: "none" });
     if (path === "locales/list") return json([{ tag: "en", isDefault: true }]);
     if (path === "drafts/delete") {
       return json({
@@ -132,6 +119,23 @@ function mockApi(
     return json({});
   });
   return calls;
+}
+
+/** A publish preview of a draft with nothing to hold it, and this Draft Overview. */
+function previewWith(overview: unknown) {
+  return json({
+    blockers: [],
+    conflicts: [],
+    lost: [],
+    warnings: [],
+    changes: [],
+    translating: [],
+    findings: [],
+    checking: [],
+    defaultLocale: "en",
+    token: "t",
+    overview,
+  });
 }
 
 async function settle() {
@@ -248,6 +252,7 @@ async function render(t: test.TestContext, at: string | null) {
             <NavigationProvider navigate={(options) => void navigations.push(options)}>
               <DraftPicker />
               <PendingChanges />
+              <UnnamedDraftBar stacked={false} />
               <Palette />
             </NavigationProvider>
           </AuthContext.Provider>
@@ -321,7 +326,6 @@ void test("in an unnamed draft, the picker reads its creator and date", async (t
   await render(t, adas);
 
   assert.equal(trigger().textContent, "Ada, Oct 13");
-  assert.equal(pendingButton()?.getAttribute("aria-label"), "Review 1 change");
 });
 
 void test("a draft without changes still offers its review, counting none", async (t) => {
@@ -516,4 +520,163 @@ void test("searching the palette for a creator's name finds their draft", async 
   await search("Rémi");
 
   assert.deepEqual(draftsCommands(), ['Switch to "Spring campaign"']);
+});
+
+// --- The Unnamed Draft Bar ---
+
+const bar = () => window.document.querySelector('[aria-label="Unnamed draft"]');
+const barButton = (label: string) =>
+  [...(bar()?.querySelectorAll("button") ?? [])].find(
+    (button) => button.textContent === label,
+  ) as unknown as HTMLButtonElement | undefined;
+
+async function typeInto(input: HTMLInputElement | undefined, text: string) {
+  assert.ok(input, "expected an input to type into");
+  await React.act(async () => {
+    const setValue = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value")!;
+    setValue.set!.call(input, text);
+    input.dispatchEvent(new window.Event("input", { bubbles: true }) as unknown as Event);
+    await new Promise((resolve) => setTimeout(resolve, 40));
+  });
+}
+
+async function submit(input: HTMLInputElement | undefined) {
+  assert.ok(input?.form, "expected the input's form");
+  await React.act(async () => {
+    input.form!.requestSubmit();
+    await new Promise((resolve) => setTimeout(resolve, 40));
+  });
+}
+
+void test("in an unnamed draft, the bar asks to discard, keep or publish instead of the review button", async (t) => {
+  mockApi(t);
+  await render(t, adas);
+
+  assert.match(bar()?.textContent ?? "", /1 pending change/);
+  assert.ok(barButton("Discard"));
+  assert.ok(barButton("Keep as draft"));
+  assert.ok(barButton("Publish…"));
+  assert.ok(!pendingButton(), "expected no review button");
+});
+
+void test("in a named draft, there is no bar", async (t) => {
+  mockApi(t);
+  await render(t, spring);
+  assert.ok(!bar(), "expected no bar");
+});
+
+void test("the bar waits for the draft's edits to settle before showing", async (t) => {
+  const changedAt = Date.now();
+  mockApi(t, (path) =>
+    path === "drafts/get" ? json({ ...drafts[1], lastChangedAt: changedAt }) : undefined,
+  );
+  await render(t, adas);
+  assert.ok(!bar(), "expected no bar");
+
+  await React.act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, changedAt + SETTLE_MS - Date.now() + 40));
+  });
+  assert.ok(bar());
+});
+
+void test("Publish… opens the draft's review", async (t) => {
+  mockApi(t);
+  await render(t, adas);
+
+  await click(barButton("Publish…"));
+
+  // An unnamed draft's review discards its changes rather than deletes a draft.
+  assert.match(
+    window.document.querySelector('[role="dialog"]')?.textContent ?? "",
+    /Discard changes/,
+  );
+});
+
+void test("Discard asks to discard the changes, then discards them and returns to Live", async (t) => {
+  const calls = mockApi(t);
+  const shown = t.mock.method(toast, "success", () => "toast");
+  await render(t, adas);
+
+  await click(barButton("Discard"));
+  const confirm = window.document.querySelector('[role="alertdialog"]');
+  assert.match(confirm?.textContent ?? "", /Discard these changes\?/);
+  assert.equal(calls.filter((call) => call.path === "drafts/delete").length, 0);
+
+  const discard = [...(confirm?.querySelectorAll("button") ?? [])].find(
+    (button) => button.textContent === "Discard changes",
+  );
+  await click(discard);
+
+  assert.equal(calls.filter((call) => call.path === "drafts/delete").length, 1);
+  assert.deepEqual(
+    shown.mock.calls.map((call) => call.arguments[0]),
+    ["Changes discarded. You're now viewing Live."],
+  );
+});
+
+void test("Keep as draft offers the Draft Overview's short name, not its headline, and keeps the draft under it", async (t) => {
+  const calls = mockApi(t, (path) => {
+    if (path === "drafts/previewPublish") {
+      return previewWith({
+        status: "ready",
+        name: "New hero subtitle",
+        headline: "Rewords the homepage hero's subtitle to lead with pricing",
+        bullets: [],
+        stale: false,
+      });
+    }
+    if (path === "drafts/rename") return json({ ...drafts[1], name: "New hero subtitle" });
+    return undefined;
+  });
+  await render(t, adas);
+
+  await click(barButton("Keep as draft"));
+  await settle();
+  assert.equal(nameInput()?.value, "New hero subtitle");
+  await submit(nameInput());
+
+  assert.deepEqual(
+    calls.filter((call) => call.path === "drafts/rename").map((call) => call.input),
+    [{ projectId: project.id, name: "New hero subtitle" }],
+  );
+  assert.ok(!bar(), "expected no bar");
+  assert.equal(pendingButton()?.getAttribute("aria-label"), "Review 1 change");
+});
+
+void test("Keep as draft keeps the name the editor types over the suggested one", async (t) => {
+  const calls = mockApi(t, (path) => {
+    if (path === "drafts/previewPublish") {
+      return previewWith({
+        status: "ready",
+        name: "Hero subtitle",
+        headline: "Rewords the hero",
+        bullets: [],
+        stale: false,
+      });
+    }
+    if (path === "drafts/rename") return json({ ...drafts[1], name: "Hero copy test" });
+    return undefined;
+  });
+  await render(t, adas);
+
+  await click(barButton("Keep as draft"));
+  await settle();
+  await typeInto(nameInput(), "Hero copy test");
+  await submit(nameInput());
+
+  assert.deepEqual(
+    calls.filter((call) => call.path === "drafts/rename").map((call) => call.input),
+    [{ projectId: project.id, name: "Hero copy test" }],
+  );
+});
+
+void test("in an unnamed draft, the palette discards and keeps rather than deletes and renames", async (t) => {
+  mockApi(t);
+  await render(t, adas);
+  await openPalette();
+
+  assert.ok(draftsCommands().includes("Discard changes…"));
+  assert.ok(draftsCommands().includes("Keep as draft…"));
+  assert.equal(draftsCommands().includes("Delete draft…"), false);
+  assert.equal(draftsCommands().includes("Rename draft…"), false);
 });

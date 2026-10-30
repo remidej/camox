@@ -32,7 +32,7 @@ const LIVE = "live";
 const SWITCH_TO_DRAFT_ID = "switch-to-draft";
 
 /** What the drafts controls read: the project, the current draft, and the drafts to switch to. */
-function useDrafts() {
+export function useDrafts() {
   const draftScope = useDraftScope();
   const draftId = useCurrentDraftId();
   const authCtx = React.useContext(AuthContext);
@@ -80,6 +80,7 @@ export function DraftPicker({ disabled = false }: { disabled?: boolean }) {
     () => () => {
       studioStore.send({ type: "closeReviewDraftSheet" });
       studioStore.send({ type: "closeDeleteDraftDialog" });
+      studioStore.send({ type: "closeKeepDraft" });
     },
     [draftId],
   );
@@ -96,7 +97,13 @@ export function DraftPicker({ disabled = false }: { disabled?: boolean }) {
     [draftId, navigate],
   );
 
-  useDraftsActions({ enabled: !!projectId, draftId, drafts, switchTo });
+  useDraftsActions({
+    enabled: !!projectId,
+    draftId,
+    unnamed: current?.name === null,
+    drafts,
+    switchTo,
+  });
 
   // Live shows at once. A draft's label needs its name, so it waits rather than flash a
   // placeholder.
@@ -166,10 +173,11 @@ export function DraftPicker({ disabled = false }: { disabled?: boolean }) {
           <DeleteDraftDialog
             projectId={projectId}
             open={deleting}
+            discard={current?.name === null}
             onOpenChange={(open) => {
               if (!open) studioStore.send({ type: "closeDeleteDraftDialog" });
             }}
-            onDeleted={leaveDraft}
+            onDeleted={(ended) => leaveDraft(ended, { discarded: current?.name === null })}
           />
         </>
       )}
@@ -179,11 +187,11 @@ export function DraftPicker({ disabled = false }: { disabled?: boolean }) {
 
 /**
  * The current draft's pending changes, which open its review to publish or delete them. Live
- * has none, so it shows nothing there.
+ * has none, so it shows nothing there. An unnamed draft shows the Unnamed Draft Bar instead.
  */
 export function PendingChanges() {
   const { current } = useDrafts();
-  if (!current) return null;
+  if (!current || current.name === null) return null;
 
   return (
     <Button
@@ -206,11 +214,14 @@ export function PendingChanges() {
 function useDraftsActions({
   enabled,
   draftId,
+  unnamed,
   drafts,
   switchTo,
 }: {
   enabled: boolean;
   draftId: string | null;
+  /** Whether the current draft is unnamed, whose deletion discards its changes. */
+  unnamed: boolean;
   drafts: DraftSummary[];
   switchTo: (next: string | null) => void;
 }) {
@@ -228,19 +239,26 @@ function useDraftsActions({
       },
       {
         id: "delete-draft",
-        label: "Delete draft…",
-        aliases: ["Delete draft", "Throw away changes", "Revert changes"],
+        label: unnamed ? "Discard changes…" : "Delete draft…",
+        aliases: unnamed
+          ? ["Delete draft", "Throw away changes", "Revert changes"]
+          : ["Discard changes", "Throw away changes", "Revert changes"],
         groupLabel: "Drafts",
         checkIfAvailable: () => inDraft,
         execute: () => studioStore.send({ type: "openDeleteDraftDialog" }),
       },
       {
         id: "rename-draft",
-        label: "Rename draft…",
-        aliases: ["Name draft"],
+        label: unnamed ? "Keep as draft…" : "Rename draft…",
+        aliases: unnamed ? ["Name draft", "Rename draft", "Save draft"] : ["Name draft"],
         groupLabel: "Drafts",
         checkIfAvailable: () => inDraft,
-        execute: () => studioStore.send({ type: "openReviewDraftSheet", startRenaming: true }),
+        execute: () =>
+          studioStore.send(
+            unnamed
+              ? { type: "openKeepDraft" }
+              : { type: "openReviewDraftSheet", startRenaming: true },
+          ),
       },
       {
         id: "switch-to-live",
@@ -274,7 +292,7 @@ function useDraftsActions({
     return () => {
       actionsStore.send({ type: "unregisterManyActions", ids: actions.map((a) => a.id) });
     };
-  }, [enabled, draftId, drafts, switchTo]);
+  }, [enabled, draftId, unnamed, drafts, switchTo]);
 }
 
 /** Who published Live last and when: a member, a release, or nobody yet. */

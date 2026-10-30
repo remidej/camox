@@ -739,9 +739,11 @@ function DraftOverview({ projectId, preview }: { projectId: number; preview: Pub
 /** Switches the studio to Live once its draft ended here, replacing the draft's URL entry. */
 export function useLeaveDraft() {
   const draftScope = useDraftScope();
-  return (ended: EndedDraft | null) => {
+  return (ended: EndedDraft | null, { discarded = false }: { discarded?: boolean } = {}) => {
     draftScope.leave(ended);
-    if (ended) toast.success(`Draft ${ended.outcome}. You're now viewing Live.`);
+    if (!ended) return;
+    const what = discarded ? "Changes discarded" : `Draft ${ended.outcome}`;
+    toast.success(`${what}. You're now viewing Live.`);
   };
 }
 
@@ -749,7 +751,7 @@ export function useLeaveDraft() {
  * Renames a regular draft, whichever draft the studio views: the request names the draft it
  * renames. A blank name clears it, so the draft shows its computed label again.
  */
-function useRenameDraft(projectId: number) {
+export function useRenameDraft(projectId: number) {
   const studioCache = useStudioCache();
   return useMutation({
     mutationFn: ({ draftId, name }: { draftId: string; name: string }) =>
@@ -871,9 +873,11 @@ export function ReviewDraftSheet({
     seenPending.current = pending;
   }, [pending, refetch]);
 
+  // Deleting a draft nobody named yet discards its changes.
+  const discard = draft.data?.name === null;
   const leave = (ended: EndedDraft | null) => {
     onOpenChange(false);
-    leaveDraft(ended);
+    leaveDraft(ended, { discarded: discard });
   };
 
   const publish = useMutation({
@@ -1012,7 +1016,7 @@ export function ReviewDraftSheet({
                 onClick={() => setConfirmingDelete(true)}
               >
                 <Trash2 />
-                Delete draft
+                {discard ? "Discard changes" : "Delete draft"}
               </Button>
               <Button
                 className="ml-auto"
@@ -1030,6 +1034,7 @@ export function ReviewDraftSheet({
       <DeleteDraftDialog
         projectId={projectId}
         open={confirmingDelete}
+        discard={discard}
         onOpenChange={setConfirmingDelete}
         onDeleted={leave}
       />
@@ -1037,15 +1042,20 @@ export function ReviewDraftSheet({
   );
 }
 
-/** Asks before deleting the draft the studio is in, then deletes it. */
+/**
+ * Asks before deleting the draft the studio is in, then deletes it. Deleting an unnamed draft
+ * is discarding its changes: nobody kept them as a draft yet.
+ */
 export function DeleteDraftDialog({
   projectId,
   open,
+  discard = false,
   onOpenChange,
   onDeleted,
 }: {
   projectId: number;
   open: boolean;
+  discard?: boolean;
   onOpenChange: (open: boolean) => void;
   onDeleted: (ended: EndedDraft | null) => void;
 }) {
@@ -1067,10 +1077,12 @@ export function DeleteDraftDialog({
     >
       <AlertDialogContent>
         <AlertDialogHeader>
-          <AlertDialogTitle>Delete this draft?</AlertDialogTitle>
+          <AlertDialogTitle>
+            {discard ? "Discard these changes?" : "Delete this draft?"}
+          </AlertDialogTitle>
           <AlertDialogDescription>
-            Every change in this draft is deleted for everyone. Live stays as it is. This can't be
-            undone.
+            {discard ? "These changes are" : "Every change in this draft is"} deleted for everyone.
+            Live stays as it is. This can't be undone.
           </AlertDialogDescription>
         </AlertDialogHeader>
         <AlertDialogFooter>
@@ -1083,7 +1095,7 @@ export function DeleteDraftDialog({
             onClick={() => deleteDraft.mutate({ projectId })}
           >
             {deleteDraft.isPending ? <Spinner /> : null}
-            Delete draft
+            {discard ? "Discard changes" : "Delete draft"}
           </AlertDialogAction>
         </AlertDialogFooter>
       </AlertDialogContent>
