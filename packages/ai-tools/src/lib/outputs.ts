@@ -277,17 +277,11 @@ const findingAboutSchema = z.discriminatedUnion("kind", [
       z.strictObject({ kind: z.literal("timeout") }),
     ]),
   }),
-  z.strictObject({
-    kind: z.enum(["misspelling", "grammar"]),
-    text: z.string(),
-    sentence: z.string(),
-  }),
 ]);
 
 /** The fix a finding suggests. */
 const findingFixSchema = z.discriminatedUnion("kind", [
   z.strictObject({ kind: z.literal("removeLink") }),
-  z.strictObject({ kind: z.literal("replaceText"), replacement: z.string() }),
 ]);
 
 /** Whether two types are the same, each assignable to the other. */

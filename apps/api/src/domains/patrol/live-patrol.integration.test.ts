@@ -17,7 +17,6 @@ import {
   seedLive,
 } from "../../../test/fixtures";
 import {
-  answerEvery,
   forgetScheduledChecks,
   forgetScheduledPatrols,
   scheduledChecks,
@@ -538,6 +537,25 @@ describe("the Patrol Draft", () => {
 
     expect(view.patrolDraft).toEqual({ id: draft!.id, name: "Patrol" });
   });
+
+  it("lists Live's findings in its Patrol, as Live's, for the studio to show them there", async () => {
+    const f = await fixture();
+    await f.goneLink("about", "About us");
+    answerNext("On it.");
+    await patrolLive(f.db);
+    const [draft] = await f.drafts();
+
+    const view = await call(
+      router.patrol.get,
+      { projectId: f.projectId, patrollers: [...PATROLLER_IDS] },
+      f.member(inDraft(draft!.id)),
+    );
+
+    const linkChecker = view.patrollers.find((patroller) => patroller.id === "linkChecker");
+    expect(linkChecker?.findings.map(({ about, live }) => ({ kind: about.kind, live }))).toEqual([
+      { kind: "missingPage", live: true },
+    ]);
+  });
 });
 
 describe("the email about Live's new findings", () => {
@@ -595,28 +613,20 @@ describe("the email about Live's new findings", () => {
     );
   });
 
-  it("is one per run, whichever patrollers found something new", async () => {
+  it("is one per run, however many findings it raised", async () => {
     const f = await fixture();
-    answerEvery("proofread", ({ texts }) =>
-      texts.flatMap(({ key, text }) =>
-        text.includes("recieve")
-          ? [{ key, kind: "misspelling" as const, original: "recieve", replacement: "receive" }]
-          : [],
-      ),
-    );
-    await f.liveFooter({ body: "We recieve every letter." });
     await f.goneLink("about", "About us");
+    await f.goneLink("team", "Our team");
     answerNext("On it.");
 
-    // The Proofreader arrives in the project on its first run, beside the Link checker.
     await patrolLive(f.db);
 
     const emails = await emailsTo(f.memberUser.email);
     expect(emails.map((email) => email.subject)).toEqual([
-      "The Link checker and the Proofreader found 2 new problems on Test project",
+      "The Link checker found 2 new problems on Test project",
     ]);
     expect(emails[0]!.text).toContain("“About us” in footer links to a page that no longer exists");
-    expect(emails[0]!.text).toContain("“recieve” in footer may be misspelled");
+    expect(emails[0]!.text).toContain("“Our team” in footer links to a page that no longer exists");
   });
 
   it("waits for the findings the Patrol Draft's thread didn't take, until a run hands them", async () => {

@@ -238,7 +238,7 @@ describe("start_draft", () => {
     expect(answer).toMatchObject({
       blockers: [],
       findings: [],
-      checking: ["Link checker", "Proofreader"],
+      checking: ["Link checker"],
     });
     await runChecks(website.db, answer.draft as string);
     const later = answerOf(
@@ -516,7 +516,7 @@ describe("get_draft", () => {
       blockers: [],
       findings: [],
       // The patrollers check once the draft has been idle for a while.
-      checking: ["Link checker", "Proofreader"],
+      checking: ["Link checker"],
       messages: [
         {
           from: "connectedAgent",

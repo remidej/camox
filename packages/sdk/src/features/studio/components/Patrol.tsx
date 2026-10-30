@@ -33,7 +33,7 @@ import {
 import { aboutSentence, whenTag } from "../patrollerBio";
 import { moreSentence, reportSentence, shortTimeAgo, whereReportLeads } from "../reportSentence";
 import { editCollectionItemPath } from "../routes";
-import { useShowInCanvas } from "../showInCanvas";
+import { type CanvasTarget, useShowInCanvas } from "../showInCanvas";
 import { studioStore } from "../studioStore";
 import { workingSentence } from "../workingSentence";
 import { Squareling } from "./Squareling";
@@ -104,9 +104,13 @@ function ProjectPatrol({ projectId, inDraft }: { projectId: number; inDraft: boo
           studioStore.trigger.askAgent({ text: askAgentMessage(finding, patroller.role) });
         }}
         onDismiss={(finding) => dismissFinding.mutate({ projectId, findingId: finding.id })}
-        onOpenPatrolDraft={(draft) => {
+        onOpenPatrolDraft={(draft, finding) => {
           setOpen(null);
-          void navigate({ to: window.location.href, draft: draft.id });
+          // Opened on the finding, its field selected, when it shows on a page or a record.
+          const kind = finding.place?.kind;
+          if (kind === "page" || kind === "record")
+            showReport({ ...shownOfFinding(finding), draft });
+          else void navigate({ to: window.location.href, draft: draft.id });
         }}
       />
       {openFileId && (
@@ -125,8 +129,17 @@ function ProjectPatrol({ projectId, inDraft }: { projectId: number; inDraft: boo
 /** The project's open Patrol Draft, as the Patrol names it. */
 type PatrolDraft = NonNullable<PatrolView["patrolDraft"]>;
 
-/** What the Patrol shows where it is: a report's or a finding's subject, in its locale. */
-export type Shown = { place: ReportPlace | null; live: boolean; locale: string | null };
+/**
+ * What the Patrol shows where it is: a report's or a finding's subject, in its locale, with the
+ * field to select in it, if any. Shown in the draft viewed, or in `draft` when given.
+ */
+export type Shown = {
+  place: ReportPlace | null;
+  live: boolean;
+  locale: string | null;
+  field?: CanvasTarget["field"];
+  draft?: PatrolDraft;
+};
 
 /** A report, as the Patrol shows its subject. */
 const shownOf = (report: ReportView): Shown => ({
@@ -134,10 +147,18 @@ const shownOf = (report: ReportView): Shown => ({
   locale: reportLocale(report.summary),
 });
 
+/** A finding, as the Patrol shows its subject: its field selected. */
+const shownOfFinding = (finding: FindingView): Shown => ({
+  place: finding.place,
+  live: finding.live,
+  locale: finding.locale,
+  field: { name: finding.field, kind: finding.fieldKind },
+});
+
 /**
  * Shows a report's or a finding's subject where it is, in its locale, and on Live for a Live one
- * seen from a draft: a page, block or item selected on the Canvas, a record in its collection, or
- * a file, opened over the Canvas.
+ * seen from a draft, or in the draft it names: a page, block, item or field selected on the
+ * Canvas, a record in its collection, or a file, opened over the Canvas.
  */
 function useShowReport(inDraft: boolean, openFile: (fileId: string) => void) {
   const showInCanvas = useShowInCanvas();
@@ -146,16 +167,21 @@ function useShowReport(inDraft: boolean, openFile: (fileId: string) => void) {
   return (report: Shown) => {
     const { place } = report;
     if (!place) return;
-    const toLive = inDraft && report.live ? { draft: null } : {};
+    const inScope = report.draft
+      ? { draft: report.draft.id }
+      : inDraft && report.live
+        ? { draft: null }
+        : {};
     const tag = report.locale;
     if (place.kind === "page") {
       const { pageId, blockId, itemId } = place;
-      return void showInCanvas({ pageId, locale: tag, blockId, itemId, ...toLive });
+      const field = blockId ? report.field : null;
+      return void showInCanvas({ pageId, locale: tag, blockId, itemId, field, ...inScope });
     }
     if (place.kind === "record") {
       const locale = view.locales.find((each) => each.tag === tag) ?? view.locale;
       const path = editCollectionItemPath(place.collectionId, place.recordId);
-      return void navigate({ to: localizedPath(path, locale), ...toLive });
+      return void navigate({ to: localizedPath(path, locale), ...inScope });
     }
     if (inDraft && report.live) void navigate({ to: window.location.href, draft: null });
     openFile(place.fileId);
@@ -207,7 +233,7 @@ export function PatrolRoster({
   /** Dismisses a finding for the whole project. */
   onDismiss: (finding: FindingView) => void;
   /** Opens the Patrol Draft, where Live's findings are fixed. */
-  onOpenPatrolDraft: (draft: PatrolDraft) => void;
+  onOpenPatrolDraft: (draft: PatrolDraft, finding: FindingView) => void;
 }) {
   return (
     <div className="px-1 py-3">
@@ -286,7 +312,7 @@ function PatrollerRow({
   onAsk: (patroller: PatrollerView, finding: FindingView) => void;
   onDismiss: (finding: FindingView) => void;
   patrolDraft: PatrolDraft | null;
-  onOpenPatrolDraft: (draft: PatrolDraft) => void;
+  onOpenPatrolDraft: (draft: PatrolDraft, finding: FindingView) => void;
 }) {
   const statusId = React.useId();
   const working = patroller.working && workingSentence(patroller.id, patroller.working);
@@ -441,7 +467,7 @@ export function PatrollerDetails({
   onDismiss: (finding: FindingView) => void;
   /** The project's open Patrol Draft, where Live's findings are fixed, if any. */
   patrolDraft: PatrolDraft | null;
-  onOpenPatrolDraft: (draft: PatrolDraft) => void;
+  onOpenPatrolDraft: (draft: PatrolDraft, finding: FindingView) => void;
 }) {
   return (
     <>
@@ -461,7 +487,11 @@ export function PatrollerDetails({
               </span>
               <span className="flex flex-wrap gap-1">
                 {finding.place && (
-                  <Button variant="outline" size="xs" onClick={() => onShow(finding)}>
+                  <Button
+                    variant="outline"
+                    size="xs"
+                    onClick={() => onShow(shownOfFinding(finding))}
+                  >
                     Show
                   </Button>
                 )}
@@ -481,7 +511,7 @@ export function PatrollerDetails({
                   <Button
                     variant="outline"
                     size="xs"
-                    onClick={() => onOpenPatrolDraft(patrolDraft)}
+                    onClick={() => onOpenPatrolDraft(patrolDraft, finding)}
                   >
                     Open the Patrol Draft
                   </Button>

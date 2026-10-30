@@ -113,6 +113,8 @@ interface ItemFieldsEditorProps {
   /** Prefix used to scope DOM ids for each field so label-input pairs and
    * imperative focus lookups don't collide across sheet instances. */
   fieldIdPrefix: string;
+  /** A short status a field's drill row shows beside its label, such as its findings. */
+  fieldHint?: (fieldName: string) => string | undefined;
 }
 
 const ItemFieldsEditor = ({
@@ -128,6 +130,7 @@ const ItemFieldsEditor = ({
   references,
   placement,
   fieldIdPrefix,
+  fieldHint,
 }: ItemFieldsEditorProps) => {
   const owner = React.useContext(PreviewEditingOwnerContext);
   const fields = React.useMemo(
@@ -377,6 +380,7 @@ const ItemFieldsEditor = ({
               <DrillRow
                 key={field.name}
                 label={label}
+                hint={fieldHint?.(field.name)}
                 preview={preview}
                 Icon={
                   field.fieldType === "String"
@@ -523,6 +527,7 @@ const ItemFieldsEditor = ({
               <DrillRow
                 key={field.name}
                 label={label}
+                hint={fieldHint?.(field.name)}
                 preview={preview}
                 Icon={Link2Icon}
                 onClick={() => selectField(field.name, "Link")}
@@ -552,6 +557,7 @@ const ItemFieldsEditor = ({
               <DrillRow
                 key={field.name}
                 label={label}
+                hint={fieldHint?.(field.name)}
                 preview={preview}
                 Icon={isImage ? ImagesIcon : FileIcon}
                 onClick={() => selectField(field.name, isImage ? "Image" : "File")}
@@ -572,6 +578,7 @@ const ItemFieldsEditor = ({
               <DrillRow
                 key={field.name}
                 label={label}
+                hint={fieldHint?.(field.name)}
                 preview={preview}
                 Icon={ImageIcon}
                 onClick={() => selectField(field.name, "Image")}
@@ -591,6 +598,7 @@ const ItemFieldsEditor = ({
               <DrillRow
                 key={field.name}
                 label={label}
+                hint={fieldHint?.(field.name)}
                 preview={preview}
                 Icon={FileIcon}
                 onClick={() => selectField(field.name, "File")}

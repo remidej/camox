@@ -1,0 +1,1 @@
+ALTER TABLE `findings` ADD `field_kind` text;

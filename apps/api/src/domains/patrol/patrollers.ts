@@ -6,15 +6,8 @@ import type { AiModel } from "../../lib/ai-model";
 import type { Journal } from "../../lib/journal";
 import type { Draft } from "../drafts/scope";
 import type { GeneratedType } from "../generated-values/schema";
-import type { Checked, CheckedSubject, RaisedFinding } from "./findings";
+import type { Checked, RaisedFinding } from "./findings";
 import { checkLinks, patrolLinks } from "./link-checker";
-import {
-  checkSpelling,
-  pendingProofreading,
-  proofreadLive,
-  requestProofreading,
-  settleProofreading,
-} from "./proofreader";
 import {
   noPendingWork,
   pendingGeneratedValues,
@@ -65,34 +58,11 @@ export type Checker = (
  */
 export type PatrolResult = { found: RaisedFinding[]; checked?: Checked };
 
-/**
- * A patroller's patrol of a project's Live content (ADR 0034), every 6 hours. One with nothing to
- * read there this time patrols nothing (`null`): it doesn't count as a check.
- */
+/** A patroller's patrol of a project's Live content (ADR 0034), every 6 hours. */
 export type LivePatrol = (
   db: Database,
   projectId: number,
-) => Effect.Effect<PatrolResult | null, never, AiModel | Journal>;
-
-/**
- * What a check is requested for: the subjects a unit of work wrote in the draft, or `stale`, when
- * the draft's review opened on changes its last check didn't read.
- */
-export type CheckRequest = readonly CheckedSubject[] | "stale";
-
-/**
- * A patroller that checks only what changed since its last check keeps what to read next:
- * `request` records it before its check is scheduled, and `settle` ends what a check read once
- * it's done, even when it failed.
- */
-export type CheckRequests = {
-  request: (
-    db: Database,
-    draft: Draft,
-    request: CheckRequest,
-  ) => Effect.Effect<void, never, Journal>;
-  settle: (db: Database, draft: Draft) => Effect.Effect<void, never, Journal>;
-};
+) => Effect.Effect<PatrolResult, never, AiModel | Journal>;
 
 /**
  * A patroller's identity, its duty, how it tells what it's working on, its check of drafts, and
@@ -105,7 +75,6 @@ export type Patroller = {
   pending: PendingWorkOf;
   check?: Checker;
   patrol?: LivePatrol;
-  requests?: CheckRequests;
 };
 
 /** Content only changes in drafts: patrollers that write it are off on Live. */
@@ -152,24 +121,8 @@ export const linkChecker: Patroller = {
   patrol: patrolLinks,
 };
 
-/**
- * Finds spelling and clear grammar mistakes in text people wrote, each with its fix. In drafts it
- * checks at publish, reading what changed since its last check. It's off on Live, even while a
- * catch-up draft translates there, but for its one-off readings (ADR 0034): what a release no
- * draft published wrote, and all of Live when it first arrives in a project.
- */
-export const proofreader: Patroller = {
-  id: "proofreader",
-  role: "Proofreader",
-  duty: { drafts: "atPublish", live: "off" },
-  pending: pendingProofreading,
-  check: checkSpelling,
-  patrol: proofreadLive,
-  requests: { request: requestProofreading, settle: settleProofreading },
-};
-
 /** Every patroller, in the order the Patrol lists those that never worked. */
-export const PATROLLERS: readonly Patroller[] = [translator, seoManager, linkChecker, proofreader];
+export const PATROLLERS: readonly Patroller[] = [translator, seoManager, linkChecker];
 
 /** The patroller of an id: the registry has every one. */
 export const patrollerById = (id: PatrollerId): Patroller =>

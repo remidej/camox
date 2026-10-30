@@ -160,7 +160,6 @@ describe("the Patrol", () => {
     expect(patrollers.map(({ id, role }) => ({ id, role }))).toEqual([
       { id: "seoManager", role: "SEO manager" },
       { id: "translator", role: "Translator" },
-      { id: "proofreader", role: "Proofreader" },
       { id: "linkChecker", role: "Link checker" },
     ]);
     for (const patroller of patrollers) {
@@ -175,11 +174,11 @@ describe("the Patrol", () => {
 
     const view = await call(
       router.patrol.get,
-      { projectId, patrollers: ["proofreader"] },
+      { projectId, patrollers: ["linkChecker"] },
       member(inDraft),
     );
 
-    expect(view.patrollers.map(({ id }) => id)).toEqual(["proofreader"]);
+    expect(view.patrollers.map(({ id }) => id)).toEqual(["linkChecker"]);
   });
 
   // camox 0.65.0 and earlier list none, and crash on a patroller they don't know (ADR 0019).
@@ -372,12 +371,11 @@ describe("where each patroller is on duty", () => {
     expect(dutyOf(inDraft, "linkChecker")).toBe("atPublish");
   });
 
-  it("has a patroller writing content off on Live, the Proofreader too, and the Link checker patrol it", async () => {
+  it("has a patroller writing content off on Live, and the Link checker patrol it", async () => {
     const { patrol } = await fixture();
     const onLive = await patrol({});
 
     expect(dutyOf(onLive, "seoManager")).toBe("off");
-    expect(dutyOf(onLive, "proofreader")).toBe("off");
     expect(dutyOf(onLive, "linkChecker")).toBe("asYouGo");
   });
 });
@@ -624,7 +622,6 @@ describe("a patroller at work", () => {
     expect((await f.patrol()).map(({ id, working }) => ({ id, working }))).toEqual([
       { id: "seoManager", working: null },
       { id: "translator", working: null },
-      { id: "proofreader", working: null },
       { id: "linkChecker", working: null },
     ]);
     await new Promise((resolve) => setTimeout(resolve, 5));
@@ -655,7 +652,7 @@ describe("a patroller at work", () => {
     expect((await translator(f, {})).working).toBeNull();
   });
 
-  it("puts the Translator and the SEO manager on duty on Live while the catch-up draft translates, and leaves the Proofreader off", async () => {
+  it("puts the Translator and the SEO manager on duty on Live while the catch-up draft translates", async () => {
     const f = await fixture();
     const onLive = async () =>
       Object.fromEntries((await f.patrol({})).map(({ id, duty }) => [id, duty]));
@@ -665,7 +662,6 @@ describe("a patroller at work", () => {
     expect(await onLive()).toMatchObject({
       translator: "asYouGo",
       seoManager: "asYouGo",
-      proofreader: "off",
     });
     // Once its translations settle and its checks ran, the catch-up draft is published, and
     // they're off again.

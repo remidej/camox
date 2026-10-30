@@ -8,10 +8,10 @@ import { scheduleInBackground } from "../../lib/schedule-in-background";
 import * as overlay from "../drafts/overlay";
 import { fingerprintOfChanges } from "../drafts/overview";
 import { drafts } from "../drafts/schema";
-import { type Draft, draftOf } from "../drafts/scope";
+import { draftOf } from "../drafts/scope";
 import { listedChanges } from "../translations/review";
-import { type CheckedSubject, isCheckedEntity, writeFindings } from "./findings";
-import { type CheckRequest, PATROLLERS, type Patroller, patrollerById } from "./patrollers";
+import { isCheckedEntity, writeFindings } from "./findings";
+import { PATROLLERS, type Patroller, patrollerById } from "./patrollers";
 import { writeCheck } from "./reports";
 import { patrolChecks } from "./schema";
 
@@ -41,61 +41,21 @@ export const requestCheck = Effect.fn("patrol.requestCheck")(function* (
 });
 
 /**
- * Requests a patroller's check of a draft for `request`: what it has to read is recorded first,
- * for a patroller that keeps it.
- */
-const requestCheckOf = Effect.fn("patrol.requestCheckOf")(function* (
-  db: Database,
-  patroller: Patroller,
-  draft: Draft,
-  request: CheckRequest,
-  immediately: boolean,
-) {
-  if (patroller.requests) yield* patroller.requests.request(db, draft, request);
-  yield* requestCheck(patroller, draft.id, immediately);
-});
-
-/** Requests a patroller's check of one subject of a draft right away: a fix found it changed. */
-export const requestRecheck = (
-  db: Database,
-  patroller: Patroller,
-  draft: Draft,
-  subject: CheckedSubject,
-) => requestCheckOf(db, patroller, draft, [subject], true);
-
-/**
- * Requests every at-publish check of each draft the unit of work wrote content in, for what it
- * wrote: they run once it's been idle for a while, a later write delaying them again.
+ * Requests every at-publish check of each draft the unit of work wrote content in: they run once
+ * it's been idle for a while, a later write delaying them again.
  */
 export const requestChecksOfWrites = Effect.fn("patrol.requestChecksOfWrites")(function* () {
   const { db, changes } = yield* Journal;
   if (!db) return;
-  const written = new Map<string, { draft: Draft; subjects: CheckedSubject[] }>();
-  const of = (projectId: number, draftId: string) => {
-    const known = written.get(draftId) ?? {
-      draft: draftOf({ id: draftId, projectId }),
-      subjects: [],
-    };
-    written.set(draftId, known);
-    return known;
-  };
+  const written = new Set<string>();
   for (const change of changes) {
-    if (change.kind === "content" && change.draftId !== null) {
-      of(change.projectId, change.draftId);
-    }
-    if (
-      change.kind === "localizedWrite" &&
-      change.draftId !== null &&
-      isCheckedEntity(change.entity)
-    ) {
-      const { entity, id, locale } = change;
-      of(change.projectId, change.draftId).subjects.push({ entity, id, locale });
-    }
+    const writesContent =
+      change.kind === "content" ||
+      (change.kind === "localizedWrite" && isCheckedEntity(change.entity));
+    if (writesContent && change.draftId !== null) written.add(change.draftId);
   }
-  for (const { draft, subjects } of written.values()) {
-    for (const patroller of checkingAtPublish) {
-      yield* requestCheckOf(db, patroller, draft, subjects, false);
-    }
+  for (const draftId of written) {
+    for (const patroller of checkingAtPublish) yield* requestCheck(patroller, draftId, false);
   }
 });
 
@@ -139,7 +99,7 @@ export const requestStaleChecks = Effect.fn("patrol.requestStaleChecks")(functio
   if (stale.length === 0) return;
   const draft = yield* draftById(db, draftId);
   if (!draft) return;
-  for (const patroller of stale) yield* requestCheckOf(db, patroller, draft, "stale", true);
+  for (const patroller of stale) yield* requestCheck(patroller, draft.id, true);
 });
 
 /** A draft, by id, until it ended. */
@@ -164,7 +124,7 @@ export const runCheckJob = Effect.fn("patrol.runCheckJob")(function* (db: Databa
   if (!check) return;
   const draft = yield* draftById(db, job.draftId);
   if (!draft) return;
-  const run = Effect.gen(function* () {
+  yield* Effect.gen(function* () {
     const fingerprint = yield* fingerprintOfChanges(
       yield* listedChanges(db, draft, yield* overlay.changesOf(db, draft)),
     );
@@ -179,6 +139,4 @@ export const runCheckJob = Effect.fn("patrol.runCheckJob")(function* (db: Databa
       yield* requestCheck(patroller, draft.id, { delayMs: recheckInMs });
     }
   });
-  const settle = patroller.requests?.settle(db, draft);
-  yield* settle ? Effect.ensuring(run, settle) : run;
 });

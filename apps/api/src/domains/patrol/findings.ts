@@ -10,11 +10,12 @@ import { Effect } from "effect";
 
 import type { Database } from "../../db";
 import { record } from "../../lib/journal";
+import type { Field } from "../_shared/fields";
 import { chunksOf } from "../content/chunks";
 import type * as overlay from "../drafts/overlay";
 import type { Patroller } from "./patrollers";
 import { subjectKey, writeInScope } from "./reports";
-import { findingDismissals, findings, proofreadingRequests } from "./schema";
+import { findingDismissals, findings } from "./schema";
 import { conflictInScope, inWorkScope, type WorkScope } from "./scopes";
 
 // The one write of findings (ADR 0034), beside reports': every patroller raises and resolves its
@@ -28,6 +29,8 @@ export type RaisedFinding = {
   /** The tag of the locale the content is in. */
   locale: string;
   field: string;
+  /** The field's kind, as its schema says, or null when the schema no longer has it. */
+  fieldKind: Field["kind"] | null;
   /**
    * What a dismissal names, as its patroller tells findings apart: a link checker's is the URL,
    * project-wide.
@@ -135,7 +138,7 @@ export const writeFindings = Effect.fn("patrol.writeFindings")(function* (
         statements.push(db.delete(findings).where(inArray(findings.rowId, chunk)));
       }
       for (const [key, finding] of raised) {
-        const { entity, id, locale, field, identity, about, fix } = finding;
+        const { entity, id, locale, field, fieldKind, identity, about, fix } = finding;
         statements.push(
           db
             .insert(findings)
@@ -147,6 +150,7 @@ export const writeFindings = Effect.fn("patrol.writeFindings")(function* (
               entityId: id,
               locale,
               field,
+              fieldKind,
               identity,
               about,
               fix,
@@ -154,7 +158,7 @@ export const writeFindings = Effect.fn("patrol.writeFindings")(function* (
             })
             .onConflictDoUpdate({
               ...conflictInScope(findings, scope.draftId, [findings.patroller, findings.key]),
-              set: { about, fix },
+              set: { about, fix, fieldKind },
             }),
         );
       }
@@ -210,13 +214,7 @@ export const dismiss = Effect.fn("patrol.dismiss")(function* (
   yield* record(db, { kind: "findings", projectId, draftId: null });
 });
 
-/**
- * Publishing or deleting a draft ends its findings, and what its checks had left to read.
- * Dismissals made in it stay.
- */
+/** Publishing or deleting a draft ends its findings. Dismissals made in it stay. */
 export function endStatements(db: Database, draftId: string): overlay.BatchItem[] {
-  return [
-    db.delete(findings).where(eq(findings.draftId, draftId)),
-    db.delete(proofreadingRequests).where(eq(proofreadingRequests.draftId, draftId)),
-  ];
+  return [db.delete(findings).where(eq(findings.draftId, draftId))];
 }

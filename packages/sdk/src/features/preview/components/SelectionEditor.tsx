@@ -16,6 +16,12 @@ import { blockMutations, repeatableItemMutations } from "@/lib/queries";
 import { type BlockDefinition, useBlockDefinition } from "@/lib/studio-definitions";
 
 import { reads, useReadQueries, useReadQuery } from "../../../lib/studio-reads";
+import {
+  ContentFindings,
+  type FindingsSubject,
+  findingsHint,
+  useContentFindings,
+} from "../../studio/components/ContentFindings";
 import { useEditingFrame } from "../editingFrame";
 import { entityName } from "../entityName";
 import { usePageRecordPlacer } from "../pageRecord";
@@ -32,7 +38,7 @@ import {
   type EditingOwner,
 } from "../previewStore";
 import { SingleAssetFieldEditor } from "./AssetFieldEditor";
-import { contentFieldSchema } from "./contentFieldSchema";
+import { contentFieldNames, contentFieldSchema } from "./contentFieldSchema";
 import { type SchemaField, formatFieldName } from "./ItemFieldsEditor";
 import { ItemFieldsEditor } from "./ItemFieldsEditor";
 import { LinkFieldEditor } from "./LinkFieldEditor";
@@ -245,6 +251,14 @@ const SelectionEditorContent = ({
     selection,
     placer: layoutRecordSelected ? pagePlacer : blockPlacer,
   });
+  // The Patrol's findings in the content edited here, as they name it.
+  const recordId = recordView?.record.id;
+  const findingsSubject = React.useMemo<FindingsSubject | null>(() => {
+    if (recordId !== undefined) return { entity: "record", id: recordId };
+    if (currentItemId != null) return { entity: "repeatableItem", id: currentItemId };
+    return block ? { entity: "block", id: block.id } : null;
+  }, [recordId, currentItemId, block]);
+  const findings = useContentFindings(findingsSubject);
 
   const selectedField =
     recordView?.selection.type === "record-field"
@@ -584,6 +598,14 @@ const SelectionEditorContent = ({
             </div>
           ) : (
             <>
+              {/* Findings about the content as a whole, not in one of its fields. */}
+              {!fieldInfo && (
+                <ContentFindings
+                  view={findings}
+                  fields={contentFieldNames(currentSchema)}
+                  className="space-y-2 px-2 pt-4"
+                />
+              )}
               {!fieldHasOwnView && !recordView && currentItemId != null && currentItem && (
                 <SidebarSection divider="bottom" aria-label="List actions">
                   <SidebarSectionHeader>List actions</SidebarSectionHeader>
@@ -854,8 +876,11 @@ const SelectionEditorContent = ({
                   }
                   placement={recordView ? recordPlacement(recordView.selection) : undefined}
                   fieldIdPrefix={fieldIdPrefix}
+                  fieldHint={(name) => findingsHint(findings, name)}
                 />
               )}
+              {/* The selected field's findings, under its editor. */}
+              {fieldInfo && <ContentFindings view={findings} field={fieldInfo.fieldName} />}
             </>
           )}
         </div>

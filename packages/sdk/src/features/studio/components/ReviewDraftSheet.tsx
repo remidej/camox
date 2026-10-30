@@ -260,7 +260,7 @@ function ProblemCards({
   });
 }
 
-/** Where the Canvas shows a finding: its block or item on its page. */
+/** Where the Canvas shows a finding: its field, in its block or item on its page. */
 function findingTarget(finding: Finding): CanvasTarget | null {
   const { place } = finding;
   if (place?.kind !== "page") return null;
@@ -269,7 +269,7 @@ function findingTarget(finding: Finding): CanvasTarget | null {
     locale: finding.locale,
     blockId: place.blockId,
     itemId: place.itemId,
-    field: place.blockId ? { name: finding.field, kind: null } : null,
+    field: place.blockId ? { name: finding.field, kind: finding.fieldKind } : null,
   };
 }
 
@@ -292,7 +292,7 @@ function FindingCards({
     ...patrolMutations.applyFix(),
     onSuccess: ({ applied }) => {
       if (!applied)
-        toast.info("The text changed since it was checked, so it's being checked again.");
+        toast.info("The link changed since it was checked, so it's being checked again.");
       onChanged();
     },
     onError: (error) => toast.error(error.message || "Could not apply the fix"),

@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { registerHooks } from "node:module";
 import { test, type TestContext } from "node:test";
 
+import type { FindingView } from "@camox/api-contract/patrol";
 import type { TSchema } from "@sinclair/typebox";
 import { QueryClient } from "@tanstack/react-query";
 import { Window } from "happy-dom";
@@ -161,6 +162,8 @@ async function renderSidebar(
     recent?: string[];
     /** The layout editing a record page, and what its loader returned. */
     recordPage?: { owner: EditingOwner; result: AnyLayoutLoaderResult };
+    /** The Link checker's open findings in the Patrol viewed. */
+    findings?: FindingView[];
   } = {},
 ) {
   const owner = options.recordPage?.owner ?? pageOwner;
@@ -315,6 +318,26 @@ async function renderSidebar(
   } as never);
   testStudioCache(client).set(reads.file(FILE_ID), file as never);
   testStudioCache(client).set(reads.project({ projectUuid: "site" }), { id: "1" } as never);
+  testStudioCache(client).set(reads.localeList({ projectId: "1" as never }), [
+    { tag: "en", isDefault: true },
+  ]);
+  testStudioCache(client).set(reads.patrol({ projectId: "1" as never }), {
+    patrolDraft: null,
+    patrollers: [
+      {
+        id: "linkChecker",
+        role: "Link checker",
+        duty: "atPublish",
+        working: null,
+        lastCheckedAt: null,
+        lastActivityAt: null,
+        reports: [],
+        more: [],
+        findings: options.findings ?? [],
+        dismissals: [],
+      },
+    ],
+  });
   // By default every file is used elsewhere, so unlinking never offers to delete it.
   for (const id of [FILE_ID, OTHER_FILE_ID, THIRD_FILE_ID]) {
     testStudioCache(client).set(reads.fileUsageCount(id), options.fileUsage ?? 3);
@@ -630,6 +653,45 @@ void test("block text field edits are saved to the block", async (t) => {
       input: { id: BLOCK_ID, content: { quote: "Great product" } },
     },
   ]);
+});
+
+/** The Link checker's finding of a link to a missing page in a field of the block, in English. */
+const missingPage = (field: string, text: string): FindingView => ({
+  id: text.length,
+  about: { kind: "missingPage", url: `camox:page:${text}`, text, page: text },
+  fix: { kind: "removeLink" },
+  subject: { entity: "block", id: BLOCK_ID, name: "Testimonial" },
+  locale: "en",
+  field,
+  fieldKind: "String",
+  raisedAt: 0,
+  live: false,
+  place: { kind: "page", pageId: "page-1", blockId: BLOCK_ID, itemId: null },
+});
+
+void test("a field's findings show under its editor, and only its own", async (t) => {
+  const sidebar = await renderSidebar(
+    t,
+    { type: "block-field", blockId: BLOCK_ID, fieldName: "quote", fieldType: "String" },
+    { findings: [missingPage("quote", "About"), missingPage("scene", "Careers")] },
+  );
+  const shown = [...sidebar.host.querySelectorAll("[data-content-finding]")].map(
+    (finding) => finding.querySelector("[data-slot=alert-title]")?.textContent,
+  );
+  assert.deepEqual(shown, ["“About” links to About, a page that no longer exists"]);
+});
+
+void test("a block's field list says which fields have findings", async (t) => {
+  const sidebar = await renderSidebar(
+    t,
+    { type: "block", blockId: BLOCK_ID },
+    {
+      findings: [missingPage("quote", "About"), missingPage("quote", "Team")],
+    },
+  );
+  assert.match(sidebar.text(), /Quote2 findings/);
+  // Findings in a field show in it, not over the whole block.
+  assert.equal(sidebar.host.querySelectorAll("[data-content-finding]").length, 0);
 });
 
 void test("repeater item text field edits are saved to the item", async (t) => {

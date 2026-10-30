@@ -40,12 +40,7 @@ const calls: ModelCall[] = [];
 /** Who each call was attributed to, in order: what its AI usage records would name. */
 const attributions: { method: Method; attribution: AiAttribution | undefined }[] = [];
 
-const answer = <M extends Method>(
-  method: M,
-  request: Request<M>,
-  /** What an unscripted call answers, instead of failing. */
-  unscriptedAnswer?: Answer<M>,
-) =>
+const answer = <M extends Method>(method: M, request: Request<M>) =>
   Effect.gen(function* () {
     attributions.push({ method, attribution: yield* AiAttribution });
     calls.push({ method, request } as ModelCall);
@@ -54,7 +49,7 @@ const answer = <M extends Method>(
       const answerer = standing.get(method) as Answerer<M> | undefined;
       const unscripted = new AiCallError({ cause: `No ${method} answer scripted` });
       const answered = yield* Effect.promise(async () =>
-        answerer ? answerer(request) : unscriptedAnswer,
+        answerer ? answerer(request) : undefined,
       );
       if (answered === undefined || answered instanceof AiCallError) {
         return yield* Effect.fail(answered ?? unscripted);
@@ -72,13 +67,11 @@ const scriptedModel = AiModel.of({
   translate: (request) => answer("translate", request),
   merge: (request) => answer("merge", request),
   draftOverview: (request) => answer("draftOverview", request),
-  // Every draft that publishes is proofread first (ADR 0033): unscripted, it finds no mistakes.
-  proofread: (request) => answer("proofread", request, []),
 });
 
 /**
  * Scripts the model's next answer to `method`, or its failure once it gave up. An unscripted
- * call fails like a model that gave up, except proofreading, which finds no mistakes.
+ * call fails like a model that gave up.
  */
 export const answerNext = <M extends Method>(method: M, next: Answer<M> | AiCallError) =>
   answers.set(method, [...(answers.get(method) ?? []), next]);

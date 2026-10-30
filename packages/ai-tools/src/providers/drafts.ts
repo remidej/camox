@@ -42,8 +42,14 @@ const withoutCanvasPlace = ({ fieldKind: _fieldKind, blockId: _blockId, ...probl
 const withoutStudioActions = ({ overview: _overview, ...preview }: PublishPreview) => ({
   ...preview,
   findings: preview.findings.map(
-    ({ place: _place, raisedAt: _raisedAt, live: _live, patroller: _patroller, ...finding }) =>
-      finding,
+    ({
+      place: _place,
+      fieldKind: _fieldKind,
+      raisedAt: _raisedAt,
+      live: _live,
+      patroller: _patroller,
+      ...finding
+    }) => finding,
   ),
   blockers: preview.blockers.map(withoutCanvasPlace),
   warnings: preview.warnings.map(withoutCanvasPlace),
@@ -92,7 +98,7 @@ const PREVIEW_SHAPE =
   "creates, changes or deletes; `translating` lists the locales Camox is still translating the " +
   "draft into, which publishing waits for; `findings` are the draft's open findings, problems " +
   "Camox's patrollers raised in what it changed (a link to a page that no longer exists, a link " +
-  "that doesn't work, a misspelling), each with the content it's in and the fix it suggests if " +
+  "that doesn't work), each with the content it's in and the fix it suggests if " +
   "any, which publishing waits for until each is fixed or a member dismisses it; `checking` " +
   "names the patrollers still checking the draft's latest changes, which publishing waits for; " +
   "`defaultLocale` is the tag of the default locale, " +

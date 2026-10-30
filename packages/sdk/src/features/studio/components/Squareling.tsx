@@ -157,13 +157,6 @@ const LOOKS: Record<"agent" | PatrollerId, Look> = {
     fill: "fill-sky-500",
     eyes: { x: [40, 59], y: 32 },
   },
-  // A page with a folded corner, read line by line.
-  proofreader: {
-    body: "M20 10H64L88 34V82Q88 90 80 90H20Q12 90 12 82V18Q12 10 20 10Z",
-    middle: 50,
-    fill: "fill-rose-500",
-    eyes: { x: [34, 53], y: 38 },
-  },
 };
 
 const EYE_WIDTH = 11;

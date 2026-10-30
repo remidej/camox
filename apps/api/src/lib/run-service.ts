@@ -17,7 +17,6 @@ import { catchUpReleaseWrites } from "../domains/drafts/catch-up";
 import { requestOverviewsOfWrites } from "../domains/drafts/overview";
 import { requestChecksOfWrites } from "../domains/patrol/checks";
 import { reportFixedLinks } from "../domains/patrol/fixed-links";
-import { proofreadReleaseWrites } from "../domains/patrol/proofreader";
 import { translateWrites } from "../domains/translations/service";
 import { aiServices, type AiServices } from "./ai-adapters";
 import type { ServiceError } from "./errors";
@@ -90,8 +89,7 @@ export type ServiceRequirements = Journal | AiServices;
  * The effect writes into a fresh journal. Once it succeeded, what it wrote in
  * a draft's default locale is translated into the draft's other locales, and
  * what a release wrote on Live into Live's in Camox's catch-up draft (ADR
- * 0017), and proofread on Live once the release is done (ADR 0034). The
- * overview and the at-publish checks of every draft it wrote in are requested,
+ * 0017). The overview and the at-publish checks of every draft it wrote in are requested,
  * and what it changed is sent to the project rooms before the promise
  * resolves; a failure sends nothing. It generates values and translations with
  * the Worker's model and job queue (`ai-adapters.ts`).
@@ -101,7 +99,6 @@ export async function runService<A>(
 ): Promise<A> {
   const work = Effect.tap(effect, () =>
     Effect.andThen(translateWrites(), catchUpReleaseWrites()).pipe(
-      Effect.andThen(proofreadReleaseWrites()),
       Effect.andThen(requestOverviewsOfWrites()),
       Effect.andThen(requestChecksOfWrites()),
       Effect.andThen(reportFixedLinks()),

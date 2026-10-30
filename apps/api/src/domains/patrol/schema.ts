@@ -10,6 +10,7 @@ import type {
 import { sql } from "drizzle-orm";
 import { index, int, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
 
+import type { Field } from "../_shared/fields";
 import { user } from "../auth/schema";
 import { drafts } from "../drafts/schema";
 import { projects } from "../projects/schema";
@@ -111,6 +112,8 @@ export const findings = sqliteTable(
     entityId: text("entity_id").notNull(),
     locale: text().notNull(),
     field: text().notNull(),
+    // The field's kind, for the studio to select it. Null for findings raised before it was kept.
+    fieldKind: text("field_kind").$type<Field["kind"]>(),
     // What a dismissal names: no finding of the same patroller and identity is raised again.
     identity: text().notNull(),
     about: text({ mode: "json" }).notNull().$type<FindingAbout>(),
@@ -156,38 +159,6 @@ export const findingDismissals = sqliteTable(
       table.patroller,
       table.identity,
     ),
-  ],
-);
-
-/**
- * Subjects of a draft the Proofreader has to read again, in a locale: written since it last read
- * them (ADR 0034). A row exists from the request until the job that read it settles, so a job that
- * crashes can't leave the Proofreader working; it's working on a row once a job started it.
- */
-export const proofreadingRequests = sqliteTable(
-  "proofreading_requests",
-  {
-    rowId: int("row_id").primaryKey(),
-    projectId: int("project_id")
-      .notNull()
-      .references(() => projects.id, { onDelete: "cascade" }),
-    // Null on Live: what a release no draft published wrote, or all of it on arrival.
-    draftId: text("draft_id").references(() => drafts.id, { onDelete: "cascade" }),
-    entity: text().notNull().$type<ReportEntity>(),
-    entityId: text("entity_id").notNull(),
-    locale: text().notNull(),
-    // When it was last requested, and when a job started reading it: null until one does.
-    requestedAt: int("requested_at").notNull(),
-    startedAt: int("started_at"),
-  },
-  (table) => [
-    uniqueIndex("proofreading_requests_key_idx")
-      .on(table.draftId, table.entity, table.entityId, table.locale)
-      .where(sql`${table.draftId} is not null`),
-    uniqueIndex("proofreading_requests_live_idx")
-      .on(table.projectId, table.entity, table.entityId, table.locale)
-      .where(sql`${table.draftId} is null`),
-    index("proofreading_requests_project_idx").on(table.projectId),
   ],
 );
 

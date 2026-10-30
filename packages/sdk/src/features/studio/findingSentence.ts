@@ -3,6 +3,7 @@ import {
   type FindingFix,
   type FindingView,
   findingSentence,
+  findingSentenceInPlace,
 } from "@camox/api-contract/patrol";
 
 import { localeName } from "./localeOptions";
@@ -10,20 +11,18 @@ import { localeName } from "./localeOptions";
 // What a patroller's finding says, in the studio's language (ADR 0034). The sentence itself is
 // the contract's, as the API words it too.
 
-export { findingSentence };
+export { findingSentence, findingSentenceInPlace };
 
 /** Quoted as editors read it. */
 const quoted = (text: string) => `“${text}”`;
 
-/** What a dismissal dismissed, briefly: "Links to About", or the text it was about. */
+/** What a dismissal dismissed, briefly: "Links to About". */
 export function dismissedSentence(about: FindingAbout): string {
   switch (about.kind) {
     case "missingPage":
       return `Links to ${about.page ?? "a missing page"}`;
     case "brokenLink":
       return `Links to ${about.url}`;
-    default:
-      return quoted(about.text);
   }
 }
 
@@ -37,8 +36,6 @@ export function fixLabel(fix: FindingFix): string {
   switch (fix.kind) {
     case "removeLink":
       return "Remove the link";
-    case "replaceText":
-      return `Replace with ${quoted(fix.replacement)}`;
   }
 }
 

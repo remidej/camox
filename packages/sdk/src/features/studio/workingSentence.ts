@@ -21,7 +21,6 @@ const PHRASES: Record<PatrollerId, Phrase> = {
   // A file's SEO is its description: its alt text and filename.
   seoManager: { verb: "Writing SEO for", verbFor: { file: "Describing" }, locale: "in" },
   linkChecker: { verb: "Checking links in", locale: "in" },
-  proofreader: { verb: "Proofreading", locale: "in" },
 };
 
 /** The most locales a burst names; past it, the first are named and the rest counted. */
