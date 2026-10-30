@@ -27,7 +27,8 @@ export const startDraftTool = (
       "the editor's messages of this turn, word for word: the context the request depends on " +
       "that those messages leave out, such as what earlier messages settled or what you found " +
       "reading the website, written for the agent doing the work. Never repeat the request in " +
-      "it. Your turn ends with this call: the editor sees the draft's card, and nothing more.",
+      "it. Your turn ends with this call: the editor sees the draft's card, and nothing more. " +
+      "This thread then starts afresh from that card, without the messages before it.",
     parameters: Type.Object({
       name: Type.String({ minLength: 1, maxLength: 80 }),
       brief: Type.String({ minLength: 1 }),

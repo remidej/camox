@@ -238,7 +238,8 @@ async function connectThread(response: Response): Promise<ThreadClient> {
 
 /**
  * Sends `text` in `thread` and closes it once the agent's turn ended, unless `keepOpen`,
- * returning what the thread showed then.
+ * returning what the thread showed then: on Live, a turn handing the request off to a draft
+ * leaves only the draft's card.
  */
 export async function ask(
   thread: ThreadClient,
@@ -248,9 +249,14 @@ export async function ask(
     operationId = crypto.randomUUID(),
   }: { keepOpen?: boolean; operationId?: string } = {},
 ): Promise<ThreadView> {
-  const before = thread.view().messages.length;
+  const before = thread.view().messages;
   thread.send({ type: "send", operationId, text });
-  await thread.until(() => !thread.view().running && thread.view().messages.length >= before + 2);
+  await thread.until(() => {
+    const { running, messages } = thread.view();
+    const last = messages.at(-1);
+    const handedOff = last?.from === "draft" && !before.some(({ id }) => id === last.id);
+    return !running && (messages.length >= before.length + 2 || handedOff);
+  });
   if (!keepOpen) thread.close();
   return thread.view();
 }

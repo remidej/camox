@@ -58,6 +58,14 @@ export const BRIEF_ENTRY = "camox.brief";
 export const DRAFT_ENDED_ENTRY = "camox.draft-ended";
 
 /**
+ * The kind of the transcript entry a Live thread starts afresh from once its agent handed a
+ * request off to a draft (ADR 0036): a reset of Pi's context, with a `startedDraftCardSchema` as
+ * data. Editors see it as the draft's card, alone, and the model reads a note naming the draft.
+ * Everything before it is left out of both.
+ */
+export const DRAFT_CARD_ENTRY = "camox.draft-card";
+
+/**
  * The kind of the transcript entry recording a member's push to the draft's code from their own
  * checkout (ADR 0026), with a `pushDataSchema` as data. The model reads it as context, never
  * answering it, and editors see who pushed, their commits, and whether they built.
@@ -192,13 +200,9 @@ export const pushDataSchema = z.object({
 });
 export type PushData = z.infer<typeof pushDataSchema>;
 
-/**
- * What an editor's message entry records: who sent it, the operation id it was sent with, and for
- * a message sent on Live as the agent handed the request off, the draft it went to with it.
- */
+/** What an editor's message entry records: who sent it, and the operation id it was sent with. */
 export const editorMessageDataSchema = threadSenderSchema.extend({
   operationId: z.string().optional(),
-  handedOffTo: z.string().optional(),
 });
 
 /**
@@ -367,13 +371,7 @@ export const EMPTY_THREAD_STATE: ThreadState = { steps: [], running: false };
 
 /** One transcript entry, as far as the studio's view is concerned. */
 type ThreadStep = { id: string } & (
-  | {
-      type: "editor";
-      sender: ThreadSender;
-      text: string;
-      /** The draft the message went to, as the agent on Live handed the request off. */
-      handedOffTo?: string;
-    }
+  | { type: "editor"; sender: ThreadSender; text: string }
   | { type: "connectedAgent"; member: ThreadSender; client: ConnectedAgentClient; text: string }
   /** Camox starting a turn of its own, saying why. */
   | { type: "camox"; text: string }
@@ -531,20 +529,16 @@ function threadStepOf(entry: EntryRecord): ThreadStep | undefined {
     const push = pushDataSchema.safeParse(entry.data).data;
     return push && { id, type: "push", ...push };
   }
+  // The model reads a note: editors see the card it starts the Live thread afresh with.
+  if (entry.kind === DRAFT_CARD_ENTRY) {
+    const card = startedDraftCardSchema.safeParse(entry.data).data;
+    return card && { id, type: "draft", ...card };
+  }
   const message = entry.model?.find((candidate) => candidate.role !== "system");
   if (!message) return undefined;
   if (message.role === "user") {
     if (entry.kind === EDITOR_MESSAGE_ENTRY) {
-      const handedOffTo = editorMessageDataSchema.safeParse(entry.data).data?.handedOffTo;
-      return (
-        sender && {
-          id,
-          type: "editor",
-          sender,
-          text: editorTextOf(message.content),
-          ...(handedOffTo && { handedOffTo }),
-        }
-      );
+      return sender && { id, type: "editor", sender, text: editorTextOf(message.content) };
     }
     if (entry.kind === CONNECTED_AGENT_MESSAGE_ENTRY) {
       const data = connectedAgentMessageDataSchema.safeParse(entry.data).data;
@@ -625,24 +619,7 @@ export function threadViewOf({
 
   for (const step of steps) {
     switch (step.type) {
-      case "editor": {
-        // A message sent as the agent on Live handed the request off went to the draft with it:
-        // it belongs to the turn ending on that draft's card, which it shows just before. Pi
-        // placed it after the card, which leaves the transcript the model read as it was.
-        const card = step.handedOffTo
-          ? messages.findLastIndex(
-              (message) => message.from === "draft" && message.draftId === step.handedOffTo,
-            )
-          : -1;
-        if (card !== -1) {
-          messages.splice(card, 0, {
-            id: step.id,
-            from: "editor",
-            sender: step.sender,
-            text: step.text,
-          });
-          break;
-        }
+      case "editor":
         // Pi places a steering message only once a model call is settled: after a round of tool
         // calls, or with the answer ending the run. Never between a failed call and its retry, so
         // an editor's message after an unfinished call means that call's turn is over.
@@ -650,7 +627,6 @@ export function threadViewOf({
         messages.push({ id: step.id, from: "editor", sender: step.sender, text: step.text });
         waiting = step.id;
         break;
-      }
       case "connectedAgent":
         // Like an editor's message: it starts a turn, or steers the one going.
         if (unfinished) fail();
@@ -778,8 +754,21 @@ const callsChangingTool = (block: AssistantMessage["content"][number]) =>
 const callsLook = (block: AssistantMessage["content"][number]) =>
   block.type === "toolCall" && block.name === LOOK_TOOL;
 
+/**
+ * Adds an entry to the thread's state as Pi places it. An entry heading a new context, such as
+ * the card a Live thread starts afresh from, leaves out every step before its head, as Pi's
+ * snapshots do.
+ */
 const append = (state: ThreadState, entry: EntryRecord | undefined): ThreadState => {
-  const step = entry && threadStepOf(entry);
+  if (!entry) return state;
+  const step = threadStepOf(entry);
+  if (entry.head !== undefined) {
+    const head = Number(entry.head);
+    const kept = state.steps.filter(
+      (known) => Number(known.id) >= head && known.id !== String(entry.id),
+    );
+    return { ...state, steps: step ? [step, ...kept] : kept };
+  }
   if (!step || state.steps.some((known) => known.id === step.id)) return state;
   return { ...state, steps: [...state.steps, step] };
 };

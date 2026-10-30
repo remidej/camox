@@ -379,7 +379,7 @@ An AI outside Camox, such as a member's Claude or ChatGPT, that the member conne
 _Avoid_: External agent, client, assistant, integration
 
 **Thread**:
-A conversation with Camox's agent, held by editors in the studio and by Connected Agents. Each editor has one thread of their own on Live, kept for good, and each draft has at most one, shared with everyone in it. The agent on Live changes nothing itself: for each request that would, it starts a draft, whose thread takes the request on from a brief. A Connected Agent starts a draft itself, its own message opening the draft's thread.
+A conversation with Camox's agent, held by editors in the studio and by Connected Agents. Each editor has one thread of their own on Live, kept for good, and each draft has at most one, shared with everyone in it. The agent on Live changes nothing itself: for each request that would, it starts a draft, whose thread takes the request on from a brief, and the Live thread starts afresh from that draft's card. A Connected Agent starts a draft itself, its own message opening the draft's thread.
 _Avoid_: Conversation, chat, session
 
 **Artifact Agent**:

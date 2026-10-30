@@ -1,5 +1,7 @@
 # Live threads hand requests off to drafts
 
+Amended by [Live threads start afresh from each hand-off](0036-live-threads-start-afresh-from-each-hand-off.md): a Live thread now shows only the card of the draft it last started, and its model starts over from there.
+
 Each editor's Live thread is theirs for good: it is never moved, emptied or deleted, so they can scroll back through everything they asked on Live. The agent on Live changes nothing itself. For each request that would change the website, it calls `startDraft` with a name and a Brief. That creates a named draft whose own thread opens with the Brief, from Camox, then the messages of the run that asked, word for word under the editor's name, and does the work there. The Live turn ends on a card linking to the draft, and the studio that sent the request enters it if it is still on Live ([Live threads hand requests off to drafts](https://github.com/remidej/camox/issues/626)). This replaces [Start a draft from a Live thread](https://github.com/remidej/camox/issues/411), where the agent's first write turned the whole Live thread into the draft's thread. That move carried every earlier, unrelated exchange into the draft, showed it to everyone in the draft, and left the editor an empty Live thread.
 
 ## Considered Options
