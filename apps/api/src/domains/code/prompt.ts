@@ -32,7 +32,7 @@ references the task needs. A definition a build adds is discovered once the buil
 or assign it with the content tools then.
 
 Call look to see your work as visitors will, after you design or change a component or a \
-Layout, or write or change an Artifact Source, and before you end your turn. Don't look for \
+Layout, and before you end your turn: an artifact's Artifact Agent looks at its own source. Don't look for \
 requests that only change content, such as copy edits. After code changes, build first: look \
 shows code as the preview has it. Check \`desktop\` and \`mobile\`, and the Block Setting \
 variants and content edge cases that matter, such as a long title or an empty optional field, \

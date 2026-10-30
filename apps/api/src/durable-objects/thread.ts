@@ -1,6 +1,12 @@
 import { CAMOX_ACTOR } from "@camox/api-contract/drafts";
 import { generateUuidv7 } from "@camox/api-contract/ids";
 import {
+  ARTIFACT_REQUEST_ENTRY,
+  ARTIFACT_TOOL,
+  type AgentActivity,
+  artifactDetailsSchema,
+  type ArtifactRequestData,
+  artifactRequestDataSchema,
   BRIEF_ENTRY,
   BUILD_STATUS_ENTRY,
   CONNECTED_AGENT_MESSAGE_ENTRY,
@@ -34,14 +40,18 @@ import {
   type Touch,
   type TouchedBatch,
   reduceThreadEvents,
+  textOf,
   threadViewOf,
 } from "@camox/api-contract/threads";
 import type { AssistantMessage } from "@earendil-works/pi-ai";
 import { RemoteCodemodeSandbox } from "@earendil-works/pi-codemode/portable";
 import {
   type AgentEventStream,
+  type ConversationId,
   createRegistry,
+  type EntryId,
   type EntryRecord,
+  type Extension,
   type InputEntry,
   GenerationTask,
   Harness,
@@ -53,10 +63,12 @@ import {
   ROOT_CONVERSATION_ID,
   type SnapshotEvent,
   type ToolRegistration,
+  watchEvents,
   wrapTool,
 } from "@earendil-works/pi-durable";
 import { createCodemodeExtension } from "@earendil-works/pi-durable/codemode";
 import type { ExecutionEnv } from "@earendil-works/pi-durable/env";
+import { createEditTool, createWriteTool } from "@earendil-works/pi-durable/tools";
 import { PiHarness, type PiHarnessOptions } from "agents/harness/pi";
 import {
   type CapabilityStartContext,
@@ -70,8 +82,18 @@ import { eq } from "drizzle-orm";
 import { Effect } from "effect";
 import { z } from "zod";
 
+import { CAMOX_USER } from "../authorization";
 import { createDb } from "../db";
 import { agentServiceContext } from "../domains/_shared/service-context";
+import { artifactEnv, artifactWriteOf } from "../domains/artifact-agent/env";
+import { ARTIFACT_AGENT_INSTRUCTIONS, artifactRequest } from "../domains/artifact-agent/prompt";
+import {
+  type ArtifactCall,
+  type ArtifactOutcome,
+  type ArtifactTarget,
+  artifactTool,
+} from "../domains/artifact-agent/tool";
+import { readArtifactField, writeArtifactField } from "../domains/artifact-sources/field";
 import { type CheckedLanding, type Landing, landPush } from "../domains/code-pushes/land";
 import { resolvePath } from "../domains/code/env";
 import { CODE_ROOT, lazyEnv, mainCopyFs, mainCopyFsEnv } from "../domains/code/main-copy";
@@ -112,6 +134,7 @@ import {
   type ToolInvocation,
   type ToolKind,
 } from "../domains/threads/tools";
+import { touchesOf } from "../domains/threads/touches";
 import {
   entriesOfEvents,
   entryIdOf,
@@ -182,9 +205,41 @@ type InConversation = {
  */
 const TOUCHES_PREFIX = "camox.touches:";
 
-/** The operation ids of the editors' messages among a run's entries. */
+/**
+ * The operation ids of the editors' messages among a run's entries. An Artifact Agent's run holds
+ * those of the run of the thread's agent that asked it.
+ */
 const operationIdsOf = (entries: EntryRecord[]) =>
-  entries.flatMap((entry) => operationIdOf(entry) ?? []);
+  entries.flatMap((entry) =>
+    entry.kind === ARTIFACT_REQUEST_ENTRY
+      ? (artifactRequestDataSchema.safeParse(entry.data).data?.operationIds ?? [])
+      : (operationIdOf(entry) ?? []),
+  );
+
+/**
+ * The prefix of the keys naming the conversation of each artifact's Artifact Agent, followed by
+ * the artifact (`artifactKey`): one per artifact field and Locale, for as long as the thread lasts.
+ */
+const ARTIFACT_AGENT_PREFIX = "camox.artifact-agent:";
+
+/**
+ * The prefix of the keys holding what an Artifact Agent works on, followed by its conversation's
+ * id: its artifact, and the member and messages its latest request is for, which its environment
+ * acts for.
+ */
+const ARTIFACT_WORK_PREFIX = "camox.artifact-work:";
+
+type ArtifactWork = { target: ArtifactTarget } & ArtifactRequestData;
+
+/** An artifact field in a Locale, as `ARTIFACT_AGENT_PREFIX` keys name it. */
+const artifactKey = ({ block, item, field, locale }: ArtifactTarget) =>
+  JSON.stringify([block, item ?? null, field, locale ?? null]);
+
+/**
+ * The prefix of the keys recording that a turn changed code, followed by its run's first input:
+ * the end of such a turn builds and lints, so an Artifact Agent's answer can't end it.
+ */
+const TURN_WROTE_CODE_PREFIX = "camox.turn-wrote-code:";
 
 /**
  * The prefix of the keys recording the page a turn's writes touched last, by the operation id of
@@ -360,11 +415,14 @@ const openingEntryOf = ({ operationId, from }: OpeningMessage): InputEntry => {
 
 /**
  * The member a message entry acts for: the editor who sent it, or the member whose Connected
- * Agent did, or Camox for its Brief, which starts a run only in a draft Camox opened. None for
- * any other entry.
+ * Agent did, or Camox for its Brief, which starts a run only in a draft Camox opened, or for an
+ * Artifact Agent's request, the member the run asking acts for. None for any other entry.
  */
 const memberOfEntry = (entry: EntryRecord | undefined) => {
   if (entry?.kind === BRIEF_ENTRY) return CAMOX_ACTOR;
+  if (entry?.kind === ARTIFACT_REQUEST_ENTRY) {
+    return artifactRequestDataSchema.safeParse(entry.data).data?.member;
+  }
   if (entry?.kind === EDITOR_MESSAGE_ENTRY && isSender(entry.data)) return entry.data.id;
   if (entry?.kind === CONNECTED_AGENT_MESSAGE_ENTRY) {
     return connectedAgentMessageDataSchema.safeParse(entry.data).data?.member.id;
@@ -461,7 +519,14 @@ comes from the member's own AI, such as Claude or ChatGPT, not from an editor. I
 business from their docs, notes and code, can answer questions about it, and reads your final \
 message. Its message holds the request and the context it depends on. When you lack a fact the \
 change needs, about the product, its audience or its claims, never invent it: ask for it in \
-your final message, and the Connected Agent will answer.`
+your final message, and the Connected Agent will answer.
+
+Each artifact has an Artifact Agent of its own, which writes and changes its source: hand it \
+every change to an artifact's source with the artifact tool, from the first version on, and never \
+write a source yourself. You place the artifact: its Block Definition and field, its block, its \
+Artifact Data and the content around it. What you read shows an artifact's title, never its \
+source. When the editor's message is only about an artifact, pass it on in their words, and let \
+the turn end on the answer with \`final\`.`
     : `This is the editor's own thread on Live, which you only read: you change nothing here. \
 Answer questions about the website yourself. For every request that would change anything, \
 content or code, call startDraft: it starts a draft where Camox's agent does the work, and ends \
@@ -543,6 +608,12 @@ export class Thread extends DurableObject<Bindings> {
    */
   readonly #reportedScripts = new Set<string>();
 
+  /** The extension of the draft thread's Artifact Agents, once Pi opened. */
+  #artifactAgent: Extension | undefined;
+
+  /** The last start of an Artifact Agent, which the next waits for: one per artifact. */
+  readonly #startingArtifactAgent = serialQueue();
+
   readonly harness = new UntilStartedPiHarness(async () => !!(await this.#knownIdentity()), {
     harness: async ({ storage, context }) => {
       // PiHarness opens Pi again after a failed open or `dispose()`. Installing an extension
@@ -550,39 +621,43 @@ export class Thread extends DurableObject<Bindings> {
       //
       // The model is offered code mode and the web tools: content tools are for its scripts,
       // which run in the sandbox Worker's object for this thread and can't call a model (ADR 0018).
-      // On Live, the agent only reads, and hands requests off with `startDraft` (ADR 0025). A
-      // thread never moves, so its tools never change.
+      // On Live, the agent only reads, and hands requests off with `startDraft` (ADR 0025). In a
+      // draft, it hands each artifact's source to its Artifact Agent with `artifact` (ADR 0035).
+      // A thread never moves, so its tools never change.
       const live = !(await this.#knownIdentity())?.draftId;
-      this.#registry.install(
-        createCodemodeExtension({
-          sandbox: new RemoteCodemodeSandbox({
-            remote: () => this.env.CODEMODE_SANDBOX.getByName(this.ctx.id.toString()),
-          }),
-          models: false,
+      const codemode = createCodemodeExtension({
+        sandbox: new RemoteCodemodeSandbox({
+          remote: () => this.env.CODEMODE_SANDBOX.getByName(this.ctx.id.toString()),
         }),
-      );
+        models: false,
+      });
       const dispatch = threadToolDispatch(
         this.env,
         (promise) => this.ctx.waitUntil(promise),
         (invocation, kind) => this.#actor(invocation, kind),
         (invocation, touches) => this.#touched(invocation, touches),
       );
+      const content = await studioAgentTools(dispatch, { readOnly: live });
       const reading = [...webTools(this.env), ...codeReadingTools(), searchFontsTool(this.env)];
+      const look = lookTool((targets, invocation) => this.#look(targets, invocation));
       const tools = live
         ? [
-            ...(await studioAgentTools(dispatch, { readOnly: true })),
+            ...content,
             ...reading,
             startDraftTool((invocation, handOff) => this.#startDraft(invocation, handOff)),
           ]
         : [
-            ...(await studioAgentTools(dispatch)),
+            ...content,
             ...reading,
             ...codeWritingTools(),
             conflictsTool(() => this.#conflicts()),
             buildTool((invocation) => this.#build(invocation)),
-            lookTool((targets, invocation) => this.#look(targets, invocation)),
+            look,
+            artifactTool((invocation, call, onActivity) =>
+              this.#artifact(invocation, call, onActivity),
+            ),
           ];
-      this.#registry.install({
+      const camox: Extension = {
         name: "camox",
         sections: [
           { key: "preamble", render: () => PREAMBLE, tag: false },
@@ -621,8 +696,9 @@ export class Thread extends DurableObject<Bindings> {
           ),
         ],
         // A turn doesn't end with code changes that don't build, and a round of tool calls
-        // ending on startDraft's card hands the messages sent meanwhile off with it. A failed
-        // model call is logged, and alerted when no retry can fix it.
+        // ending on startDraft's card hands the messages sent meanwhile off with it, as one ending
+        // on an Artifact Agent's answer ends the turn. A failed model call is logged, and alerted
+        // when no retry can fix it.
         hooks: [
           hook(GenerationTask, {
             afterResponse: (message) => this.#onModelResponse(message),
@@ -635,24 +711,41 @@ export class Thread extends DurableObject<Bindings> {
               }
               return next;
             },
-            afterTools: (_assistant, _results, api, context) =>
-              this.#handOffLateMessages({ api, context }),
+            afterTools: async (_assistant, results, api, context) => {
+              await this.#handOffLateMessages({ api, context });
+              if (await this.#endsOnArtifactAnswer({ api, context }, results)) {
+                await this.#endTurnOnArtifactAnswer(api, context);
+              }
+            },
           }),
         ],
-      });
+      };
+      this.#registry.install(codemode);
+      this.#registry.install(camox);
+      // In a draft, each artifact's Artifact Agent works in a conversation of its own, with an
+      // extension of its own: the thread's agent never selects it (ADR 0035).
+      if (!live) {
+        this.#artifactAgent = this.#artifactAgentExtension(content, reading, look);
+        this.#registry.install(this.#artifactAgent);
+      }
       return Harness.open(
         storage,
         {
           models: this.#model.models,
           registry: this.#registry,
           settings: {
+            // The thread's agent's: an Artifact Agent's conversation selects its own.
+            extensions: [codemode, camox],
             retry: { enabled: true },
             // Pi keeps idle caches behind timers, which would keep the object from hibernating.
             contextRetentionMs: 0,
             documentRetentionMs: 0,
           },
           onReport: (report) => console.warn("Pi reported a fault in a thread", report),
-          env: () => this.#codeEnv(),
+          env: ({ conversationId }) =>
+            conversationId === ROOT_CONVERSATION_ID
+              ? this.#codeEnv()
+              : this.#artifactAgentEnv(conversationId),
         },
         context,
       );
@@ -736,9 +829,20 @@ export class Thread extends DurableObject<Bindings> {
       ? (await this.#knownIdentity())!.draftId!
       : await this.#codeAccess(invocation);
     await this.#merging;
+    await this.#noteCodeWrite(invocation);
     await this.#noteTurnBase(invocation, draftId);
     await this.#warmSandbox(invocation, draftId);
     return this.#workingCopyEnv(draftId);
+  }
+
+  /**
+   * Notes that the turn of `invocation` changed code, before the write lands: its end builds and
+   * lints, which an Artifact Agent's answer ending it would skip (`#mayEndOnArtifactAnswer`).
+   */
+  async #noteCodeWrite({ api, context }: ToolInvocation) {
+    const live = await api.snapshot(LiveDoc, api.conversationId, context);
+    const turn = live?.run?.inputs[0];
+    if (turn !== undefined) await this.ctx.storage.put(`${TURN_WROTE_CODE_PREFIX}${turn}`, true);
   }
 
   /** The turn whose base `#noteTurnBase` noted. */
@@ -920,6 +1024,272 @@ export class Thread extends DurableObject<Bindings> {
       },
       (looked) => ({ failed: looked.filter((result) => "error" in result).length }),
     );
+  }
+
+  /**
+   * The extension an Artifact Agent works with (ADR 0035): instructions of its own, the same for
+   * every artifact; `content`'s block, page and block type reads, which it calls itself, with no
+   * code mode; the thread's reading tools and `look`; and `write` and `edit`, which change its
+   * artifact's source alone (`#artifactAgentEnv`). A write's warnings follow its result, and a
+   * refused write fails with the reason, which Pi's `edit` would leave out. A failed model call
+   * is logged and alerted, as the thread's agent's.
+   */
+  #artifactAgentExtension(
+    content: ToolRegistration[],
+    reading: ToolRegistration[],
+    look: ToolRegistration,
+  ): Extension {
+    const reads = content
+      .filter(({ name }) => ["getBlock", "getPage", "describeBlockTypes"].includes(name))
+      .map((tool): ToolRegistration => ({ ...tool, callers: ["model"] }));
+    const writes = [createWriteTool(), createEditTool()];
+    return {
+      name: "camox-artifact-agent",
+      sections: [{ key: "artifact-agent", render: () => ARTIFACT_AGENT_INSTRUCTIONS, tag: false }],
+      tools: [...reads, ...reading, ...writes, look],
+      wraps: writes.map(({ name }) =>
+        wrapTool({ name } as ToolRegistration, (tool) => ({
+          ...tool,
+          execute: async (args, api, context) => {
+            let result: Awaited<ReturnType<typeof tool.execute>>;
+            try {
+              result = await tool.execute(args, api, context);
+            } catch (error) {
+              const written = artifactWriteOf(api.env);
+              if (written && "refused" in written) throw new Error(written.refused);
+              throw error;
+            }
+            const written = artifactWriteOf(api.env);
+            const warnings = written && "warnings" in written ? written.warnings : [];
+            if (warnings.length === 0) return result;
+            const notes = warnings.map((text) => ({ type: "text" as const, text }));
+            return { ...result, output: [...(result.output ?? []), ...notes] };
+          },
+        })),
+      ),
+      hooks: [hook(GenerationTask, { afterResponse: (message) => this.#onModelResponse(message) })],
+    };
+  }
+
+  /**
+   * The environment of the Artifact Agent working in the conversation `conversationId`: the code
+   * as the thread's agent reads it, and its artifact's source at `ARTIFACT_PATH`, read and written
+   * in the thread's draft as the member its latest request is for, in its artifact's Locale. A
+   * write is checked and stored as any content write, and the studios that sent the messages of
+   * the run asking hear what it touched.
+   */
+  async #artifactAgentEnv(conversationId: ConversationId): Promise<ExecutionEnv> {
+    const id = `camox:artifact:${conversationId}`;
+    const work = await this.ctx.storage.get<ArtifactWork>(
+      `${ARTIFACT_WORK_PREFIX}${conversationId}`,
+    );
+    if (!work) {
+      const missing = async (): Promise<never> => {
+        throw new Error("This conversation has no artifact");
+      };
+      return artifactEnv(this.#codeEnv(), { read: missing, write: missing }, id);
+    }
+    const { target, member, operationIds } = work;
+    const { block, item, field, locale } = target;
+    return artifactEnv(
+      this.#codeEnv(),
+      {
+        read: async () => {
+          const { ctx } = await this.#actingInDraft(member, locale);
+          return runService(readArtifactField(ctx, { block, item, field }));
+        },
+        write: async (source) => {
+          const { ctx, draftId, projectId } = await this.#actingInDraft(member, locale);
+          const written = await runService(writeArtifactField(ctx, { block, item, field, source }));
+          // An artifact's write touches its block, as editing the block would.
+          const write = { projectId, draftId, name: "editBlock", args: {}, result: written.block };
+          await Effect.runPromise(touchesOf(ctx.db, write))
+            .then((touches) => this.#broadcastTouches(operationIds, touches))
+            .catch((error: unknown) =>
+              console.error("A thread couldn't report what an artifact's write touched", error),
+            );
+          return { warnings: written.warnings };
+        },
+      },
+      id,
+    );
+  }
+
+  /**
+   * The context content services act in as `member` in the thread's draft, in `locale`, the
+   * Default Locale without, as the agent's tools do.
+   */
+  async #actingInDraft(member: string, locale?: string) {
+    const identity = await this.#knownIdentity();
+    if (!identity?.draftId) throw new Error("Artifacts are written in a draft, never on Live");
+    const db = createDb(this.env.DB);
+    const acting =
+      member === CAMOX_ACTOR
+        ? CAMOX_USER
+        : await db.select().from(user).where(eq(user.id, member)).get();
+    const ctx = agentServiceContext({
+      db,
+      env: this.env,
+      user: acting ?? null,
+      waitUntil: (promise) => this.ctx.waitUntil(promise),
+      draftId: identity.draftId,
+      apiOrigin: await this.ctx.storage.get<string>(API_ORIGIN_KEY),
+    });
+    return {
+      ctx: { ...ctx, locale },
+      draftId: identity.draftId,
+      projectId: identity.projectId,
+    };
+  }
+
+  /**
+   * Hands an artifact's source to its Artifact Agent, as the agent's `artifact` call asks (ADR
+   * 0035): finds the conversation of the artifact's Artifact Agent, or starts one, sends it the
+   * call's request, acting for the member the run acts for, and waits for its answer, while
+   * `onActivity` hears what it's doing. The answer ends the turn when the call asked, it's the
+   * round's only call, and the turn changed no code, which its end would build and lint. Stopping
+   * the call stops the Artifact Agent. A call that runs again waits for the same request.
+   */
+  async #artifact(
+    invocation: ToolInvocation,
+    call: ArtifactCall,
+    onActivity: (activity: AgentActivity) => Promise<void>,
+  ): Promise<ArtifactOutcome> {
+    const { api, context } = invocation;
+    const actor = await this.#actor(invocation, "write");
+    const { block, item, field, locale } = call;
+    const target: ArtifactTarget = { block, item, field, locale };
+    // A field that isn't an artifact's, or that the member can't reach, fails before anything
+    // starts.
+    const { ctx } = await this.#actingInDraft(actor.userId, locale);
+    await runService(readArtifactField(ctx, { block, item, field }));
+
+    const conversationId = await this.#artifactAgentOf(target, context);
+    const operationIds = operationIdsOf(await this.#entriesOfRun(invocation));
+    const request: ArtifactRequestData = { member: actor.userId, operationIds };
+    await this.ctx.storage.put(`${ARTIFACT_WORK_PREFIX}${conversationId}`, {
+      target,
+      ...request,
+    } satisfies ArtifactWork);
+
+    const pi = await this.harness.pi();
+    const agent = await api.conversation(conversationId, context);
+    if (!agent) throw new Error("The artifact's Artifact Agent is gone");
+    const submission = await agent.submit(
+      {
+        type: "input",
+        requestId: `${ARTIFACT_TOOL}:${api.callId}`,
+        content: [{ type: "text", text: artifactRequest(target, call.request) }],
+        entry: { kind: ARTIFACT_REQUEST_ENTRY, data: request },
+      },
+      context,
+    );
+    const stream = await watchEvents(pi, conversationId, context);
+    let state = reduceThreadEvents(EMPTY_THREAD_STATE, [stream.snapshot]);
+    let shown: AgentActivity | undefined;
+    const show = async () => {
+      const { activity } = threadViewOf(state);
+      if (!activity || activity === shown) return;
+      shown = activity;
+      await onActivity(activity).catch(() => undefined);
+    };
+    stream.start(async (events) => {
+      state = reduceThreadEvents(state, events);
+      await show();
+    });
+    let settled: Awaited<ReturnType<typeof submission.wait>>;
+    try {
+      await show();
+      settled = await submission.wait(context);
+    } finally {
+      await stream.stop();
+      if (context.abortSignal?.aborted) {
+        await (await pi.conversation(conversationId, BACKGROUND))?.abort(BACKGROUND);
+      }
+    }
+    if (settled.status !== "done") {
+      throw new Error(
+        `The Artifact Agent didn't answer (${settled.reason}): check the artifact before trying again.`,
+      );
+    }
+    const found = await (
+      await pi.conversation(conversationId, context)
+    )?.entries({ minEntryId: settled.answer, maxEntryId: settled.answer }, 1, undefined, context);
+    const message = found?.items[0]?.model?.find(({ role }) => role === "assistant");
+    const answer = message ? textOf(message.content) : "";
+    if (!answer) throw new Error("The Artifact Agent answered nothing: check the artifact.");
+    return { answer, final: call.final && (await this.#mayEndOnArtifactAnswer(invocation)) };
+  }
+
+  /**
+   * The conversation of the Artifact Agent of `target`, started with its own extension on the
+   * thread's model, unless the thread has one already. It belongs to no run: it outlives every
+   * call, which only wait for it.
+   */
+  async #artifactAgentOf(target: ArtifactTarget, context: ToolInvocation["context"]) {
+    const key = `${ARTIFACT_AGENT_PREFIX}${artifactKey(target)}`;
+    return this.#startingArtifactAgent.run(async () => {
+      const known = await this.ctx.storage.get<number>(key);
+      if (known !== undefined) return known as ConversationId;
+      const extension = this.#artifactAgent;
+      if (!extension) throw new Error("Artifacts are written in a draft");
+      const pi = await this.harness.pi();
+      // The thread's model: Pi gives the defaults the harness opened with to the root alone.
+      const { model, thinkingLevel } = this.#model;
+      const created = await pi.createConversation(
+        {
+          ownership: { kind: "ownerless" },
+          agent: {
+            extensions: [extension],
+            model: { provider: model.provider, modelId: model.id },
+            thinkingLevel,
+          },
+        },
+        context,
+      );
+      await this.ctx.storage.put(key, created.id);
+      return created.id;
+    });
+  }
+
+  /**
+   * Whether the turn `invocation` is part of may end on its call's result: the call is its
+   * round's only one, and the turn changed no code.
+   */
+  async #mayEndOnArtifactAnswer({ api, context }: ToolInvocation) {
+    const live = await api.snapshot(LiveDoc, api.conversationId, context);
+    if ((live?.tools?.length ?? 0) !== 1) return false;
+    const turn = live?.run?.inputs[0];
+    if (turn === undefined) return false;
+    return (await this.ctx.storage.get(`${TURN_WROTE_CODE_PREFIX}${String(turn)}`)) === undefined;
+  }
+
+  /** Whether the round of tool calls ending with `results` ends the turn on an Artifact Agent's answer. */
+  async #endsOnArtifactAnswer({ api, context }: InConversation, results: readonly EntryId[]) {
+    if (api.conversationId !== ROOT_CONVERSATION_ID || results.length !== 1) return false;
+    const root = await (await this.harness.pi()).conversation(api.conversationId, context);
+    const found = await root?.entries(
+      { minEntryId: results[0], maxEntryId: results[0] },
+      1,
+      undefined,
+      context,
+    );
+    const message = found?.items[0]?.model?.find(({ role }) => role === "toolResult");
+    if (message?.role !== "toolResult" || message.toolName !== ARTIFACT_TOOL) return false;
+    return artifactDetailsSchema.safeParse(message.details).data?.final === true;
+  }
+
+  /**
+   * Ends the turn ending on an Artifact Agent's answer, as `onYield` ends the others, which Pi
+   * skips for a turn a tool ends: the turn changed no code, so there's nothing to build, but
+   * `main` may have moved, and pushes may be waiting.
+   */
+  async #endTurnOnArtifactAnswer(api: HookApi, context: InConversation["context"]) {
+    await this.#recordTurnPage({ api, context });
+    const draftId = await this.#draftWithCode();
+    if (draftId) await this.#mergeAfterTheTurn(draftId);
+    await this.#endTurnTiming(api, context);
+    await this.#landPushesAfterTheTurn();
   }
 
   /**
@@ -1125,9 +1495,10 @@ export class Thread extends DurableObject<Bindings> {
     const failures = `${TURN_BUILD_FAILURES_PREFIX}${live?.run?.inputs[0] ?? ""}`;
     const failedInARow = (await this.ctx.storage.get<number>(failures)) ?? 0;
     const baseKey = `${TURN_BASE_PREFIX}${live?.run?.inputs[0] ?? ""}`;
+    const wroteKey = `${TURN_WROTE_CODE_PREFIX}${live?.run?.inputs[0] ?? ""}`;
     // The agent was told to explain the errors it couldn't fix, and did: its turn ends.
     if (failedInARow >= END_OF_TURN_BUILD_FAILURES) {
-      await this.ctx.storage.delete([failures, baseKey]);
+      await this.ctx.storage.delete([failures, baseKey, wroteKey]);
       await this.#mergeAfterTheTurn(draftId);
       return undefined;
     }
@@ -1170,7 +1541,7 @@ export class Thread extends DurableObject<Bindings> {
       await this.#showBuildStatus("fixing");
       return { continue: fixLint(turn.result) };
     }
-    await this.ctx.storage.delete([failures, baseKey]);
+    await this.ctx.storage.delete([failures, baseKey, wroteKey]);
     await this.#mergeAfterTheTurn(draftId);
     return undefined;
   }
@@ -1629,8 +2000,16 @@ export class Thread extends DurableObject<Bindings> {
    * page it touched last for the turn's messages, which the turn's end names (`turnOf`).
    */
   async #sendTouches(invocation: ToolInvocation, touches: Touch[]) {
-    const entries = await this.#entriesOfRun(invocation);
-    const touched: TouchedBatch = { operationIds: operationIdsOf(entries), touches };
+    await this.#broadcastTouches(operationIdsOf(await this.#entriesOfRun(invocation)), touches);
+  }
+
+  /**
+   * Sends every socket what a write touched, with `operationIds`, those of the messages of the run
+   * it's part of, and records the page it touched last for them, as `#sendTouches` says.
+   */
+  async #broadcastTouches(operationIds: string[], touches: Touch[]) {
+    if (touches.length === 0) return;
+    const touched: TouchedBatch = { operationIds, touches };
     const page = touches.findLast((touch) => touch.entity === "page" && touch.kind !== "deleted");
     if (page?.entity === "page") {
       const turnPage: TurnPage = { pageId: page.pageId, locale: page.locale };
@@ -2025,5 +2404,18 @@ export class Thread extends DurableObject<Bindings> {
       BACKGROUND,
     );
     await piSession.abort();
+    await this.#stopArtifactAgents();
+  }
+
+  /**
+   * Stops the Artifact Agents still working, which stopping the run's `artifact` call stops
+   * already, should one outlive it.
+   */
+  async #stopArtifactAgents() {
+    const agents = await this.ctx.storage.list<number>({ prefix: ARTIFACT_AGENT_PREFIX });
+    const pi = await this.harness.pi();
+    for (const id of agents.values()) {
+      await (await pi.conversation(id as ConversationId, BACKGROUND))?.abort(BACKGROUND);
+    }
   }
 }

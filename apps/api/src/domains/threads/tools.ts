@@ -6,6 +6,7 @@ import {
   resolveTools,
   toolProviders,
 } from "@camox/ai-tools";
+import { artifactSourceTitle, UNTITLED_ARTIFACT } from "@camox/api-contract";
 import { CAMOX_ACTOR } from "@camox/api-contract/drafts";
 import type { Touch } from "@camox/api-contract/threads";
 import type {
@@ -118,12 +119,43 @@ export function threadToolDispatch(
   };
 }
 
+/** How a thread's tools show an Artifact Source they leave out, which starts with this. */
+const LEFT_OUT = "[Artifact Source";
+
+/** What a thread's tools show in place of an Artifact Source: its title, and where it went. */
+const leftOut = (source: string) =>
+  `${LEFT_OUT} ${JSON.stringify(artifactSourceTitle(source) ?? UNTITLED_ARTIFACT)}, left out: ` +
+  "the artifact tool hands it to its Artifact Agent]";
+
+/**
+ * `value`, a tool's result, with every Artifact Source its blocks and Repeatable Items hold left
+ * out: an Artifact Agent writes each in a conversation of its own (ADR 0035), so the thread's
+ * agent never carries them. A block or item names the fields holding one in `artifactHashes`.
+ */
+export function withoutArtifactSources(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(withoutArtifactSources);
+  if (!value || typeof value !== "object") return value;
+  const entries = Object.entries(value).map(([key, inner]) => [key, withoutArtifactSources(inner)]);
+  const result = Object.fromEntries(entries) as Record<string, unknown>;
+  const { artifactHashes, content } = result;
+  if (!artifactHashes || typeof artifactHashes !== "object") return result;
+  if (!content || typeof content !== "object" || Array.isArray(content)) return result;
+  const shown = { ...(content as Record<string, unknown>) };
+  for (const field of Object.keys(artifactHashes)) {
+    const source = shown[field];
+    if (typeof source === "string") shown[field] = leftOut(source);
+  }
+  return { ...result, content: shown };
+}
+
 /**
  * One of the studio agent's tools as a Pi tool that only code mode scripts call (ADR 0018): its
  * Zod input and output as JSON Schema, which Pi turns into the scripts' TypeScript declarations.
  * Calls run through `dispatch`, where `dispatchTool` checks membership and Zod validates inputs,
  * and a failure reaches the script as its structured error. Reads are replay-safe: rerunning one
- * after an eviction changes nothing.
+ * after an eviction changes nothing. Results leave Artifact Sources out
+ * (`withoutArtifactSources`), and a write handing one back as it was left out is refused, rather
+ * than store it as the source.
  */
 export function toPiTool(tool: ToolDefinition, dispatch: ToolDispatch): ToolRegistration {
   return {
@@ -137,12 +169,23 @@ export function toPiTool(tool: ToolDefinition, dispatch: ToolDispatch): ToolRegi
     callers: ["tools"],
     replay: tool.meta.kind === "read" ? "safe" : "unsafe",
     execute: async (args, api, context) => {
+      if (tool.meta.kind === "write" && JSON.stringify(args).includes(LEFT_OUT)) {
+        const error = {
+          code: "ARTIFACT_SOURCE_LEFT_OUT",
+          message:
+            "An Artifact Source you read was left out, and can't be written back: leave " +
+            "artifact fields out of the write, and change sources with the artifact tool.",
+        };
+        return { output: [{ type: "text", text: JSON.stringify(error) }], isError: true };
+      }
       const response = await dispatch(tool, args, { api, context });
       if (!response.ok) {
         return { output: [{ type: "text", text: JSON.stringify(response.error) }], isError: true };
       }
       // The result matched the tool's output schema, which is JSON Schema, so it's JSON already.
-      const result = (response.result ?? null) as ToolExecutionResult["structuredOutput"];
+      const result = withoutArtifactSources(
+        response.result ?? null,
+      ) as ToolExecutionResult["structuredOutput"];
       return { output: [{ type: "text", text: JSON.stringify(result) }], structuredOutput: result };
     },
   };

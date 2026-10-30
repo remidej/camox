@@ -81,6 +81,26 @@ export const BUILD_TOOL = "build";
 export const LOOK_TOOL = "look";
 
 /**
+ * The agent's tool handing an artifact's source to its Artifact Agent, which writes and changes
+ * it in a conversation of its own and answers the agent (ADR 0035).
+ */
+export const ARTIFACT_TOOL = "artifact";
+
+/**
+ * The kind of the entry recording a request the agent sent an Artifact Agent, in the Artifact
+ * Agent's own conversation, which editors never see: who the run acts for and the operation ids
+ * of its messages, as data (`artifactRequestDataSchema`).
+ */
+export const ARTIFACT_REQUEST_ENTRY = "camox.artifact-request";
+
+/** What an Artifact Agent's request records: the member the run acts for, and its messages. */
+export const artifactRequestDataSchema = z.object({
+  member: z.string(),
+  operationIds: z.array(z.string()),
+});
+export type ArtifactRequestData = z.infer<typeof artifactRequestDataSchema>;
+
+/**
  * The tools whose calls change a draft: the content tools that write, and the code tools that
  * write files. The model calls the code tools, and code mode scripts call both. A test in the API
  * keeps this in step with the tools themselves.
@@ -284,14 +304,28 @@ export type ThreadMessage =
  * - `fixing`: the end of the turn's build failed, and the agent fixes it.
  * - `startingDraft`: on Live, its `startDraft` call runs.
  */
-export type AgentActivity =
-  | "thinking"
-  | "exploring"
-  | "changing"
-  | "building"
-  | "checking"
-  | "fixing"
-  | "startingDraft";
+export const agentActivitySchema = z.enum([
+  "thinking",
+  "exploring",
+  "changing",
+  "building",
+  "checking",
+  "fixing",
+  "startingDraft",
+]);
+export type AgentActivity = z.infer<typeof agentActivitySchema>;
+
+/**
+ * What an `artifact` call's result carries for the studio: the Artifact Agent's answer, whether
+ * it's the agent's answer to the turn too, which then ends on it, and while it works, what the
+ * Artifact Agent is doing.
+ */
+export const artifactDetailsSchema = z.object({
+  answer: z.string().optional(),
+  final: z.boolean().optional(),
+  activity: agentActivitySchema.optional(),
+});
+export type ArtifactDetails = z.infer<typeof artifactDetailsSchema>;
 
 /** Everything the studio shows for a thread. */
 export type ThreadView = {
@@ -323,6 +357,8 @@ export type ThreadState = {
   changing?: boolean;
   /** Whether the model's latest round calls `look`: from writing the call until it's called again. */
   checking?: boolean;
+  /** What the Artifact Agent the running `artifact` call waits for is doing, as it last said. */
+  artifactActivity?: AgentActivity;
   /** The drafts the thread's cards name, as the thread last looked them up. */
   drafts?: DraftCardStates;
 };
@@ -533,6 +569,11 @@ function threadStepOf(entry: EntryRecord): ThreadStep | undefined {
   }
   if (message.role === "assistant") return assistantStep(id, message);
   if (message.role === "toolResult") {
+    // An Artifact Agent's answer that ends the turn is the agent's: editors never see it apart.
+    if (message.toolName === ARTIFACT_TOOL && !message.isError) {
+      const details = artifactDetailsSchema.safeParse(message.details).data;
+      if (details?.final && details.answer) return { id, type: "answer", text: details.answer };
+    }
     const card =
       message.toolName === START_DRAFT_TOOL && !message.isError
         ? startedDraftCardSchema.safeParse(message.details).data
@@ -558,6 +599,7 @@ export function threadViewOf({
   callingTools = false,
   changing = false,
   checking = false,
+  artifactActivity,
   drafts = {},
 }: ThreadState): ThreadView {
   const messages: ThreadMessage[] = [];
@@ -691,7 +733,7 @@ export function threadViewOf({
   return {
     messages,
     running,
-    activity: activityOf({ status, toolCalls, callingTools, changing, checking }),
+    activity: activityOf({ status, toolCalls, callingTools, changing, checking, artifactActivity }),
   };
 }
 
@@ -702,17 +744,21 @@ function activityOf({
   callingTools,
   changing,
   checking,
+  artifactActivity,
 }: {
   status: BuildStatus | undefined;
   toolCalls: NonNullable<ThreadState["toolCalls"]>;
   callingTools: boolean;
   changing: boolean;
   checking: boolean;
+  artifactActivity: AgentActivity | undefined;
 }): AgentActivity {
   const calling = (name: string) => toolCalls.some((call) => call.name === name);
   // Fixing a build error takes thinking, reading and writing, which all read as fixing, but its
   // builds show as building.
   if (status === "building" || calling(BUILD_TOOL)) return "building";
+  // An Artifact Agent works on the agent's behalf: editors see what it does as the agent's.
+  if (calling(ARTIFACT_TOOL)) return artifactActivity ?? "changing";
   if (checking) return "checking";
   if (status === "fixing") return "fixing";
   if (calling(START_DRAFT_TOOL)) return "startingDraft";
@@ -746,9 +792,13 @@ export function reduceThreadState(state: ThreadState, event: AgentEvent): Thread
         tool.status === "done" ? [] : [{ callId: tool.callId, name: tool.name }],
       );
       const generated = event.generation?.message?.content ?? [];
+      const artifact = event.tools.find(
+        (tool) => tool.name === ARTIFACT_TOOL && tool.status !== "done",
+      );
       return {
         ...state,
         steps: event.entries.flatMap((entry) => threadStepOf(entry) ?? []),
+        artifactActivity: artifactDetailsSchema.safeParse(artifact?.details).data?.activity,
         running: event.run !== undefined,
         toolCalls,
         callingTools: generated.some((part) => part.type === "toolCall"),
@@ -778,6 +828,7 @@ export function reduceThreadState(state: ThreadState, event: AgentEvent): Thread
         callingTools: false,
         changing: false,
         checking: false,
+        artifactActivity: undefined,
       };
     case "message_start":
       // The model is called again: it thinks until it writes a tool call.
@@ -811,11 +862,18 @@ export function reduceThreadState(state: ThreadState, event: AgentEvent): Thread
         toolCalls: [...(state.toolCalls ?? []), { callId: event.toolCallId, name: event.toolName }],
       };
     }
+    case "tool_execution_update": {
+      if (event.toolName !== ARTIFACT_TOOL || event.parentToolCallId !== undefined) return state;
+      const activity = artifactDetailsSchema.safeParse(event.details).data?.activity;
+      return activity ? { ...state, artifactActivity: activity } : state;
+    }
     case "tool_execution_end":
       return append(
         {
           ...state,
           toolCalls: state.toolCalls?.filter((call) => call.callId !== event.toolCallId),
+          ...(event.toolName === ARTIFACT_TOOL &&
+            event.parentToolCallId === undefined && { artifactActivity: undefined }),
         },
         event.entry,
       );
