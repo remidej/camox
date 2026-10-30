@@ -235,7 +235,11 @@ describe("start_draft", () => {
       await callTool(accessToken, "start_draft", { name: "No about", message: "Delete /about." }),
     );
 
-    expect(answer).toMatchObject({ blockers: [], findings: [], checking: ["Link checker"] });
+    expect(answer).toMatchObject({
+      blockers: [],
+      findings: [],
+      checking: ["Link checker", "Proofreader"],
+    });
     await runChecks(website.db, answer.draft as string);
     const later = answerOf(
       await callTool(accessToken, "get_draft", { draft: answer.draft as string }),
@@ -512,7 +516,7 @@ describe("get_draft", () => {
       blockers: [],
       findings: [],
       // The patrollers check once the draft has been idle for a while.
-      checking: ["Link checker"],
+      checking: ["Link checker", "Proofreader"],
       messages: [
         {
           from: "connectedAgent",

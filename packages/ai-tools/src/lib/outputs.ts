@@ -1,6 +1,6 @@
 import { posthogRegionSchema } from "@camox/api-contract/analytics";
 import { PUBLISH_ABORT_REASONS } from "@camox/api-contract/drafts";
-import { PATROLLER_IDS } from "@camox/api-contract/patrol";
+import { type FindingAbout, type FindingFix, PATROLLER_IDS } from "@camox/api-contract/patrol";
 import { z } from "zod";
 
 import { ENTITY_KINDS } from "../../../../apps/api/src/domains/drafts/overlay";
@@ -284,11 +284,23 @@ const findingAboutSchema = z.discriminatedUnion("kind", [
   }),
 ]);
 
-/** An open finding of a draft, as agents see it: without where the studio shows it. */
-const findingSchema = z.strictObject({
+/** The fix a finding suggests. */
+const findingFixSchema = z.discriminatedUnion("kind", [
+  z.strictObject({ kind: z.literal("removeLink") }),
+  z.strictObject({ kind: z.literal("replaceText"), replacement: z.string() }),
+]);
+
+/** Whether two types are the same, each assignable to the other. */
+type Same<A, B> = [A] extends [B] ? ([B] extends [A] ? true : false) : false;
+// The schemas match the contract: a finding kind or fix it adds or changes fails the type check.
+true satisfies Same<z.output<typeof findingAboutSchema>, FindingAbout>;
+true satisfies Same<z.output<typeof findingFixSchema>, FindingFix>;
+
+/** An open finding of the draft, as agents see it: not where the studio shows it, nor when. */
+export const findingSchema = z.strictObject({
   id: z.number(),
   about: findingAboutSchema,
-  fix: z.strictObject({ kind: z.literal("removeLink") }).nullable(),
+  fix: findingFixSchema.nullable(),
   subject: z.strictObject({
     entity: z.enum(["page", "block", "sharedContent", "repeatableItem", "record", "file"]),
     id: z.string(),
@@ -296,8 +308,6 @@ const findingSchema = z.strictObject({
   }),
   locale: z.string(),
   field: z.string(),
-  raisedAt: z.number(),
-  live: z.boolean(),
 });
 
 export const publishPreviewSchema = z.strictObject({

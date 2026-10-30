@@ -1,62 +1,18 @@
-import { type FindingAbout, type FindingFix, PATROLLER_IDS } from "@camox/api-contract/patrol";
+import { PATROLLER_IDS } from "@camox/api-contract/patrol";
 import { Effect } from "effect";
 import { z } from "zod";
 
 import { applyFix } from "../../../../apps/api/src/domains/patrol/fixes";
 import { listFindings as openFindings } from "../../../../apps/api/src/domains/patrol/read";
 import { runService } from "../../../../apps/api/src/lib/run-service";
+import { findingSchema } from "../lib/outputs";
 import { defineTool, type ToolDefinition, type ToolProvider } from "../types";
 
 // The findings patrollers raise in the current draft (ADR 0034): reading them, and applying the
 // fix one suggests, as a member would. Only members dismiss findings: no tool does.
 
-const aboutSchema = z.discriminatedUnion("kind", [
-  z.strictObject({
-    kind: z.literal("missingPage"),
-    url: z.string(),
-    text: z.string(),
-    page: z.string().nullable(),
-  }),
-  z.strictObject({
-    kind: z.literal("brokenLink"),
-    url: z.string(),
-    text: z.string(),
-    failure: z.discriminatedUnion("kind", [
-      z.strictObject({ kind: z.literal("status"), status: z.number() }),
-      z.strictObject({ kind: z.literal("unreachable") }),
-      z.strictObject({ kind: z.literal("timeout") }),
-    ]),
-  }),
-  z.strictObject({
-    kind: z.enum(["misspelling", "grammar"]),
-    text: z.string(),
-    sentence: z.string(),
-  }),
-]);
-const fixSchema = z.discriminatedUnion("kind", [
-  z.strictObject({ kind: z.literal("removeLink") }),
-  z.strictObject({ kind: z.literal("replaceText"), replacement: z.string() }),
-]);
-
-/** Whether two types are the same, each assignable to the other. */
-type Same<A, B> = [A] extends [B] ? ([B] extends [A] ? true : false) : false;
-// The schemas match the contract: a finding kind or fix it adds or changes fails the type check.
-true satisfies Same<z.output<typeof aboutSchema>, FindingAbout>;
-true satisfies Same<z.output<typeof fixSchema>, FindingFix>;
-
-const findingSchema = z.strictObject({
-  id: z.number(),
-  patroller: z.enum(PATROLLER_IDS),
-  about: aboutSchema,
-  fix: fixSchema.nullable(),
-  subject: z.strictObject({
-    entity: z.enum(["page", "block", "sharedContent", "repeatableItem", "record", "file"]),
-    id: z.string(),
-    name: z.string(),
-  }),
-  locale: z.string(),
-  field: z.string(),
-});
+/** A finding as listFindings returns it: with the patroller that raised it. */
+const listedFindingSchema = findingSchema.extend({ patroller: z.enum(PATROLLER_IDS) });
 
 const listInput = z.object({});
 const applyInput = z.object({
@@ -77,7 +33,7 @@ export const findingsProvider: ToolProvider = (ctx): ToolDefinition[] => [
       "and content `field`. On Live, lists Live's findings. You can't dismiss a finding: only " +
       "members can, from the Patrol.",
     inputSchema: listInput,
-    outputSchema: z.strictObject({ findings: z.array(findingSchema) }),
+    outputSchema: z.strictObject({ findings: z.array(listedFindingSchema) }),
     meta: { kind: "read", surfaces: ["cli", "studio-agent"] },
     handler: async () =>
       runService(

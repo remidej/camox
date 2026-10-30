@@ -10,6 +10,7 @@ import {
   createRpcContext,
   createServiceContext,
   runTranslations,
+  seedLive,
 } from "../../../test/fixtures";
 import {
   answerEvery,
@@ -21,7 +22,7 @@ import { runAiJob } from "../../lib/ai-jobs";
 import { AiCallError } from "../../lib/retry-ai-call";
 import { runService } from "../../lib/run-service";
 import { router } from "../../router";
-import { blockDefinitions } from "../../schema";
+import { blockDefinitions, blocks } from "../../schema";
 import { syncRevisionDefinitions } from "../definitions/service";
 
 // The Proofreader (ADR 0034) in a draft, through the router: editors edit, the draft's at-publish
@@ -250,16 +251,18 @@ describe("the Proofreader in the Patrol", () => {
 describe("what the Proofreader reads in a draft", () => {
   it("leaves out fields and content the draft didn't change", async () => {
     const f = await fixture();
-    await callSeedingLive(
-      router.blocks.updateContent,
-      { id: f.hero.id, content: { body: richText(["Teh gifts.", 0]) } },
-      f.member(),
-    );
-    await callSeedingLive(
-      router.blocks.create,
-      { pageId: f.home.id, type: "hero", content: { title: "Teh other hero." } },
-      f.member(),
-    );
+    // Live holds mistakes, as a release wrote them: publishing would wait for their findings.
+    for (const content of [{ body: richText(["Teh gifts.", 0]) }, { title: "Teh other hero." }]) {
+      await seedLive(f.db, blocks, {
+        projectId: f.projectId,
+        pageId: f.home.id,
+        type: "hero",
+        content,
+        position: `b${crypto.randomUUID()}`,
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      });
+    }
 
     const { found } = await f.edited({ title: "Guests recieve a gift." });
 

@@ -23,8 +23,10 @@ import { drafts, layouts, member, organizationTable, projects, session, user } f
 import type { Bindings } from "../src/types";
 import {
   draftsWithScheduledChecks,
+  forgetModelCallsSince,
   forgetScheduled,
   forgetScheduledChecks,
+  modelCallsMark,
   scheduled,
   scheduledChecks,
 } from "./generation";
@@ -308,13 +310,16 @@ export async function runTranslations(db: ReturnType<typeof createDb>) {
 }
 
 /**
- * Runs the patrollers' checks scheduled for a draft, as their alarms would, and forgets them:
- * those its review requested, which publishing waits for (ADR 0033).
+ * Runs the patrollers' checks scheduled for a draft, as their alarms would, and forgets them and
+ * the model calls they made: those its review requested, which publishing waits for (ADR 0033).
  */
 export async function runChecks(db: ReturnType<typeof createDb>, draftId: string) {
   const jobs = scheduledChecks(draftId);
   forgetScheduledChecks(draftId);
+  // Setup the test doesn't look at: what the model was asked to check is forgotten.
+  const mark = modelCallsMark();
   for (const job of jobs) await runService(runAiJob(db, job));
+  forgetModelCallsSince(mark);
 }
 
 /**
