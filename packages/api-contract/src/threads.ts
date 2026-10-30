@@ -88,6 +88,7 @@ export const CHANGING_TOOLS: ReadonlySet<string> = new Set([
   // Content
   "addBackToLocale",
   "addLocale",
+  "applyFindingFix",
   "createBlock",
   "createCollectionRecord",
   "createPage",
