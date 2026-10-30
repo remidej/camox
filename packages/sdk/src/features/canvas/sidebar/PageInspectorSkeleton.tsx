@@ -48,13 +48,12 @@ export function CuratedPageSkeleton() {
   );
 }
 
-/** A layout page's blocks and notice. */
+/** A layout page's blocks. */
 export function LayoutPageSkeleton() {
   return (
     <LoadingPage>
-      <div className="flex flex-col gap-4 px-2 pt-4">
+      <div className="px-2 pt-4">
         <BlocksGroupSkeleton />
-        <Skeleton className="h-20 w-full rounded-lg" />
       </div>
     </LoadingPage>
   );

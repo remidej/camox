@@ -8,15 +8,13 @@ import {
   SidebarStackView,
   useSelectionViewCount,
 } from "../../preview/components/SidebarStack";
-import type { PageRecordId } from "../../preview/pageRecord";
 import { PreviewEditingOwnerContext } from "../../preview/previewSelection";
 import { previewStore, selectionForOwner, type EditingOwner } from "../../preview/previewStore";
 import type { CanvasPage } from "../canvasPages";
 import { CanvasInspectorBody, CanvasInspectorTitle } from "./CanvasInspector";
 import { CuratedPageInspector } from "./CuratedPageInspector";
-import { DerivedPageInspector } from "./DerivedPageInspector";
+import { LayoutPageOverview } from "./LayoutPageOverview";
 import { PageInspectorSkeleton } from "./PageInspectorSkeleton";
-import { SingletonPageInspector } from "./SingletonPageInspector";
 
 function PageInspectorError() {
   return (
@@ -44,24 +42,21 @@ class PageInspectorBoundary extends React.Component<
 
 function PageInspectorContent({
   page,
-  pageRecord,
   runtimeBasePath,
 }: {
   page: CanvasPage;
-  pageRecord?: PageRecordId;
   runtimeBasePath: string;
 }) {
   switch (page.kind) {
     case "curated":
       return <CuratedPageInspector />;
     case "singleton":
-      return <SingletonPageInspector layoutId={page.layoutId} runtimeBasePath={runtimeBasePath} />;
+      return <LayoutPageOverview layoutId={page.layoutId} target={{ runtimeBasePath }} />;
     case "derived":
       return (
-        <DerivedPageInspector
+        <LayoutPageOverview
           layoutId={page.layoutId}
-          pageRecord={pageRecord}
-          runtimeBasePath={runtimeBasePath}
+          target={{ runtimeBasePath, derivedLayoutId: page.layoutId }}
         />
       );
   }
@@ -75,14 +70,11 @@ function PageInspectorContent({
 export function PageInspector({
   page,
   owner,
-  pageRecord,
   runtimeBasePath,
 }: {
   page: CanvasPage;
   /** What the Page's frame edits, once it's the active one. */
   owner: EditingOwner | null;
-  /** The record of a record page. */
-  pageRecord?: PageRecordId;
   /** Where the runtime is mounted, which a layout page's frame reads its render under. */
   runtimeBasePath: string;
 }) {
@@ -120,11 +112,7 @@ export function PageInspector({
                 </SidebarStackView>
               }
             >
-              <PageInspectorContent
-                page={page}
-                pageRecord={pageRecord}
-                runtimeBasePath={runtimeBasePath}
-              />
+              <PageInspectorContent page={page} runtimeBasePath={runtimeBasePath} />
             </React.Suspense>
           </PageInspectorBoundary>
         </PreviewEditingOwnerContext>

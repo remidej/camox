@@ -88,13 +88,6 @@ function LayoutPageSeoContent({ target }: { target: LayoutPageTarget }) {
 
   return (
     <div className="space-y-4">
-      <Alert>
-        <AlertTitle>Set in code</AlertTitle>
-        <AlertDescription>
-          This page’s title and description come from its layout’s code, built from the content it
-          shows.
-        </AlertDescription>
-      </Alert>
       <div className="space-y-2">
         <Label htmlFor="layout-page-title">Page title</Label>
         <Input id="layout-page-title" value={title} readOnly />
