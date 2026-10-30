@@ -1749,12 +1749,12 @@ void test("the camera paints onto mirrored elements outside the viewport until r
     );
     assert.deepEqual(camera(mirror), camera(viewport), "camera moves reach the mirror");
     const promoted = (element: { dataset: object }) => "canvasPromoted" in element.dataset;
-    const overlap = (element: { dataset: { canvasBlockOverlap?: string } }) =>
-      Number(element.dataset.canvasBlockOverlap);
+    const seamCover = (element: { dataset: { canvasSeamCover?: string } }) =>
+      Number(element.dataset.canvasSeamCover);
     const restZoom = (element: { style: { getPropertyValue: (name: string) => string } }) =>
       element.style.getPropertyValue("--canvas-rest-zoom");
     const zoomBy = async (key: string, times = 1) => {
-      const overlapBefore = overlap(viewport);
+      const seamCoverBefore = seamCover(viewport);
       const restZoomBefore = restZoom(viewport);
       for (let count = 0; count < times; count++)
         viewport.dispatchEvent(new dom.KeyboardEvent("keydown", { key }));
@@ -1762,17 +1762,21 @@ void test("the camera paints onto mirrored elements outside the viewport until r
       const scale = Number(viewport.style.getPropertyValue("--canvas-zoom"));
       assert.equal(promoted(viewport), true, `a moving camera promotes its layers at ${scale}`);
       assert.equal(promoted(mirror), true, "and the mirror's");
-      assert.equal(overlap(viewport), overlapBefore, "a moving camera never reflows frames");
-      assert.equal(restZoom(viewport), restZoomBefore, "nor repaints page edges");
+      assert.equal(seamCover(viewport), seamCoverBefore, "a moving camera never repaints frames");
+      assert.equal(restZoom(viewport), restZoomBefore, "nor page edges");
       await new Promise((resolve) => dom.setTimeout(resolve, 300));
-      assert.equal(overlap(mirror), overlap(viewport), "frames in the mirror overlap blocks alike");
+      assert.equal(
+        seamCover(mirror),
+        seamCover(viewport),
+        "frames in the mirror cover seams alike",
+      );
       assert.equal(restZoom(viewport), String(scale), "settled, page edges follow the zoom");
       assert.equal(restZoom(mirror), restZoom(viewport), "in the mirror too");
       return scale;
     };
     // Settled, layers stay promoted only where Chromium rasters them affordably and sharply.
     assert.equal(await zoomBy("0"), 1);
-    assert.equal(overlap(viewport), 0, "at 100%, blocks keep their exact borders");
+    const seamCoverAt100 = seamCover(viewport);
     assert.equal(promoted(viewport), true, "at 100%, a layer stays promoted for the next move");
     assert.equal(promoted(mirror), true);
     assert.ok((await zoomBy("+")) > 1);
@@ -1781,7 +1785,7 @@ void test("the camera paints onto mirrored elements outside the viewport until r
     assert.ok((await zoomBy("-", 8)) < 0.25);
     assert.equal(promoted(viewport), false, "zoomed far out, settling re-rasters smaller");
     assert.equal(promoted(mirror), false);
-    assert.ok(overlap(viewport) > 0, "zoomed out, settled blocks overlap to hide seams");
+    assert.ok(seamCover(viewport) > seamCoverAt100, "zoomed out, seam covers reach further");
     await zoomBy("0");
     const space = (type: string) =>
       dom.document.body.dispatchEvent(
@@ -1797,7 +1801,7 @@ void test("the camera paints onto mirrored elements outside the viewport until r
     assert.deepEqual(camera(mirror), ["", "", "", ""], "releasing clears the mirrored camera");
     assert.equal(restZoom(mirror), "", "and its resting zoom");
     assert.equal(promoted(mirror), false, "releasing demotes the mirror");
-    assert.equal(mirror.dataset.canvasBlockOverlap, undefined, "and stops its block overlap");
+    assert.equal(mirror.dataset.canvasSeamCover, undefined, "and stops its seam cover");
     viewport.dispatchEvent(new dom.KeyboardEvent("keydown", { key: "-" }));
     flush();
     assert.deepEqual(camera(mirror), ["", "", "", ""], "a released mirror no longer follows");

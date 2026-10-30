@@ -15,25 +15,87 @@ function studioStyle(doc: Document, css: string) {
   return style;
 }
 
-/** Set by the camera on elements that hold Canvas frames: see `canvasBlockOverlap`. */
-const BLOCK_OVERLAP_ATTRIBUTE = "data-canvas-block-overlap";
+/** Set by the camera on elements that hold Canvas frames: see `canvasSeamCover`. */
+const SEAM_COVER_ATTRIBUTE = "data-canvas-seam-cover";
 const BLOCK = "[data-camox-viewport-block]";
-/** Every block after the first, in its container or a later one, covers the end of the one before. */
-export const BLOCK_OVERLAP_SELECTOR = `:is(${BLOCK}, :has(${BLOCK})) ~ ${BLOCK}, :is(${BLOCK}, :has(${BLOCK})) ~ * ${BLOCK}`;
-const BLOCK_OVERLAP_STYLE = `${BLOCK_OVERLAP_SELECTOR} { margin-top: calc(-1 * var(--camox-block-overlap, 0px)); }`;
+/** Set on a block whose bottom edge needs covering, to the color to cover it in. */
+const SEAM_COLOR_PROPERTY = "--camox-seam-color";
+/**
+ * A band in a block's seam color across its bottom edge, from `--camox-seam-cover` above it to
+ * as far below. It's the block's border image, which it doesn't otherwise have: that paints
+ * under the block's content and under the next block, and moves nothing.
+ */
+const SEAM_STYLE = `${BLOCK}[style*="${SEAM_COLOR_PROPERTY}"] { border-image: linear-gradient(var(${SEAM_COLOR_PROPERTY}), var(${SEAM_COLOR_PROPERTY})) 0 0 1 0 / 0 0 calc(2 * var(--camox-seam-cover, 0px)) 0 / 0 0 var(--camox-seam-cover, 0px) 0 stretch; }`;
 
 /**
- * How far, in CSS pixels, each block in a Canvas frame overlaps the one before it.
- * Where two blocks meet partway through a screen pixel, each covers only part of
- * it, and whatever is under both (the site's background, often unlike either
- * block) shows through as a light seam. Zoomed out, an overlap of at least a
- * device pixel covers it, at the cost of about as much of a block's bottom edge. From
- * 100%, where seams are rare, borders stay exact. Powers of two change a page's
- * height only at a few zooms.
+ * How far, in CSS pixels, the band under each seam between blocks in a Canvas frame
+ * reaches to either side of it. Where two blocks meet partway through a screen pixel,
+ * each covers only part of it, and whatever is under both (the site's background,
+ * often unlike either block) shows through as a light seam. A band in the blocks'
+ * color under that pixel covers it. Chromium rasters layers at scales slightly off the
+ * camera's, so the band reaches three device pixels: fewer leave some seams.
  */
-export function canvasBlockOverlap(scale: number, pixelRatio: number) {
-  if (scale >= 1) return 0;
-  return 2 ** Math.max(0, Math.ceil(Math.log2(1 / (scale * pixelRatio))));
+export function canvasSeamCover(scale: number, pixelRatio: number) {
+  return 3 / (scale * pixelRatio);
+}
+
+/**
+ * Gives each block a seam color where it meets the next one and both paint their side of
+ * the edge, so that the band under the edge hides the seam (see `SEAM_STYLE`). Where
+ * either side is see-through, nothing shows through the edge but what's already there,
+ * and a band would show.
+ */
+function colorSeams(doc: Document) {
+  const view = doc.defaultView;
+  if (!view || !doc.elementsFromPoint) return;
+  const blocks = Array.from(doc.querySelectorAll<HTMLElement>(BLOCK));
+  blocks.forEach((block, index) => {
+    const next = blocks[index + 1];
+    const color = next ? seamColor(view, block, next) : null;
+    if (color) {
+      if (block.style.getPropertyValue(SEAM_COLOR_PROPERTY) !== color)
+        block.style.setProperty(SEAM_COLOR_PROPERTY, color);
+    } else if (block.style.getPropertyValue(SEAM_COLOR_PROPERTY)) {
+      block.style.removeProperty(SEAM_COLOR_PROPERTY);
+    }
+  });
+}
+
+function seamColor(view: Window, above: HTMLElement, below: HTMLElement) {
+  const top = above.getBoundingClientRect();
+  const bottom = below.getBoundingClientRect();
+  if (Math.abs(top.bottom - bottom.top) > 1) return null;
+  const x = (Math.max(top.left, bottom.left) + Math.min(top.right, bottom.right)) / 2;
+  const aboveColor = paintAt(view, above, x, top.bottom - 0.5);
+  const belowColor = paintAt(view, below, x, bottom.top + 0.5);
+  if (aboveColor === null || belowColor === null) return null;
+  return aboveColor || belowColor || null;
+}
+
+const PAINTED_ELEMENTS = new Set(["img", "picture", "video", "canvas", "svg", "iframe"]);
+
+/**
+ * What a block paints at a point: `null` where nothing does, its background color, or an
+ * empty string for an image or other painting of no one color.
+ */
+function paintAt(view: Window, block: HTMLElement, x: number, y: number) {
+  for (const element of block.ownerDocument.elementsFromPoint(x, y)) {
+    if (!block.contains(element)) continue;
+    const style = view.getComputedStyle(element);
+    const color = isTransparent(style.backgroundColor) ? "" : style.backgroundColor;
+    const image = style.backgroundImage && style.backgroundImage !== "none";
+    if (image || PAINTED_ELEMENTS.has(element.localName)) return color;
+    if (color) return color;
+  }
+  return null;
+}
+
+/** Whether a computed color is fully transparent: only an alpha of 0 is. */
+function isTransparent(color: string) {
+  if (!color || color === "transparent") return true;
+  const alpha =
+    /^rgba\(.*,\s*([\d.]+)\)$/.exec(color)?.[1] ?? /\/\s*([\d.]+)%?\s*\)$/.exec(color)?.[1];
+  return alpha !== undefined && parseFloat(alpha) === 0;
 }
 
 export function canvasPageHref(input: { runtimeBasePath: string; pathname: string; href: string }) {
@@ -263,20 +325,20 @@ export function observeCanvasDocument(
   doc.documentElement.style.setProperty("--camox-viewport-height", `${baseline}px`);
   doc.documentElement.style.setProperty("overflow", "hidden", "important");
   doc.body.style.setProperty("overflow", "hidden", "important");
-  const overlapStyle = studioStyle(doc, BLOCK_OVERLAP_STYLE);
-  doc.head.appendChild(overlapStyle);
-  // The camera sets the overlap on an ancestor of the frame, in the host document.
-  const followOverlap = () => {
-    const overlap = iframe.closest<HTMLElement>(`[${BLOCK_OVERLAP_ATTRIBUTE}]`);
-    const pixels = Number(overlap?.getAttribute(BLOCK_OVERLAP_ATTRIBUTE)) || 0;
-    doc.documentElement.style.setProperty("--camox-block-overlap", `${pixels}px`);
+  const seamStyle = studioStyle(doc, SEAM_STYLE);
+  doc.head.appendChild(seamStyle);
+  // The camera sets the seam cover on an ancestor of the frame, in the host document.
+  const followSeamCover = () => {
+    const holder = iframe.closest<HTMLElement>(`[${SEAM_COVER_ATTRIBUTE}]`);
+    const pixels = Number(holder?.getAttribute(SEAM_COVER_ATTRIBUTE)) || 0;
+    doc.documentElement.style.setProperty("--camox-seam-cover", `${pixels}px`);
   };
-  followOverlap();
-  const overlapChanges = new MutationObserver(followOverlap);
-  overlapChanges.observe(iframe.ownerDocument.documentElement, {
+  followSeamCover();
+  const seamCoverChanges = new MutationObserver(followSeamCover);
+  seamCoverChanges.observe(iframe.ownerDocument.documentElement, {
     subtree: true,
     attributes: true,
-    attributeFilter: [BLOCK_OVERLAP_ATTRIBUTE],
+    attributeFilter: [SEAM_COVER_ATTRIBUTE],
   });
   let frame = 0;
   let disposed = false;
@@ -292,6 +354,8 @@ export function observeCanvasDocument(
     frame = 0;
     if (suspended()) return;
     measureCanvasDocument(iframe, root, baseline);
+    // Seam colors are attributes of the content, which don't re-measure.
+    colorSeams(doc);
     // Record the *final* geometry to ignore ResizeObserver notifications caused by our sizing.
     const elements = new Set<Element>([doc.body, root, ...root.querySelectorAll("*")]);
     for (const element of sizes.keys()) {
@@ -361,9 +425,11 @@ export function observeCanvasDocument(
     cancelAnimationFrame(frame);
     resize.disconnect();
     mutations.disconnect();
-    overlapChanges.disconnect();
-    overlapStyle.remove();
-    doc.documentElement.style.removeProperty("--camox-block-overlap");
+    seamCoverChanges.disconnect();
+    seamStyle.remove();
+    doc.documentElement.style.removeProperty("--camox-seam-cover");
+    for (const block of doc.querySelectorAll<HTMLElement>(BLOCK))
+      block.style.removeProperty(SEAM_COLOR_PROPERTY);
     doc.removeEventListener("load", contentChanged, true);
     doc.removeEventListener("error", contentChanged, true);
     doc.fonts?.removeEventListener("loadingdone", contentChanged);

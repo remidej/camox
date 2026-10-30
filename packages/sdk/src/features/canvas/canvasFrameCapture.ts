@@ -1,8 +1,6 @@
 const XHTML = "http://www.w3.org/1999/xhtml";
 const URL_PATTERN = /url\(\s*(["']?)([^"')]+)\1\s*\)/g;
 
-import { BLOCK_OVERLAP_SELECTOR } from "./canvasFrameDocument";
-
 /** A frame drawn into an image, and the size in CSS pixels it covers. */
 export type FrameCapture = { blob: Blob; width: number; height: number };
 
@@ -10,11 +8,10 @@ export type CaptureOptions = {
   /** The image's size, relative to the frame's size in CSS pixels. */
   scale: number;
   /**
-   * How far each block overlaps the one before, in CSS pixels, if not as the frame has it now:
-   * see `canvasBlockOverlap`. It depends on the zoom, so an image captured at one zoom would
-   * otherwise change height as the live frame replaces it at another.
+   * How far the band under each seam between blocks reaches, in CSS pixels, if not as the
+   * frame has it now: see `canvasSeamCover`. It depends on the scale the image is drawn at.
    */
-  blockOverlap?: number;
+  seamCover?: number;
 };
 
 /**
@@ -189,7 +186,7 @@ export function createFrameCapturer() {
     width: number,
     height: number,
     scale: number,
-    blockOverlap?: number,
+    seamCover?: number,
   ) {
     const view = doc.defaultView;
     if (!view || !doc.body) throw new Error("The frame has no document to capture.");
@@ -282,8 +279,7 @@ export function createFrameCapturer() {
     const background = [doc.documentElement, doc.body]
       .map((element) => view.getComputedStyle(element).backgroundColor)
       .find((color) => color && color !== "rgba(0, 0, 0, 0)");
-    if (blockOverlap !== undefined)
-      html.style.setProperty("--camox-block-overlap", `${blockOverlap}px`);
+    if (seamCover !== undefined) html.style.setProperty("--camox-seam-cover", `${seamCover}px`);
     html.style.setProperty("width", `${width}px`);
     html.style.setProperty("height", `${height}px`);
     html.style.setProperty("overflow", "hidden", "important");
@@ -315,17 +311,13 @@ export function createFrameCapturer() {
    */
   async function capture(
     frame: HTMLIFrameElement,
-    { scale, blockOverlap }: CaptureOptions,
+    { scale, seamCover }: CaptureOptions,
   ): Promise<FrameCapture> {
     const doc = sameOriginDocument(frame);
     const width = frame.offsetWidth;
-    let height = frame.offsetHeight;
+    const height = frame.offsetHeight;
     if (!doc || !width || !height) throw new Error("The frame can't be captured.");
-    const overlap = blockOverlapOf(doc);
-    // Each overlapping block makes the page that much shorter.
-    if (blockOverlap !== undefined && blockOverlap !== overlap)
-      height += doc.querySelectorAll(BLOCK_OVERLAP_SELECTOR).length * (overlap - blockOverlap);
-    const svg = await documentSvg(doc, width, height, scale, blockOverlap);
+    const svg = await documentSvg(doc, width, height, scale, seamCover);
     // A data URL, unlike a blob URL, leaves the canvas readable once the SVG is drawn into it.
     const image = new Image();
     image.src = svgUrl(svg);
@@ -461,10 +453,6 @@ function freezeAnimations(doc: Document, clonesOf: Map<Element, Element>) {
       clone.style.setProperty("opacity", computed.opacity, "important");
     }
   }
-}
-
-function blockOverlapOf(doc: Document) {
-  return parseFloat(doc.documentElement.style.getPropertyValue("--camox-block-overlap")) || 0;
 }
 
 function svgUrl(svg: string) {

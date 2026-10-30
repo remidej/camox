@@ -27,7 +27,7 @@ import { useRendererHost } from "../renderer/RendererFrames";
 import { FollowAgentContext } from "../studio/followAgentContext";
 import { STUDIO_CANVAS_PATH } from "../studio/routes";
 import { CANVAS_HEADER_HEIGHT, CANVAS_PAGE_FIT_PADDING } from "./canvasCamera";
-import { canvasBlockOverlap } from "./canvasFrameDocument";
+import { canvasSeamCover } from "./canvasFrameDocument";
 import { useCanvasFrameMode, type CanvasFrameMode } from "./canvasFrameMode";
 import {
   CANVAS_ITEM_GAP,
@@ -219,13 +219,10 @@ function CanvasPagePreview(props: CanvasPagePreviewProps) {
     if (started.current >= settles) return;
     const request = settles;
     started.current = request;
-    // Sharp up to the zoom the live frame takes over at, with the blocks overlapping as they
-    // will in the frame then.
-    const pixelRatio = window.devicePixelRatio;
-    const options = {
-      scale: Math.min(1, CANVAS_THUMBNAIL_MAX_ZOOM * pixelRatio),
-      blockOverlap: canvasBlockOverlap(CANVAS_THUMBNAIL_MAX_ZOOM, pixelRatio),
-    };
+    // Sharp up to the zoom the live frame takes over at, with seams covered in the image's own
+    // pixels. Shown smaller, the image is scaled as a whole, which leaves no seams.
+    const scale = Math.min(1, CANVAS_THUMBNAIL_MAX_ZOOM * window.devicePixelRatio);
+    const options = { scale, seamCover: canvasSeamCover(scale, 1) };
     const tokens = [props.pathname, props.pageId, props.derivedLayoutId].filter(
       (token): token is string => !!token,
     );
