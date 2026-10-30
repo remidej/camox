@@ -1,11 +1,14 @@
+import { env } from "cloudflare:workers";
 import { and, eq } from "drizzle-orm";
 import { Effect } from "effect";
 
 import type { Database } from "../../db";
 import { AiJobQueue, jobName, type PatrolJob } from "../../lib/ai-job-queue";
+import type { Bindings } from "../../types";
 import { projects } from "../projects/schema";
 import { writeFindings } from "./findings";
 import { toPatrolDraft } from "./patrol-draft";
+import { emailNewFindings } from "./patrol-email";
 import { PATROLLERS } from "./patrollers";
 import { writeCheck } from "./reports";
 
@@ -71,7 +74,14 @@ export const runPatrolJob = Effect.fn("patrol.runPatrolJob")(function* (
   const { found, checked } = patrolled;
   const opened = yield* writeFindings(db, patroller, scope, found, checked);
   yield* writeCheck(db, patroller, scope);
-  // What's new goes to the Patrol Draft, where Camox's agent fixes it.
-  yield* toPatrolDraft(db, patroller, job.projectId, opened);
+  // What's new goes to the Patrol Draft, where Camox's agent fixes it, and members hear of it.
+  const handed = yield* toPatrolDraft(db, patroller, job.projectId, opened);
+  if (handed) {
+    yield* emailNewFindings(db, env as Bindings, {
+      patroller,
+      projectId: job.projectId,
+      ...handed,
+    });
+  }
   return opened;
 });

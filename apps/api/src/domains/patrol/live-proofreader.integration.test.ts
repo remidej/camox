@@ -11,6 +11,7 @@ import { abortAllDurableObjects, createScheduledController } from "cloudflare:te
 import { env } from "cloudflare:workers";
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 
+import { emailsTo } from "../../../test/emails";
 import {
   callSeedingLive,
   createProjectFixture,
@@ -280,7 +281,7 @@ describe("the Proofreader after a release", () => {
 });
 
 describe("the Proofreader's Live findings", () => {
-  it("go to the Patrol Draft, its thread opening with a Brief that lists them", async () => {
+  it("go to the Patrol Draft, its thread opening with a Brief that lists them, and email members", async () => {
     const f = await fixture("Guests recieve a gift.");
     answerNext("I'll fix it.");
 
@@ -292,6 +293,9 @@ describe("the Proofreader's Live findings", () => {
     ]);
     const [brief] = saidIn((await f.threadOf(drafts[0]!.id, 2)).view());
     expect(brief).toEqual({ from: "camox", text: expect.stringContaining("recieve") });
+    const emails = await emailsTo(f.memberUser.email);
+    expect(emails).toHaveLength(1);
+    expect(emails[0]!.text).toContain("recieve");
   });
 
   it("close once a publish fixed them on Live, without proofreading Live again", async () => {

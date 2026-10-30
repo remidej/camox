@@ -13,6 +13,7 @@ import { mcpRoutes, wellKnownRoutes } from "./domains/connected-agents/routes";
 import { fileHonoRoutes } from "./domains/files/routes";
 import { iconRoutes } from "./domains/icons/routes";
 import { pageHonoRoutes } from "./domains/pages/og-image-routes";
+import { patrolEmailRoutes } from "./domains/patrol/email-routes";
 import { liveCacheKeyRoutes } from "./domains/projects/live-cache-key";
 import { faviconHonoRoutes } from "./domains/projects/routes";
 import { threadHonoRoutes } from "./domains/threads/routes";
@@ -138,6 +139,7 @@ app.route("/live-cache-keys", liveCacheKeyRoutes);
 app.route("/artifact-sources", artifactSourceRoutes);
 app.route("/pages", pageHonoRoutes);
 app.route("/threads", threadHonoRoutes);
+app.route("/patrol-emails", patrolEmailRoutes);
 
 // ---------------------------------------------------------------------------
 // oRPC handler (all other API procedures)
