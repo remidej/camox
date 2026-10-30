@@ -5,7 +5,7 @@ import {
   LOCALE_HEADER,
 } from "@camox/api-contract/drafts";
 import { generateUuidv7 } from "@camox/api-contract/ids";
-import type { FindingView, PatrollerView } from "@camox/api-contract/patrol";
+import { PATROLLER_IDS, type FindingView, type PatrollerView } from "@camox/api-contract/patrol";
 import { call } from "@orpc/server";
 import { abortAllDurableObjects, createScheduledController } from "cloudflare:test";
 import { env } from "cloudflare:workers";
@@ -148,9 +148,9 @@ async function fixture(title = "Welcome") {
   );
   proofreadWithDictionary();
   const proofreader = async (headers: Headers = {}): Promise<PatrollerView> =>
-    (await call(router.patrol.get, { projectId }, member(headers))).patrollers.find(
-      (patroller) => patroller.id === "proofreader",
-    )!;
+    (
+      await call(router.patrol.get, { projectId, patrollers: [...PATROLLER_IDS] }, member(headers))
+    ).patrollers.find((patroller) => patroller.id === "proofreader")!;
   const findings = async (headers: Headers = {}) => (await proofreader(headers)).findings;
   const release = (set: TestDefinitionSet) => syncDefinitionSet(db, project, set);
   const drafts = async () =>

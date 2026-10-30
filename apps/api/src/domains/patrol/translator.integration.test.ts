@@ -5,7 +5,7 @@ import {
   LOCALE_HEADER,
 } from "@camox/api-contract/drafts";
 import { generateUuidv7 } from "@camox/api-contract/ids";
-import type { PatrollerView } from "@camox/api-contract/patrol";
+import { PATROLLER_IDS, type PatrollerView } from "@camox/api-contract/patrol";
 import { queryKeys } from "@camox/api-contract/query-keys";
 import { call } from "@orpc/server";
 import { describe, expect, it } from "vite-plus/test";
@@ -186,9 +186,9 @@ async function fixture() {
   await publish(locales.headers);
 
   const translator = async (headers: Headers) =>
-    (await call(router.patrol.get, { projectId }, member(headers))).patrollers.find(
-      (patroller) => patroller.id === "translator",
-    )!;
+    (
+      await call(router.patrol.get, { projectId, patrollers: [...PATROLLER_IDS] }, member(headers))
+    ).patrollers.find((patroller) => patroller.id === "translator")!;
   const sentences = (patroller: PatrollerView) =>
     patroller.reports.map(({ summary, outcome, live }) =>
       summary.kind === "text"

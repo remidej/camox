@@ -1,6 +1,6 @@
 import { DRAFT_CREATE_HEADER, DRAFT_HEADER } from "@camox/api-contract/drafts";
 import { generateUuidv7, PAGE_TEXT_LINK_PREFIX } from "@camox/api-contract/ids";
-import type { FindingView, PatrollerView } from "@camox/api-contract/patrol";
+import { PATROLLER_IDS, type FindingView, type PatrollerView } from "@camox/api-contract/patrol";
 import { queryKeys } from "@camox/api-contract/query-keys";
 import { call } from "@orpc/server";
 import { describe, expect, it } from "vite-plus/test";
@@ -157,9 +157,9 @@ async function fixture() {
     for (const job of jobs) await runService(runAiJob(db, job));
   };
   const linkChecker = async (headers: Headers): Promise<PatrollerView> =>
-    (await call(router.patrol.get, { projectId }, member(headers))).patrollers.find(
-      (patroller) => patroller.id === "linkChecker",
-    )!;
+    (
+      await call(router.patrol.get, { projectId, patrollers: [...PATROLLER_IDS] }, member(headers))
+    ).patrollers.find((patroller) => patroller.id === "linkChecker")!;
   const findings = async (headers: Headers) => (await linkChecker(headers)).findings;
   const preview = (draftId: string) =>
     call(router.drafts.previewPublish, { projectId }, member(inDraft(draftId)));
