@@ -116,6 +116,8 @@ function mockApi(
         warnings: [],
         changes: [],
         translating: [],
+        findings: [],
+        checking: [],
         defaultLocale: "en",
         token: "t",
         overview: { status: "none" },
