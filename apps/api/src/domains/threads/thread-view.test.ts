@@ -1,4 +1,5 @@
 import {
+  ARTIFACT_TOOL,
   BUILD_STATUS_ENTRY,
   BUILD_TOOL,
   type BuildStatus,
@@ -24,7 +25,7 @@ import { describe, expect, it } from "vite-plus/test";
 const editor = { id: "user-1", name: "Ada Lovelace", image: null };
 
 /** One of the model's calls of the round, as a snapshot has it. */
-type Tool = { callId: string; name: string; status: string };
+type Tool = { callId: string; name: string; status: string; details?: unknown };
 
 /**
  * A snapshot of a thread whose transcript is `entries`, with no run going unless `running`, the
@@ -362,6 +363,80 @@ describe("a thread's view", () => {
     expect(activity([{ callId: "call-1", name: START_DRAFT_TOOL, status: "running" }])).toBe(
       "startingDraft",
     );
+  });
+
+  it("says what an Artifact Agent does while the agent's artifact call waits for it", () => {
+    const running = (details?: unknown): Tool => ({
+      callId: "call-1",
+      name: ARTIFACT_TOOL,
+      status: "running",
+      details,
+    });
+    const events: AgentEvent[] = [
+      snapshot([editorMessage("Add an orbit")], { running: true, tools: [running()] }),
+      {
+        type: "tool_execution_update",
+        toolCallId: "call-1",
+        toolName: ARTIFACT_TOOL,
+        details: { activity: "checking" },
+      },
+      { type: "tool_execution_end", toolCallId: "call-1", toolName: ARTIFACT_TOOL },
+    ];
+    const activity = (count: number) =>
+      threadViewOf(reduceThreadEvents(EMPTY_THREAD_STATE, events.slice(0, count))).activity;
+    const fromSnapshot = (tool: Tool) =>
+      threadViewOf(
+        reduceThreadEvents(EMPTY_THREAD_STATE, [
+          snapshot([editorMessage("Add an orbit")], { running: true, tools: [tool] }),
+        ]),
+      ).activity;
+
+    expect(activity(1)).toBe("changing");
+    expect(activity(2)).toBe("checking");
+    expect(activity(3)).toBe("thinking");
+    expect(fromSnapshot(running({ activity: "exploring" }))).toBe("exploring");
+  });
+
+  it("ends a turn on an Artifact Agent's answer, as the agent's, only when the call ended it", () => {
+    const delegated = (details: { answer: string; final: boolean }) => [
+      {
+        kind: "pi.assistant",
+        model: [
+          fauxAssistantMessage([fauxToolCall(ARTIFACT_TOOL, { request: "…" })], {
+            stopReason: "toolUse",
+          }),
+        ],
+      },
+      {
+        kind: "pi.tool-result",
+        model: [
+          {
+            role: "toolResult" as const,
+            toolCallId: "call-1",
+            toolName: ARTIFACT_TOOL,
+            content: [{ type: "text" as const, text: details.answer }],
+            details,
+            isError: false,
+            timestamp: 0,
+          },
+        ],
+      },
+    ];
+    const said = (entries: Omit<EntryRecord, "id" | "conversationId">[]) =>
+      threadViewOf(reduceThreadEvents(EMPTY_THREAD_STATE, [snapshot(entries)])).messages.map(
+        (message) => ("text" in message ? message.text : message.from),
+      );
+
+    expect(
+      said([editorMessage("Add an orbit"), ...delegated({ answer: "Drew it.", final: true })]),
+    ).toEqual(["Add an orbit", "Drew it."]);
+    expect(
+      said([
+        editorMessage("Add an orbit"),
+        ...delegated({ answer: "Drew it.", final: false }),
+        answer("Drew it, and fixed the heading."),
+      ]),
+    ).toEqual(["Add an orbit", "Drew it, and fixed the heading."]);
   });
 
   it("ends a Live turn handed off to a draft on the draft's card, as finished", () => {

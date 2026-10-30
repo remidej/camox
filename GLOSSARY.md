@@ -382,6 +382,10 @@ _Avoid_: External agent, client, assistant, integration
 A conversation with Camox's agent, held by editors in the studio and by Connected Agents. Each editor has one thread of their own on Live, kept for good, and each draft has at most one, shared with everyone in it. The agent on Live changes nothing itself: for each request that would, it starts a draft, whose thread takes the request on from a brief. A Connected Agent starts a draft itself, its own message opening the draft's thread.
 _Avoid_: Conversation, chat, session
 
+**Artifact Agent**:
+The part of Camox's agent that writes and changes one artifact's source, remembering every earlier request about it. Editors never see it apart: in a thread, its answers read as the agent's.
+_Avoid_: Subagent, artifact worker, artifact thread
+
 **Brief**:
 What Camox's agent writes when it starts a draft from a Live thread: the context the editor's request depends on, opening the draft's thread ahead of the request itself. Camox writes one too when it opens the Patrol Draft, listing the findings its agent is there to fix, and starts the agent with it.
 _Avoid_: Summary, context note, handoff message
