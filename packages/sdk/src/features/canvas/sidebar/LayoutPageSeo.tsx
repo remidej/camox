@@ -7,6 +7,7 @@ import * as React from "react";
 
 import { useProjectUuid } from "../../../lib/auth";
 import { useOptionalDraftScope } from "../../../lib/draft-scope";
+import { useLatestRevision } from "../../../lib/revisions";
 import { reads, useReadQuery } from "../../../lib/studio-reads";
 import { useLocation } from "../../navigation/navigation";
 import { pageImageUrl } from "../../og/pageImage";
@@ -73,7 +74,8 @@ function Loading() {
 function LayoutPageSeoContent({ target }: { target: LayoutPageTarget }) {
   const projectUuid = useProjectUuid();
   const { pathname } = useLocation();
-  const { scope } = useOptionalDraftScope();
+  const { scope, draftId } = useOptionalDraftScope();
+  const revision = useLatestRevision(draftId);
   // The page's frame reads the same render, with the head its layout's code builds.
   const { data: render, error } = useReadQuery(
     reads.canvasFrame({ projectUuid, pathname, ...target }),
@@ -81,8 +83,9 @@ function LayoutPageSeoContent({ target }: { target: LayoutPageTarget }) {
   if (error) return <p role="alert">{error.message}</p>;
   if (!render) return <Loading />;
   const { title, description } = headMetadata(render.head);
-  // `/og` renders the page in the draft the studio views. `v` only fetches it again on a retitle.
-  const version = new URLSearchParams({ v: `${title}|${description}` });
+  // `/og` renders the page in the draft the studio views. `v` only fetches it again on a retitle
+  // or a new revision of the draft's code, which can change the image its layout renders.
+  const version = new URLSearchParams({ v: `${title}|${description}|${revision ?? ""}` });
   const image = `${pageImageUrl({ origin: "", path: pathname })}&${version.toString()}`;
   const origin = typeof window !== "undefined" ? window.location.origin : "";
 
