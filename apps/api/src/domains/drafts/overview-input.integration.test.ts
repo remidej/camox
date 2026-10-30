@@ -95,7 +95,7 @@ async function fixture() {
   };
   /** Runs the draft's overview job and returns what the model was asked. */
   const overviewRequest = async (draftId: string): Promise<DraftOverviewRequest> => {
-    answerNext("draftOverview", { headline: "A headline", bullets: [] });
+    answerNext("draftOverview", { name: "A name", headline: "A headline", bullets: [] });
     await runService(runOverviewJob(db, { kind: "overview", draftId }));
     const asked = modelCalls().filter((call) => call.method === "draftOverview");
     return asked.at(-1)!.request as DraftOverviewRequest;

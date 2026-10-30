@@ -8,6 +8,7 @@ import { shownRecordPage } from "../preview/pageRecord";
 import { previewStore, selectIsCanvasShown } from "../preview/previewStore";
 import { AgentSidebar } from "../studio/components/AgentSidebar";
 import { Navbar } from "../studio/components/Navbar";
+import { UnnamedDraftBar } from "../studio/components/UnnamedDraftBar";
 import { FollowAgentProvider } from "../studio/FollowAgentProvider";
 import { EditingFallbackContext } from "./editingFallback";
 import type { PageRenderInput } from "./runtime";
@@ -47,6 +48,10 @@ export function RuntimeChrome({
             {/* Kept at a stable position, outside route Suspense and editor imports. */}
             <div hidden={!website} className={input.derived ? undefined : "max-md:hidden"}>
               <PreviewToolbar />
+            </div>
+            {/* Hidden with the navbar, whose pending changes it stands in for. */}
+            <div hidden={website && hidden} className={website ? "max-md:hidden" : undefined}>
+              <UnnamedDraftBar stacked={website} />
             </div>
           </div>
           {/* Outside the route content, so the chat survives leaving the Canvas. */}

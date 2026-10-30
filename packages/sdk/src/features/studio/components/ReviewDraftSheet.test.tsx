@@ -1319,7 +1319,7 @@ void test("explains in plain words why each lost change can't be published", asy
   }
 });
 
-void test("deletes only after a second confirmation, then switches to Live", async (t) => {
+void test("deletes a named draft only after a second confirmation, then switches to Live", async (t) => {
   const calls = mockApi(t, (path) => {
     if (path === "drafts/previewPublish") return json(emptyPreview);
     return json({
@@ -1331,6 +1331,7 @@ void test("deletes only after a second confirmation, then switches to Live", asy
       },
     });
   });
+  drafted = { name: "Spring launch" };
   const close = await openReview();
   try {
     await click(buttonNamed(/Delete draft/));

@@ -18,6 +18,7 @@ import { answerEvery, answerNext, forgetScheduled, scheduled } from "../../../te
 import { forgetSent, refreshes, sentTo } from "../../../test/project-rooms";
 import { type GenerationJob, isTranslationJob } from "../../lib/ai-job-queue";
 import { runAiJob } from "../../lib/ai-jobs";
+import type { DraftOverview } from "../../lib/ai-model";
 import { AiCallError } from "../../lib/retry-ai-call";
 import { runService } from "../../lib/run-service";
 import { router } from "../../router";
@@ -306,12 +307,12 @@ describe("the SEO manager", () => {
   // A Draft Overview is the draft's review, not a patroller's work (ADR 0024).
   it("leaves Draft Overviews out of the Patrol, written or failed", async () => {
     const { db, draft, patrol } = await fixture();
-    const overview = (answer: { headline: string; bullets: string[] } | AiCallError) => {
+    const overview = (answer: DraftOverview | AiCallError) => {
       answerNext("draftOverview", answer);
       return runService(runOverviewJob(db, { kind: "overview", draftId: draft }));
     };
 
-    await overview({ headline: "Renames Pricing", bullets: ["Pricing: renamed"] });
+    await overview({ name: "Pricing", headline: "Renames Pricing", bullets: ["Pricing: renamed"] });
     await overview(new AiCallError({ cause: "Model unavailable" }));
 
     for (const patroller of await patrol()) {

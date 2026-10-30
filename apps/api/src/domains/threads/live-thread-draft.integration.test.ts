@@ -368,6 +368,7 @@ describe("the agent on Live hearing that a draft it started ended", () => {
     const teammate = await addMember(website.db, website.project.organizationId);
     const { draftId, handingOff } = await handedOffDraft(website, token);
     await writeOverview(website, draftId, {
+      name: "Price rise",
       headline: "Plans cost $12",
       bullets: ["The pricing page's price rose from $9 to $12"],
     });

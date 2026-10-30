@@ -1,0 +1,1 @@
+ALTER TABLE `drafts` ADD `overview_name` text;

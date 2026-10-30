@@ -48,11 +48,12 @@ export const runOverviewJob = Effect.fn("drafts.runOverviewJob")(function* (
     yield* Effect.logError(`[overview] ${jobName(job)} failed`, written.failure.cause);
     return yield* failOverview(db, row.projectId, row.id, startedAt);
   }
-  const { headline, bullets } = written.success;
+  const { name, headline, bullets } = written.success;
   yield* Effect.promise(() =>
     db
       .update(drafts)
       .set({
+        overviewName: name,
         overviewHeadline: headline,
         overviewBullets: bullets,
         overviewGeneratedAt: Date.now(),

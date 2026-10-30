@@ -139,7 +139,7 @@ describe("a draft's overview", () => {
     expect(overviewJobs(draft).at(-1)!.delayMs).toBeGreaterThan(seo!.delayMs);
   });
 
-  it("is ready once its job ran, with the model's headline and bullets, written from the draft's name and changes", async () => {
+  it("is ready once its job ran, with the model's name, headline and bullets, written from the draft's name and changes", async () => {
     const { projectId, member, createBlock, editTitle, preview, runOverview } = await fixture();
     const block = await createBlock("Live");
     const draft = generateUuidv7();
@@ -147,12 +147,14 @@ describe("a draft's overview", () => {
     await call(router.drafts.rename, { projectId, name: "Spring" }, member(inDraft(draft)));
 
     await runOverview(draft, {
+      name: "New hero title",
       headline: "Retitles the homepage hero",
       bullets: ["Home: hero retitled"],
     });
 
     expect((await preview(draft)).overview).toEqual({
       status: "ready",
+      name: "New hero title",
       headline: "Retitles the homepage hero",
       bullets: ["Home: hero retitled"],
       stale: false,
@@ -184,7 +186,11 @@ describe("the overview stays current", () => {
     const block = await f.createBlock("Live");
     const draft = generateUuidv7();
     await f.editTitle(block.id, "Mine", startingDraft(draft));
-    await f.runOverview(draft, { headline: "Retitles the hero", bullets: ["Home: hero retitled"] });
+    await f.runOverview(draft, {
+      name: "Hero title",
+      headline: "Retitles the hero",
+      bullets: ["Home: hero retitled"],
+    });
     return { ...f, block, draft };
   }
 
@@ -195,6 +201,7 @@ describe("the overview stays current", () => {
 
     expect((await preview(draft)).overview).toEqual({
       status: "ready",
+      name: "Hero title",
       headline: "Retitles the hero",
       bullets: ["Home: hero retitled"],
       stale: true,
@@ -237,7 +244,11 @@ describe("the overview stays current", () => {
       await readyOverview();
     await editTitle(block.id, "Mine again", inDraft(draft));
     await preview(draft);
-    await runOverview(draft, { headline: "Retitles the hero twice", bullets: ["Home: hero"] });
+    await runOverview(draft, {
+      name: "Hero title",
+      headline: "Retitles the hero twice",
+      bullets: ["Home: hero"],
+    });
     // A write that requests no overview, as a translation job merging into the draft's
     // hand-edited localizations does.
     await db
@@ -259,10 +270,15 @@ describe("the overview stays current", () => {
     await editTitle(block.id, "Mine again", inDraft(draft));
     await preview(draft);
 
-    await runOverview(draft, { headline: "Retitles the hero twice", bullets: ["Home: hero"] });
+    await runOverview(draft, {
+      name: "Hero title, again",
+      headline: "Retitles the hero twice",
+      bullets: ["Home: hero"],
+    });
 
     expect((await preview(draft)).overview).toEqual({
       status: "ready",
+      name: "Hero title, again",
       headline: "Retitles the hero twice",
       bullets: ["Home: hero"],
       stale: false,
@@ -291,7 +307,7 @@ describe("drafts no one reviews get no overview", () => {
     await editTitle(block.id, "Mine", startingDraft(draft));
     await call(router.drafts.delete, { projectId }, member(inDraft(draft)));
 
-    await runOverview(draft, { headline: "Too late", bullets: [] });
+    await runOverview(draft, { name: "Too late", headline: "Too late", bullets: [] });
 
     expect(modelCalls().filter((call) => call.method === "draftOverview")).toEqual([]);
   });
@@ -305,7 +321,11 @@ describe("the overview isn't content", () => {
     await editTitle(block.id, "Mine", startingDraft(draft));
     const before = await preview(draft);
 
-    await runOverview(draft, { headline: "Retitles the hero", bullets: ["Home: hero retitled"] });
+    await runOverview(draft, {
+      name: "Hero title",
+      headline: "Retitles the hero",
+      bullets: ["Home: hero retitled"],
+    });
 
     const after = await preview(draft);
     expect(after.changes).toEqual(before.changes);
