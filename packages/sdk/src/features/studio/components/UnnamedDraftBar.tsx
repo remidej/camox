@@ -1,5 +1,4 @@
 import { Button } from "@camox/ui/button";
-import { ButtonGroup } from "@camox/ui/button-group";
 import { FloatingToolbar } from "@camox/ui/floating-toolbar";
 import { Input } from "@camox/ui/input";
 import {
@@ -48,7 +47,7 @@ export function UnnamedDraftBar({ stacked }: { stacked: boolean }) {
       aria-label="Unnamed draft"
       className={cn(
         // Fixed, so it centers on the viewport like the Preview's toolbar, above it when shown.
-        "animate-in fade-in slide-in-from-bottom-4 fixed w-max gap-1 duration-300",
+        "animate-in fade-in slide-in-from-bottom-4 fixed w-max gap-6 duration-300",
         stacked ? "bottom-16" : "bottom-2",
       )}
     >
@@ -56,7 +55,7 @@ export function UnnamedDraftBar({ stacked }: { stacked: boolean }) {
         <span aria-hidden className="size-2 shrink-0 rounded-full bg-blue-500" />
         {empty ? "No changes yet" : plural(unnamed.changeCount, "pending change")}
       </span>
-      <ButtonGroup aria-label="Draft actions">
+      <div className="flex items-center gap-2">
         <Button
           type="button"
           variant="outline"
@@ -67,13 +66,12 @@ export function UnnamedDraftBar({ stacked }: { stacked: boolean }) {
         <KeepDraft projectId={projectId} draft={unnamed} open={keeping} disabled={empty} />
         <Button
           type="button"
-          variant="outline"
           disabled={empty}
           onClick={() => studioStore.send({ type: "openReviewDraftSheet" })}
         >
           Publish…
         </Button>
-      </ButtonGroup>
+      </div>
     </FloatingToolbar>
   );
 }
