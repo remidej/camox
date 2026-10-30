@@ -648,3 +648,135 @@ describe("the agent's look at a Block Definition", () => {
     ).toEqual([["hero", "mobile"]]);
   });
 });
+
+/** A Layout-only Block Definition with a Settings Schema, which a curated Layout places. */
+const navbarDefinition = {
+  ...heroDefinition,
+  blockId: "navbar",
+  title: "Navbar",
+  description: "The site's navigation",
+  layoutOnly: true,
+};
+
+/**
+ * A draft thread of a website whose code adds a curated Layout `site`, placing a navbar before
+ * its pages' content, beside the Singleton and Derived Layouts of `draftThreadWithLayoutPages`.
+ */
+async function draftThreadWithCuratedLayout() {
+  const opened = await draftThread();
+  const { website } = opened;
+  const before = (body: string) => [{ type: "text", content: { body }, slot: "before" as const }];
+  await syncDefinitionSet(website.db, website.project, {
+    blocks: [textDefinition, navbarDefinition],
+    layouts: [
+      { layoutId: website.layout.layoutId, description: "Default", blocks: [] },
+      {
+        layoutId: "site",
+        description: "",
+        blocks: [{ type: "navbar", content: {}, slot: "before" as const }],
+      },
+      { layoutId: "offers", kind: "singleton", description: "", blocks: before("Offers") },
+      { layoutId: "articles.$slug", kind: "derived", description: "", blocks: before("Blog") },
+    ],
+  });
+  return opened;
+}
+
+describe("the agent's look at a Layout Definition", () => {
+  it("captures the curated Layout alone at its first screen, with its blocks' overrides and a short or tall placeholder", async () => {
+    const { draftId, thread } = await draftThreadWithCuratedLayout();
+    const blocks = { navbar: { content: { title: "Acme" }, settings: { colorScheme: "dark" } } };
+
+    const { results, images } = await look(thread, {
+      targets: [
+        { layoutDefinition: "site", blocks, sizes: ["desktop", "mobile"] },
+        { layoutDefinition: "site", placeholder: "tall", sizes: ["desktop"] },
+      ],
+    });
+    thread.close();
+
+    expect(results).toEqual([
+      { layoutDefinition: "site", blocks, size: "desktop" },
+      { layoutDefinition: "site", blocks, size: "mobile" },
+      { layoutDefinition: "site", placeholder: "tall", size: "desktop" },
+    ]);
+    expect(images).toHaveLength(3);
+    const captures = await browserRunFakes.captures(draftId);
+    expect(
+      captures.map(({ url, size, element }) => {
+        const params = new URL(url).searchParams;
+        const overrides = params.get("blocks");
+        return [
+          params.get("layoutDefinition"),
+          params.get("placeholder"),
+          overrides && JSON.parse(overrides),
+          size,
+          element,
+        ];
+      }),
+    ).toEqual([
+      ["site", "short", blocks, "desktop", undefined],
+      ["site", "short", blocks, "mobile", undefined],
+      ["site", "tall", null, "desktop", undefined],
+    ]);
+  });
+
+  it("fails a target with an override its schema refuses, or for a block the Layout doesn't place, and captures the others", async () => {
+    const { draftId, thread } = await draftThreadWithCuratedLayout();
+    const purple = { navbar: { settings: { colorScheme: "purple" } } };
+    const elsewhere = { footer: { content: { title: "Bye" } } };
+
+    const { results, images } = await look(thread, {
+      targets: [
+        { layoutDefinition: "site", blocks: purple, sizes: ["desktop"] },
+        { layoutDefinition: "site", blocks: elsewhere, sizes: ["desktop"] },
+        { layoutDefinition: "site", sizes: ["mobile"] },
+      ],
+    });
+    thread.close();
+
+    expect(results).toEqual([
+      {
+        layoutDefinition: "site",
+        blocks: purple,
+        size: "desktop",
+        error: expect.stringContaining("colorScheme"),
+      },
+      {
+        layoutDefinition: "site",
+        blocks: elsewhere,
+        size: "desktop",
+        error: expect.stringContaining("footer"),
+      },
+      { layoutDefinition: "site", size: "mobile" },
+    ]);
+    expect(images).toHaveLength(1);
+    expect((await browserRunFakes.captures(draftId)).map(({ size }) => size)).toEqual(["mobile"]);
+  });
+
+  it("fails an unknown Layout, and a Singleton or Derived Layout with a pointer to its pages, and captures the others", async () => {
+    const { draftId, thread } = await draftThreadWithCuratedLayout();
+
+    const { results } = await look(thread, {
+      targets: [
+        { layoutDefinition: "landing", sizes: ["desktop"] },
+        { layoutDefinition: "offers", sizes: ["desktop"] },
+        { layoutDefinition: "articles.$slug", sizes: ["desktop"] },
+        { layoutDefinition: "site", sizes: ["desktop"] },
+      ],
+    });
+    thread.close();
+
+    expect(results).toEqual([
+      { layoutDefinition: "landing", size: "desktop", error: expect.stringContaining("landing") },
+      { layoutDefinition: "offers", size: "desktop", error: expect.stringMatching(/path/) },
+      { layoutDefinition: "articles.$slug", size: "desktop", error: expect.stringMatching(/path/) },
+      { layoutDefinition: "site", size: "desktop" },
+    ]);
+    expect(
+      (await browserRunFakes.captures(draftId)).map(({ url }) =>
+        new URL(url).searchParams.get("layoutDefinition"),
+      ),
+    ).toEqual(["site"]);
+  });
+});
