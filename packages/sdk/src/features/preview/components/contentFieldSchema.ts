@@ -22,3 +22,8 @@ export function contentFieldSchema(
 ): ContentFieldSchema | undefined {
   return (schema as ContentSchema | null | undefined)?.properties?.[fieldName];
 }
+
+/** The names of a block, repeater item or collection content schema's fields. */
+export function contentFieldNames(schema: unknown): string[] {
+  return Object.keys((schema as ContentSchema | null | undefined)?.properties ?? {});
+}

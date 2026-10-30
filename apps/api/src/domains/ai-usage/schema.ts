@@ -12,7 +12,6 @@ export type AiPurpose =
   | "translation"
   | "merge"
   | "draft_overview"
-  | "proofreading"
   | "web_search"
   | "web_fetch"
   | "sandbox"

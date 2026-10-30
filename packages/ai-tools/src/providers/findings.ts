@@ -27,9 +27,8 @@ export const findingsProvider: ToolProvider = (ctx): ToolDefinition[] => [
       "what the draft changed, like a link to a page that no longer exists, which hold its " +
       "publish until fixed or dismissed by a member. Returns `{ findings }`, the oldest first, " +
       "each with its `id`, the `patroller` that raised it, what it's `about` (by `kind`: " +
-      "`missingPage` and `brokenLink` name the link's `url` and the `text` it reads; " +
-      "`misspelling` and `grammar` the flagged `text` and its `sentence`), the `fix` it " +
-      "suggests or null, and where it is: its `subject` (`entity`, `id`, `name`), `locale` tag " +
+      "`missingPage` and `brokenLink` name the link's `url` and the `text` it reads), the " +
+      "`fix` it suggests or null, and where it is: its `subject` (`entity`, `id`, `name`), `locale` tag " +
       "and content `field`. On Live, lists Live's findings. You can't dismiss a finding: only " +
       "members can, from the Patrol.",
     inputSchema: listInput,
@@ -56,8 +55,7 @@ export const findingsProvider: ToolProvider = (ctx): ToolDefinition[] => [
     name: "applyFindingFix",
     description:
       "Apply the fix a finding of the current draft suggests (its `fix`, from listFindings), as " +
-      "a member would from the Patrol: `removeLink` unwraps the link, keeping its text, and " +
-      "`replaceText` replaces the flagged text with its `replacement`. Returns " +
+      "a member would from the Patrol: `removeLink` unwraps the link, keeping its text. Returns " +
       "`{ applied: true }` once applied, which resolves the finding. When its content changed " +
       "since the finding was raised, nothing is applied and it returns `{ applied: false }`: the " +
       "draft is checked again, so list its findings again later. A finding without a `fix` " +

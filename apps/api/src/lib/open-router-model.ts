@@ -10,7 +10,6 @@ import {
   AiModel,
   type DraftOverviewRequest,
   type MergeRequest,
-  type ProofreadRequest,
   type TranslationContext,
   type TranslationRequest,
 } from "./ai-model";
@@ -156,39 +155,6 @@ export const openRouterModel = (apiKey: string, ledger: UsageLedger = noLedger) 
           }),
         ),
       ),
-
-    proofread: (request) =>
-      retryAiCall("proofread", (abortController, attempt) =>
-        metered("proofreading", attempt, (metering) =>
-          chat({
-            adapter: createOpenRouterText(MODEL, apiKey),
-            abortController,
-            ...metering,
-            outputSchema: z.object({
-              fixes: z.array(
-                z.object({
-                  key: z.string(),
-                  kind: z.enum(["misspelling", "grammar"]),
-                  original: z.string(),
-                  replacement: z.string(),
-                }),
-              ),
-            }),
-            messages: [{ role: "user", content: proofreadPrompt(request) }],
-          }),
-        ).pipe(
-          Effect.map(({ fixes }) => {
-            const texts = new Map(request.texts.map(({ key, text }) => [key, text]));
-            // Only fixes to words a text holds count: the rest can't be applied.
-            return fixes.filter(
-              (fix) =>
-                fix.original !== fix.replacement &&
-                fix.original.trim() !== "" &&
-                (texts.get(fix.key)?.includes(fix.original) ?? false),
-            );
-          }),
-        ),
-      ),
   });
 };
 
@@ -270,26 +236,6 @@ function translationPrompt(request: TranslationRequest) {
       - Return one translation per text, under the text's key
       ${LOCALIZATION_CONSTRAINTS(request.to)}
       ${FORMAT_CONSTRAINTS}
-    </constraints>
-
-    <texts>${JSON.stringify(request.texts)}</texts>
-  `;
-}
-
-function proofreadPrompt(request: ProofreadRequest) {
-  return outdent`
-    <instruction>
-      Proofread texts people wrote for a website, in the "${request.locale}" locale (BCP 47 tag). Find spelling mistakes and clear grammar mistakes only.
-    </instruction>
-
-    <constraints>
-      - Return one fix per mistake, under the key of the text it's in; return no fix for a text without mistakes
-      - "original": the fewest words around the mistake that tell it apart, exactly as they appear in the text, case and punctuation included
-      - "replacement": those words corrected, changing nothing else
-      - "kind": "misspelling" for a misspelled word, "grammar" for a grammar mistake
-      - Leave style, tone, wording and punctuation choices alone: only fix what is wrong
-      - Leave names, brands, products, code, URLs, placeholders such as {{name}} and words you don't know alone
-      - A text may be part of a sentence, such as a link's label: don't fix what it lacks
     </constraints>
 
     <texts>${JSON.stringify(request.texts)}</texts>

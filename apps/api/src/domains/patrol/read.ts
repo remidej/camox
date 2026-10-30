@@ -62,12 +62,7 @@ export const getPatrolInput = z.object({
 const BEFORE_LISTED_PATROLLERS: readonly string[] = ["translator", "seoManager"];
 
 /** The order the Patrol lists patrollers in. */
-const PATROL_ORDER: readonly PatrollerId[] = [
-  "seoManager",
-  "translator",
-  "proofreader",
-  "linkChecker",
-];
+const PATROL_ORDER: readonly PatrollerId[] = ["seoManager", "translator", "linkChecker"];
 
 type ReportRow = typeof reports.$inferSelect;
 
@@ -380,6 +375,7 @@ const openFindingsIn = Effect.fn("patrol.openFindingsIn")(function* (
         subject: { entity: row.entity, id: row.entityId, name: named.name },
         locale: row.locale,
         field: row.field,
+        fieldKind: row.fieldKind,
         raisedAt: row.raisedAt,
         live: row.draftId === null || row.draftId !== viewed?.id,
         place: named.place,
@@ -404,10 +400,23 @@ export const liveFindings = (db: Database, projectId: number) =>
   openFindingsIn(db, projectId, null, [null], new Map());
 
 /**
- * The open findings of the scope the request names, each with its patroller. In the Patrol
- * Draft, Live's findings come after its own, but for those the draft fixed: its agent works on
- * them there (ADR 0034).
+ * The open findings in the scope viewed, as `openFindingsIn` reads them. In the Patrol Draft,
+ * Live's findings come after its own, but for those the draft fixed: its agent works on them
+ * there (ADR 0034).
  */
+const findingsViewedIn = Effect.fn("patrol.findingsViewedIn")(function* (
+  ctx: ServiceContext,
+  projectId: number,
+  viewed: ReturnType<typeof draftIn>,
+  liveScopes: WorkScopes,
+  draftsById: ReadonlyMap<string, Draft>,
+) {
+  const own = yield* openFindingsIn(ctx.db, projectId, viewed, liveScopes, draftsById);
+  if (!viewed || (yield* patrolDraftOf(ctx.db, projectId))?.id !== viewed.id) return own;
+  return [...own, ...(yield* heldIn(ctx, viewed, yield* liveFindings(ctx.db, projectId)))];
+});
+
+/** The open findings of the scope the request names, each with its patroller. */
 export const listFindings = Effect.fn("patrol.listFindings")(function* (
   ctx: ServiceContext,
   rawInput: z.input<typeof getPatrolInput>,
@@ -416,15 +425,7 @@ export const listFindings = Effect.fn("patrol.listFindings")(function* (
   const { scope } = yield* accessTo(ctx, { project: projectId }, "member");
   const viewed = draftIn(scope);
   const { catchUp, scopes } = yield* liveWorkScopes(ctx.db, projectId);
-  const own = yield* openFindingsIn(
-    ctx.db,
-    projectId,
-    viewed,
-    scopes,
-    draftsNamed(viewed, catchUp),
-  );
-  if (!viewed || (yield* patrolDraftOf(ctx.db, projectId))?.id !== viewed.id) return own;
-  return [...own, ...(yield* heldIn(ctx, viewed, yield* liveFindings(ctx.db, projectId)))];
+  return yield* findingsViewedIn(ctx, projectId, viewed, scopes, draftsNamed(viewed, catchUp));
 }, Effect.scoped);
 
 /**
@@ -495,7 +496,7 @@ export const getPatrol = Effect.fn("patrol.get")(function* (
     };
   };
 
-  const findingViews = yield* openFindingsIn(ctx.db, projectId, viewed, liveScopes, draftsById);
+  const findingViews = yield* findingsViewedIn(ctx, projectId, viewed, liveScopes, draftsById);
   const dismissalRows = yield* Effect.promise(() =>
     ctx.db
       .select()

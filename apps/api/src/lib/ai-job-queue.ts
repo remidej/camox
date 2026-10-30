@@ -61,9 +61,9 @@ export type CheckJob = { kind: "check"; patroller: PatrollerId; draftId: string 
 
 /**
  * A run of patrollers' patrols of a project's Live content (ADR 0034), keyed by project: the cron
- * trigger requests one of every patroller patrolling Live for every project every 6 hours, and a
- * release no draft published requests the Proofreader's. Requesting one while another is pending
- * joins it: one run patrols for both, so its new findings are told of once.
+ * trigger requests one of every patroller patrolling Live for every project every 6 hours.
+ * Requesting one while another is pending joins it: one run patrols for both, so its new findings
+ * are told of once.
  */
 export type PatrolJob = { kind: "patrol"; patrollers: readonly PatrollerId[]; projectId: number };
 

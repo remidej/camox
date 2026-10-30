@@ -297,7 +297,7 @@ A problem in a draft that prevents publishing it until it is fixed in the draft,
 _Avoid_: Error, validation failure
 
 **Finding**:
-A problem a patroller raises about content, in what a draft changed or on Live, such as a misspelled word or a link that doesn't work, with the fix it suggests when it has one. A draft's findings prevent publishing it until each is fixed or a member dismisses it, and a dismissed finding is not raised again.
+A problem a patroller raises about content, in what a draft changed or on Live, such as a link that doesn't work, with the fix it suggests when it has one. A draft's findings prevent publishing it until each is fixed or a member dismisses it, and a dismissed finding is not raised again.
 _Avoid_: Issue, warning, flag, suggestion
 
 **Patrol Draft**:

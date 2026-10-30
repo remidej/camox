@@ -16,9 +16,7 @@ import { writeCheck } from "./reports";
 // Patrollers' patrols of Live (ADR 0034): Live changes without an edit when other websites move
 // or close, so patrollers that check what can go wrong that way patrol every project's Live every
 // 6 hours. The cron trigger requests one run per project, of every patroller, so each project's
-// patrol runs on its own, and tells members of what's new once. The Proofreader's patrol reads
-// Live only when it has something to read there (ADR 0034): what a release no draft published
-// wrote, which also requests a run of it, or all of Live on arrival.
+// patrol runs on its own, and tells members of what's new once.
 
 /** The cron trigger of Live's patrols (wrangler.jsonc): every 6 hours. */
 export const LIVE_PATROL_CRON = "0 */6 * * *";
@@ -60,8 +58,6 @@ export const runPatrolJob = Effect.fn("patrol.runPatrolJob")(function* (
   const scope = { projectId: job.projectId, draftId: null };
   for (const patroller of patrolling.filter(({ id }) => job.patrollers.includes(id))) {
     const patrolled = yield* patroller.patrol!(db, job.projectId);
-    // Nothing to read on Live this time: it stays asleep.
-    if (!patrolled) continue;
     yield* writeFindings(db, patroller, scope, patrolled.found, patrolled.checked);
     yield* writeCheck(db, patroller, scope);
   }

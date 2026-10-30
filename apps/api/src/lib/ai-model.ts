@@ -138,32 +138,11 @@ export type DraftOverviewRequest = {
  */
 export type DraftOverview = { name: string; headline: string; bullets: string[] };
 
-/** One text people wrote, to proofread, named by a key its fixes keep. */
-export type ProofreadText = { key: string; text: string };
-
-export type ProofreadRequest = {
-  /** The BCP 47 tag of the locale the texts are written in. */
-  locale: string;
-  texts: readonly ProofreadText[];
-};
-
-/**
- * A small fix to one text: the words it gets wrong, `original`, as they appear in it, and what
- * replaces them. Only spelling and clear grammar mistakes, never style.
- */
-export type ProofreadFix = {
-  key: string;
-  kind: "misspelling" | "grammar";
-  original: string;
-  replacement: string;
-};
-
 /**
  * The model that writes generated values (ADR 0012), translations (ADR 0015) and Draft
- * Overviews, and proofreads (ADR 0034). Each call is
- * bounded: it times out, retries transient failures, and fails with `AiCallError` once it gives
- * up. Requests and jobs get the OpenRouter adapter (`open-router-model.ts`); tests get a scripted
- * one.
+ * Overviews. Each call is bounded: it times out, retries transient failures, and fails with
+ * `AiCallError` once it gives up. Requests and jobs get the OpenRouter adapter
+ * (`open-router-model.ts`); tests get a scripted one.
  */
 export class AiModel extends Context.Service<
   AiModel,
@@ -181,7 +160,5 @@ export class AiModel extends Context.Service<
     readonly draftOverview: (
       request: DraftOverviewRequest,
     ) => Effect.Effect<DraftOverview, AiCallError>;
-    /** Finds spelling and clear grammar mistakes in texts people wrote, each with its fix. */
-    readonly proofread: (request: ProofreadRequest) => Effect.Effect<ProofreadFix[], AiCallError>;
   }
 >()("camox/AiModel") {}

@@ -12,6 +12,7 @@ const finding = (overrides: Partial<FindingView> = {}): FindingView => ({
   subject: { entity: "block", id: "block-1", name: "Footer" },
   locale: "fr",
   field: "body",
+  fieldKind: "String",
   raisedAt: 0,
   live: false,
   place: null,

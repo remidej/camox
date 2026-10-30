@@ -590,6 +590,7 @@ const aboutLink: Finding = {
   subject: { entity: "block", id: blockId, name: "Footer" },
   locale: "en",
   field: "link",
+  fieldKind: "Link",
   raisedAt: Date.UTC(2026, 9, 13),
   live: false,
   place: { kind: "page", pageId: home.id, blockId, itemId: null },

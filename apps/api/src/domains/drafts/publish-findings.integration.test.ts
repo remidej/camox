@@ -158,10 +158,7 @@ describe("the publish preview", () => {
     const draft = await f.deletingAbout();
 
     const before = await f.preview(draft);
-    expect(before.checking).toEqual([
-      { id: "linkChecker", role: "Link checker" },
-      { id: "proofreader", role: "Proofreader" },
-    ]);
+    expect(before.checking).toEqual([{ id: "linkChecker", role: "Link checker" }]);
     expect(before.findings).toEqual([]);
 
     await f.runChecks(draft);
@@ -249,9 +246,7 @@ describe("publishing a draft whose check hasn't read its latest changes", () => 
     const refused = f.publish(draft);
 
     await expect(refused).rejects.toMatchObject({ code: CHECKS_RUNNING_ERROR });
-    await expect(refused).rejects.toThrow(
-      /The Link checker and the Proofreader are still checking the draft/,
-    );
+    await expect(refused).rejects.toThrow(/The Link checker is still checking the draft/);
     await f.runChecks(draft);
     await f.publish(draft);
     expect(
@@ -288,7 +283,7 @@ describe("Camox's agent publishing a draft the patrollers hold", () => {
     expect(result).toMatchObject({
       published: false,
       reason: "checking",
-      preview: { checking: [{ id: "linkChecker" }, { id: "proofreader" }] },
+      preview: { checking: [{ id: "linkChecker" }] },
     });
     expect(await f.aboutOnLive()).toBe(true);
   });

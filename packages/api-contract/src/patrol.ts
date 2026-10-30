@@ -5,7 +5,7 @@
  */
 
 /** Every patroller's stable id. The registry in the API lists them all. */
-export const PATROLLER_IDS = ["translator", "seoManager", "linkChecker", "proofreader"] as const;
+export const PATROLLER_IDS = ["translator", "seoManager", "linkChecker"] as const;
 
 /** A patroller's stable id. */
 export type PatrollerId = (typeof PATROLLER_IDS)[number];
@@ -21,8 +21,7 @@ export type ReportVerb =
   | "describedFile"
   | "publishedCatchUp"
   | "removedLink"
-  | "fixedLink"
-  | "fixedMistake";
+  | "fixedLink";
 
 /** What a report can be about. */
 export type ReportEntity =
@@ -92,14 +91,12 @@ export type ReportView = {
  * What a finding is about (ADR 0034), by its kind:
  * - `missingPage`: a link to a page that doesn't exist, the page's name as it was last known.
  * - `brokenLink`: an external link that failed, and how.
- * - `misspelling`, `grammar`: the flagged text, in the sentence it's in.
  * A link's `url` is as content stores it: a page link's is `camox:page:<id>`, and `text` is what
  * the link reads.
  */
 export type FindingAbout =
   | { kind: "missingPage"; url: string; text: string; page: string | null }
-  | { kind: "brokenLink"; url: string; text: string; failure: LinkFailure }
-  | { kind: "misspelling" | "grammar"; text: string; sentence: string };
+  | { kind: "brokenLink"; url: string; text: string; failure: LinkFailure };
 
 /** How a link failed: an HTTP error status, no connection (DNS included), or no answer in time. */
 export type LinkFailure =
@@ -109,11 +106,8 @@ export type LinkFailure =
 
 export type FindingKind = FindingAbout["kind"];
 
-/**
- * The fix a finding suggests, which applying makes: removing the link, keeping its text, or
- * replacing the flagged text with `replacement` in its sentence, keeping its formatting.
- */
-export type FindingFix = { kind: "removeLink" } | { kind: "replaceText"; replacement: string };
+/** The fix a finding suggests, which applying makes: removing the link, keeping its text. */
+export type FindingFix = { kind: "removeLink" };
 
 /** A finding, open, in the scope viewed. */
 export type FindingView = {
@@ -128,6 +122,8 @@ export type FindingView = {
   locale: string;
   /** The content field it's in, by name. */
   field: string;
+  /** That field's kind, such as "String" or "Link", or null when unknown. */
+  fieldKind: string | null;
   /** When it was first raised, in milliseconds since the epoch. */
   raisedAt: number;
   /** Whether it's Live's. Live's are fixed in the Patrol Draft. */
@@ -153,10 +149,6 @@ function aboutSentence(about: FindingAbout): string {
             : "can't be reached";
       return `links to ${about.url}, which ${how}`;
     }
-    case "misspelling":
-      return "may be misspelled";
-    case "grammar":
-      return "may be a grammar mistake";
   }
 }
 
@@ -166,6 +158,14 @@ function aboutSentence(about: FindingAbout): string {
  */
 export function findingSentence(finding: Pick<FindingView, "about" | "subject">): string {
   return `“${finding.about.text}” in ${finding.subject.name} ${aboutSentence(finding.about)}`;
+}
+
+/**
+ * A finding as one sentence where its content is already shown, as the studio's sidebar shows it
+ * by its field: "“About us” links to About, a page that no longer exists".
+ */
+export function findingSentenceInPlace(finding: Pick<FindingView, "about">): string {
+  return `“${finding.about.text}” ${aboutSentence(finding.about)}`;
 }
 
 /** A member's dismissal of what a finding was about: no finding like it is raised again. */

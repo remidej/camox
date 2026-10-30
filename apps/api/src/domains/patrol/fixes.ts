@@ -17,12 +17,11 @@ import * as overlay from "../drafts/overlay";
 import { draftIn, draftOf, type Draft } from "../drafts/scope";
 import { defaultLocaleTag } from "../locales/default-locale";
 import { updateRepeatableItemContent } from "../repeatable-items/service";
-import { holds, isAboutLink, isAboutText } from "./about";
-import { requestRecheck } from "./checks";
+import { holds, isAboutLink } from "./about";
+import { requestCheck } from "./checks";
 import { holderOf } from "./content";
-import { dismiss, type FindingRow, isCheckedEntity, resolveFinding } from "./findings";
+import { dismiss, type FindingRow, resolveFinding } from "./findings";
 import { patrollerById } from "./patrollers";
-import { withReplacement } from "./proofreader";
 import { subjectKey, writeReport } from "./reports";
 import { findings } from "./schema";
 import { patrolDraftOf } from "./scopes";
@@ -114,10 +113,6 @@ function fixedValue(
       const field = fieldOf(holder.schema, finding.field);
       return field && isAboutLink(about) ? withoutLink(field, value, about.url) : undefined;
     }
-    case "replaceText":
-      return isAboutText(about)
-        ? withReplacement(holder, finding.field, about, fix.replacement)
-        : undefined;
   }
 }
 
@@ -185,10 +180,7 @@ export const applyFix = Effect.fn("patrol.applyFix")(function* (
   });
   const fixed = holder && fixedValue(holder, finding, finding.fix);
   if (fixed === undefined) {
-    if (!live && isCheckedEntity(finding.entity)) {
-      const { entity, entityId: id, locale } = finding;
-      yield* requestRecheck(ctx.db, patroller, scoped, { entity, id, locale });
-    }
+    if (!live) yield* requestCheck(patroller, draft.id, true);
     return { applied: false } satisfies ApplyResult;
   }
   yield* writeField(ctx, scoped, finding, fixed, project.uuid);
@@ -199,7 +191,7 @@ export const applyFix = Effect.fn("patrol.applyFix")(function* (
     key: subjectKey(finding.entity, finding.entityId, finding.locale),
     summary: {
       kind: "structured",
-      verb: finding.fix.kind === "removeLink" ? "removedLink" : "fixedMistake",
+      verb: "removedLink",
       subject: { entity: finding.entity, id: finding.entityId },
       locale: finding.locale,
     },

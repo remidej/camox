@@ -9,8 +9,6 @@ const ABOUT: Record<PatrollerId, string> = {
     "Writes what search engines read: each page's SEO, and each file's alt text and filename.",
   translator:
     "Translates your website from its default language into every other one, so that each stays complete.",
-  proofreader:
-    "Reads the text you write for spelling and grammar mistakes, and suggests a fix for each.",
   linkChecker:
     "Looks for links that lead nowhere, to your own pages or elsewhere, and suggests a fix when it can.",
 };
