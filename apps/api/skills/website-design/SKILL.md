@@ -1,6 +1,6 @@
 ---
 name: website-design
-description: How the website looks. Read before a redesign or rebrand, a new block, or restyling colors, fonts, layout or motion.
+description: How the website looks. Read before building or restructuring a page, a redesign or rebrand, a new block, or restyling colors, fonts, layout or motion.
 ---
 
 # Website design
@@ -38,6 +38,7 @@ Then [check](#4-check).
 
 - **The design holds whatever editors write.** A block is a template that editors refill: try its default content, then each field at its longest and shortest, a repeatable with one item and with twelve, an empty image, and a translation 30% longer. The layout stays intact in all of them.
 - **Every trait in it is a choice.** Each of the [defaults](#defaults) it has is one the subject calls for.
+- **Each page has its own shape.** No block definition follows itself or recurs close by, and each recurring block is set differently and sits among different neighbours ([A page never repeats itself](#principles)).
 - **It meets the floor**: responsive down to a phone, visible keyboard focus, `prefers-reduced-motion` respected, text contrast readable on every scheme it sits on.
 - **It looks right.** When you have `look`, screenshot the pages you changed, on desktop and on a phone, and critique them as the client would. Then remove one accessory: the decoration that serves the subject least.
 
@@ -46,6 +47,7 @@ Then [check](#4-check).
 - **Spend boldness in one place.** One element is the memorable thing; everything around it stays quiet and disciplined.
 - **The hero opens with the most characteristic thing in the subject's world**, in the form that fits it: a headline, an image, an artifact, an interactive moment.
 - **Typography carries the personality.** Set a clear type scale with deliberate weights and spacing, and use a headline's type treatment as part of the design. Keep lines under 80 characters; serif body text gets slightly more line height than sans-serif.
+- **A page never repeats itself.** A visitor who spots the same structure coming back is bored by it. Never place a block definition twice in a row, and keep its placements on a page far apart, with several other blocks between them. When a page needs more sections than the existing block definitions can space out, write new block definitions for the extra ones, shaped for their content: a new block is the expected cost of a long page. Across the website, vary which blocks open each page and which follow each other, so pages don't share a skeleton. Each time a block definition recurs, set its Block Settings unlike its nearest other placement, such as another layout, color scheme or media side.
 - **Structure is information.** Borders, numbering, eyebrows, dividers and labels each encode something about the content. Number items only when they are a sequence, such as steps or a timeline.
 - **Motion draws attention once.** One orchestrated moment, such as a page-load sequence or one reveal, lands better than effects on every section. Motion answering a visitor's action (opening, expanding, confirming) shows what changed.
 - **Copy is design.** Write about the subject, specifically, in plain words from the visitor's side: say what something is or does rather than selling it. A button says what happens when it's clicked. Sentence case, no filler.
