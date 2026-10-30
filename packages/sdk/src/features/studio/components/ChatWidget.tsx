@@ -14,7 +14,7 @@ import { FollowAgentContext } from "../followAgentContext";
 import { studioStore } from "../studioStore";
 import { useEditorSelection } from "../useEditorSelection";
 import { ConnectAgent } from "./ConnectAgent";
-import { ThreadComposer } from "./ThreadComposer";
+import { type ComposerCarrier, ThreadComposer, useComposerCarrier } from "./ThreadComposer";
 import { ThreadMessages } from "./ThreadMessages";
 
 /**
@@ -53,6 +53,8 @@ function CurrentThread() {
   const draftId = useCurrentDraftId();
   const draftScope = useDraftScope();
   const navigate = useNavigate();
+  // Switching threads remounts the composer: the next one goes on where the editor was.
+  const composerCarry = useComposerCarrier();
   // Only a studio still on Live enters the draft its request was handed off to.
   const enterDraft = React.useCallback(
     (started: string) => draftScope.enterStarted(started),
@@ -81,6 +83,7 @@ function CurrentThread() {
       draftId={draftId}
       onEnterDraft={enterDraft}
       onOpenDraft={openDraft}
+      composerCarry={composerCarry}
     />
   );
 }
@@ -91,12 +94,14 @@ function Thread({
   draftId,
   onEnterDraft,
   onOpenDraft,
+  composerCarry,
 }: {
   apiUrl: string;
   projectId: number;
   draftId: string | null;
   onEnterDraft: (draftId: string) => void;
   onOpenDraft: (draftId: string) => void;
+  composerCarry: ComposerCarrier;
 }) {
   const { view, sending, send, stop, error, touched } = useThread(apiUrl, projectId, draftId, {
     onEnterDraft,
@@ -142,6 +147,7 @@ function Thread({
         onClearSelection={() => selectionKey !== null && setCleared(selectionKey)}
         running={view.running}
         filled={asked ?? undefined}
+        carry={composerCarry}
       />
     </>
   );

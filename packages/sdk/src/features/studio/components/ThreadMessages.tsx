@@ -29,7 +29,7 @@ import { ThreadMarkdown } from "./ThreadMarkdown";
  * agent does, never how: thinking, looking around, making changes, building, fixing the build,
  * or starting a draft. Each editor's message shows its
  * sender's avatar, without their name. A Live turn handed off to a draft ends on the draft's
- * card, which `onOpenDraft` opens.
+ * card, which `onOpenDraft` opens. The thread keeps its end in view, unless the editor scrolls up.
  */
 export function ThreadMessages({
   view,
@@ -57,7 +57,10 @@ export function ThreadMessages({
   }
 
   return (
-    <MessageScrollerProvider>
+    // The thread follows its end as the agent works, or as anything else arrives, until the editor
+    // scrolls up; scrolling back down follows again. A studio that lands on a run in progress, or
+    // shows the chat after it was hidden, shows its end, where the agent is at work.
+    <MessageScrollerProvider autoScroll>
       <MessageScroller className="min-h-0 flex-1">
         <MessageScrollerViewport>
           <MessageScrollerContent className="flex flex-col gap-4 px-2 py-3">
@@ -337,8 +340,8 @@ function ThreadMessageRow({
 }
 
 /**
- * A message's text, cropped past its fourth line: the next ones fade out, above a button that
- * shows it all. A message that fits shows as is.
+ * A message's text, cropped past five lines and a half, fading out gently from its second line,
+ * above a button that shows it all. A message that fits shows as is.
  */
 function CroppedText({ text }: { text: string }) {
   const node = React.useRef<HTMLDivElement>(null);
@@ -349,9 +352,17 @@ function CroppedText({ text }: { text: string }) {
     if (!element || expanded) return;
     const measure = () => setOverflows(element.scrollHeight > element.clientHeight + 1);
     measure();
-    const observer = new ResizeObserver(measure);
-    observer.observe(element);
-    return () => observer.disconnect();
+    const resizes = new ResizeObserver(measure);
+    resizes.observe(element);
+    // The scroller skips laying out messages out of view (`content-visibility: auto`), and a
+    // skipped message's resizes are never observed: one measured while hidden, at no size, would
+    // stay uncropped. It's measured again as it comes into view.
+    const views = new IntersectionObserver(measure);
+    views.observe(element);
+    return () => {
+      resizes.disconnect();
+      views.disconnect();
+    };
   }, [text, expanded]);
   const cropped = !expanded && overflows;
   return (
@@ -362,7 +373,7 @@ function CroppedText({ text }: { text: string }) {
         className={cn(
           "whitespace-pre-wrap",
           !expanded && "max-h-[5.5lh] overflow-hidden",
-          cropped && "mask-[linear-gradient(to_bottom,black_4lh,transparent)]",
+          cropped && "mask-[linear-gradient(to_bottom,black_1.5lh,transparent)]",
         )}
       >
         {text}
