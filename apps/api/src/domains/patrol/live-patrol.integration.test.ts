@@ -1,16 +1,17 @@
-import { DRAFT_CREATE_HEADER, DRAFT_HEADER } from "@camox/api-contract/drafts";
+import { CAMOX_ACTOR, DRAFT_CREATE_HEADER, DRAFT_HEADER } from "@camox/api-contract/drafts";
 import { generateUuidv7, PAGE_TEXT_LINK_PREFIX } from "@camox/api-contract/ids";
 import type { FindingView, PatrollerView } from "@camox/api-contract/patrol";
 import { call } from "@orpc/server";
-import { createScheduledController } from "cloudflare:test";
+import { abortAllDurableObjects, createScheduledController } from "cloudflare:test";
 import { env } from "cloudflare:workers";
-import { describe, expect, it } from "vite-plus/test";
+import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 
 import {
   callSeedingLive,
   createProjectFixture,
   createRpcContext,
   reviewed,
+  runAllChecks,
   seedLive,
 } from "../../../test/fixtures";
 import {
@@ -20,6 +21,14 @@ import {
   scheduledPatrols,
 } from "../../../test/generation";
 import { answerLink, linkFetches, outsideUrl } from "../../../test/link-fetches";
+import {
+  answerFrom,
+  answerNext,
+  answerWithScript,
+  forgetThreadModel,
+  threadModelCalls,
+} from "../../../test/thread-model";
+import { connectDraftThread, said as saidIn, signIn } from "../../../test/threads";
 import { runAiJob } from "../../lib/ai-jobs";
 import { runService } from "../../lib/run-service";
 import { router } from "../../router";
@@ -32,6 +41,17 @@ import { LIVE_PATROL_CRON } from "./live-patrol";
 
 // The Link checker's patrol of Live (ADR 0034), through the cron entry: every 6 hours it checks
 // every project's Live links, and the Patrol on Live says what it found.
+
+// The Patrol Draft's agent runs on pi-ai's fake provider, scripted per test.
+vi.mock("../../lib/thread-model", async () => {
+  const { testThreadModel } = await import("../../../test/thread-model");
+  return { threadModel: testThreadModel };
+});
+
+afterEach(async () => {
+  await abortAllDurableObjects();
+  forgetThreadModel();
+});
 
 type Headers = Record<string, string>;
 const startingDraft = (id: string): Headers => ({ [DRAFT_HEADER]: id, [DRAFT_CREATE_HEADER]: "1" });
@@ -128,10 +148,43 @@ async function fixture() {
     forgetScheduledChecks(draftId);
     for (const job of jobs) await runService(runAiJob(db, job));
   };
+  /** A footer on Live linking to a page Live no longer has, as a release leaves it. */
+  const goneLink = async (pathSegment: string, text: string) => {
+    const page = await createPage(pathSegment);
+    const footer = await liveFooter({ link: { type: "page", text, pageId: page.id } });
+    await runService(overlay.remove(db, RELEASE, pages, page.id));
+    return footer;
+  };
+  const drafts = async () =>
+    (await call(router.drafts.list, { projectId }, member())).drafts.map((draft) => ({
+      id: draft.id,
+      name: draft.name,
+      createdBy: draft.createdBy,
+    }));
+  /** Connects to a draft's thread as the member, once its agent is done with `messages`. */
+  const threadOf = async (draftId: string, messages: number) => {
+    const thread = await connectDraftThread(projectId, draftId, await signIn(db, memberUser.id));
+    await thread.untilIdle(messages);
+    return thread;
+  };
+  /** Calls one of Camox's agent's tools as the member, in `headers`' scope. */
+  const tool = async (name: string, args: unknown, headers: Headers = {}) => {
+    const response = (await call(
+      router.agent.callTool,
+      { projectId, name, arguments: args },
+      member(headers),
+    )) as { ok: true; result: any } | { ok: false; error: unknown };
+    if (!response.ok) throw new Error(`${name} failed: ${JSON.stringify(response.error)}`);
+    return response.result;
+  };
   return {
     ...base,
     projectId,
     member,
+    goneLink,
+    drafts,
+    threadOf,
+    tool,
     runChecksOf,
     createPage,
     home,
@@ -322,5 +375,136 @@ describe("Live's findings", () => {
 
     expect(await f.findings()).toEqual([]);
     expect((await f.linkChecker()).dismissals).toHaveLength(1);
+  });
+});
+
+describe("the Patrol Draft", () => {
+  const PATROL_DRAFT = { name: "Patrol", createdBy: { id: CAMOX_ACTOR, name: "Camox" } };
+
+  it("opens when a Live run raises new findings, started by Camox, its thread opening with a Brief that lists them", async () => {
+    const f = await fixture();
+    await f.goneLink("about", "About us");
+    answerNext("I'll look into it.");
+
+    await patrolLive(f.db);
+
+    const drafts = await f.drafts();
+    expect(drafts).toEqual([{ id: expect.any(String), ...PATROL_DRAFT }]);
+    const [brief, answer] = saidIn((await f.threadOf(drafts[0]!.id, 2)).view());
+    // The footer, as the Patrol names it.
+    const [{ subject }] = (await f.findings()) as [FindingView];
+    expect(brief).toEqual({
+      from: "camox",
+      text: expect.stringContaining(
+        `“About us” in ${subject.name} links to a page, which no longer exists`,
+      ),
+    });
+    expect(answer).toEqual({ from: "agent", text: "I'll look into it." });
+  });
+
+  it("takes a later run's new findings into its thread, and no second one opens", async () => {
+    const f = await fixture();
+    await f.goneLink("about", "About us");
+    answerNext("On it.");
+    await patrolLive(f.db);
+    const [draft] = await f.drafts();
+    (await f.threadOf(draft!.id, 2)).close();
+
+    await f.goneLink("team", "Our team");
+    answerNext("On that one too.");
+    await patrolLive(f.db);
+
+    expect(await f.drafts()).toEqual([draft]);
+    const messages = saidIn((await f.threadOf(draft!.id, 4)).view());
+    const [, { subject }] = (await f.findings()) as [FindingView, FindingView];
+    expect(messages.slice(2)).toEqual([
+      {
+        from: "camox",
+        text: expect.stringContaining(
+          `“Our team” in ${subject.name} links to a page, which no longer exists`,
+        ),
+      },
+      { from: "agent", text: "On that one too." },
+    ]);
+    expect(messages[2]).not.toEqual({ from: "camox", text: expect.stringContaining("About us") });
+  });
+
+  it("isn't opened or told anything by a run that raises nothing new", async () => {
+    const f = await fixture();
+    await f.liveFooter({ link: external(outsideUrl("fine")) });
+    await patrolLive(f.db);
+    expect(await f.drafts()).toEqual([]);
+
+    await f.goneLink("about", "About us");
+    answerNext("On it.");
+    await patrolLive(f.db);
+    const [draft] = await f.drafts();
+    (await f.threadOf(draft!.id, 2)).close();
+    const calls = threadModelCalls();
+
+    await patrolLive(f.db);
+
+    expect(await f.drafts()).toEqual([draft]);
+    expect(saidIn((await f.threadOf(draft!.id, 2)).view())).toHaveLength(2);
+    expect(threadModelCalls()).toBe(calls);
+  });
+
+  it("has its agent, acting for Camox, apply Live's suggested fixes in the draft, leaving Live as it is", async () => {
+    const f = await fixture();
+    const footer = await f.goneLink("about", "About us");
+    answerWithScript(`
+      const { findings } = await tools.listFindings({});
+      for (const finding of findings) {
+        if (finding.fix) await tools.applyFindingFix({ findingId: finding.id });
+      }
+      text(findings.map((finding) => finding.about.text).join(", "));
+    `);
+    answerFrom(({ scriptOutput }) => `Fixed: ${scriptOutput}`);
+
+    await patrolLive(f.db);
+
+    const [draft] = await f.drafts();
+    const [, answer] = saidIn((await f.threadOf(draft!.id, 2)).view());
+    expect(answer).toEqual({ from: "agent", text: "Fixed: About us" });
+    const linkIn = async (headers: Headers) =>
+      (await f.tool("getBlock", { id: footer.id }, headers)).block.content.link;
+    expect(await linkIn(inDraft(draft!.id))).toEqual({
+      type: "external",
+      href: "",
+      text: "About us",
+    });
+    expect(await linkIn({})).toEqual(expect.objectContaining({ type: "page", text: "About us" }));
+    // What's fixed in the draft is no longer listed there, though Live still has it till published.
+    expect((await f.tool("listFindings", {}, inDraft(draft!.id))).findings).toEqual([]);
+    expect(await f.findings()).toHaveLength(1);
+  });
+
+  it("is never published by Camox, even once its checks settle with nothing to hold it", async () => {
+    const f = await fixture();
+    await f.goneLink("about", "About us");
+    answerWithScript(`
+      const { findings } = await tools.listFindings({});
+      for (const finding of findings) await tools.applyFindingFix({ findingId: finding.id });
+    `);
+    answerNext("Fixed.");
+    await patrolLive(f.db);
+    const [draft] = await f.drafts();
+    (await f.threadOf(draft!.id, 2)).close();
+
+    await runAllChecks(f.db);
+
+    expect(await f.drafts()).toEqual([draft]);
+  });
+
+  it("is where Live's findings lead from the Patrol", async () => {
+    const f = await fixture();
+    await f.goneLink("about", "About us");
+    answerNext("On it.");
+    await patrolLive(f.db);
+    const [draft] = await f.drafts();
+
+    const view = await call(router.patrol.get, { projectId: f.projectId }, f.member());
+
+    expect(view.patrolDraft).toEqual({ id: draft!.id, name: "Patrol" });
   });
 });

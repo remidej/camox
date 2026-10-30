@@ -139,16 +139,19 @@ function render(
         onApply={() => {}}
         onAsk={() => {}}
         onDismiss={() => {}}
+        onOpenPatrolDraft={() => {}}
       />
       {opened && (
         <PatrollerDetails
           patroller={opened}
           now={now}
           inDraft={inDraft}
+          patrolDraft={view.patrolDraft}
           onShow={() => {}}
           onApply={() => {}}
           onAsk={() => {}}
           onDismiss={() => {}}
+          onOpenPatrolDraft={() => {}}
         />
       )}
     </>,
@@ -202,38 +205,44 @@ function render(
 }
 
 void test("the Patrol lists patrollers in the order it's given, by role", () => {
-  const shown = render({ patrollers: [seoManager(), translator] });
+  const shown = render({ patrolDraft: null, patrollers: [seoManager(), translator] });
   assert.deepEqual(shown.roles, ["SEO manager", "Translator"]);
 
-  const swapped = render({ patrollers: [translator, seoManager()] });
+  const swapped = render({ patrolDraft: null, patrollers: [translator, seoManager()] });
   assert.deepEqual(swapped.roles, ["Translator", "SEO manager"]);
 });
 
 void test("an idle patroller says when it last worked, and one that never worked says nothing", () => {
-  const shown = render({ patrollers: [seoManager(), translator] });
+  const shown = render({ patrolDraft: null, patrollers: [seoManager(), translator] });
 
   assert.deepEqual(shown.subtitles, ["2 minutes ago", ""]);
 });
 
 void test("in a single-locale project, the Translator invites the editor to add a language, whenever it last worked", () => {
   const worked = { ...translator, lastActivityAt: minutes(2) };
-  const shown = render({ patrollers: [seoManager(), worked] }, { singleLocale: true });
+  const shown = render(
+    { patrolDraft: null, patrollers: [seoManager(), worked] },
+    { singleLocale: true },
+  );
 
   assert.deepEqual(shown.subtitles, ["2 minutes ago", "Add a language to translate into"]);
 });
 
 void test("a patroller's reports are closed until opened", () => {
-  const closed = render({ patrollers: [seoManager(), translator] });
+  const closed = render({ patrolDraft: null, patrollers: [seoManager(), translator] });
   assert.deepEqual(closed.reports("seoManager"), []);
   assert.equal(closed.openRole, "");
 
-  const opened = render({ patrollers: [seoManager(), translator] }, { open: "seoManager" });
+  const opened = render(
+    { patrolDraft: null, patrollers: [seoManager(), translator] },
+    { open: "seoManager" },
+  );
   assert.equal(opened.reports("seoManager").length, 3);
   assert.equal(opened.openRole, "SEO manager");
 });
 
 void test("an open patroller's reports read as sentences, failures as failures, with short times", () => {
-  const shown = render({ patrollers: [seoManager()] }, { open: "seoManager" });
+  const shown = render({ patrolDraft: null, patrollers: [seoManager()] }, { open: "seoManager" });
 
   assert.deepEqual(shown.reports("seoManager"), [
     "Wrote SEO for Pricing in German 2m",
@@ -243,7 +252,10 @@ void test("an open patroller's reports read as sentences, failures as failures, 
 });
 
 void test("Live's reports carry a Live tag in a draft only", () => {
-  const shown = render({ patrollers: [seoManager()] }, { open: "seoManager", inDraft: false });
+  const shown = render(
+    { patrolDraft: null, patrollers: [seoManager()] },
+    { open: "seoManager", inDraft: false },
+  );
 
   assert.equal(shown.reports("seoManager")[2], "Described team.png in English 1h");
 });
@@ -268,7 +280,7 @@ void test("the Translator's reports read as translations, merges with Live's inc
     }),
   ];
   const shown = render(
-    { patrollers: [{ ...translator, lastActivityAt: minutes(2), reports }] },
+    { patrolDraft: null, patrollers: [{ ...translator, lastActivityAt: minutes(2), reports }] },
     { open: "translator" },
   );
 
@@ -283,7 +295,7 @@ void test("the Translator's reports read as translations, merges with Live's inc
 void test("an AI-written report shows as written", () => {
   const written = report("4", { summary: { kind: "text", text: "Checked every link on Pricing" } });
   const shown = render(
-    { patrollers: [seoManager({ reports: [written] })] },
+    { patrolDraft: null, patrollers: [seoManager({ reports: [written] })] },
     { open: "seoManager" },
   );
 
@@ -293,6 +305,7 @@ void test("an AI-written report shows as written", () => {
 void test("the reports not shown are counted by locale", () => {
   const shown = render(
     {
+      patrolDraft: null,
       patrollers: [
         seoManager({
           more: [
@@ -315,7 +328,7 @@ function renderOne(patroller: PatrollerView) {
   const { document } = new Window();
   document.body.innerHTML = renderToString(
     <PatrolRoster
-      view={{ patrollers: [patroller] }}
+      view={{ patrolDraft: null, patrollers: [patroller] }}
       now={now}
       inDraft
       singleLocale={false}
@@ -325,6 +338,7 @@ function renderOne(patroller: PatrollerView) {
       onApply={() => {}}
       onAsk={() => {}}
       onDismiss={() => {}}
+      onOpenPatrolDraft={() => {}}
     />,
   );
   const row = document.querySelector("[data-patroller]")!;
@@ -483,7 +497,10 @@ void test("a patroller off where the editor is shows asleep, and working wheneve
 });
 
 void test("an asleep patroller still opens its popover, with its reports", () => {
-  const shown = render({ patrollers: [seoManager({ duty: "off" })] }, { open: "seoManager" });
+  const shown = render(
+    { patrolDraft: null, patrollers: [seoManager({ duty: "off" })] },
+    { open: "seoManager" },
+  );
 
   assert.equal(shown.openRole, "SEO manager");
   assert.deepEqual(shown.reports("seoManager"), [
@@ -509,7 +526,7 @@ void test("assistive technology hears the working state in words as it changes, 
 });
 
 void test("without a held order, the Patrol shows the order it's given", () => {
-  const view = { patrollers: [translator, seoManager()] };
+  const view = { patrolDraft: null, patrollers: [translator, seoManager()] };
 
   assert.deepEqual(
     inHeldOrder(view, null).patrollers.map(({ id }) => id),
@@ -520,7 +537,10 @@ void test("without a held order, the Patrol shows the order it's given", () => {
 void test("a held order keeps patrollers in place but shows their latest content", () => {
   const working = seoManager({ lastActivityAt: minutes(0) });
 
-  const shown = inHeldOrder({ patrollers: [working, translator] }, ["translator", "seoManager"]);
+  const shown = inHeldOrder({ patrolDraft: null, patrollers: [working, translator] }, [
+    "translator",
+    "seoManager",
+  ]);
 
   assert.deepEqual(
     shown.patrollers.map(({ id }) => id),
@@ -530,7 +550,7 @@ void test("a held order keeps patrollers in place but shows their latest content
 });
 
 void test("a patroller missing from the held order shows after the held ones, and a gone one is dropped", () => {
-  const shown = inHeldOrder({ patrollers: [seoManager(), translator] }, [
+  const shown = inHeldOrder({ patrolDraft: null, patrollers: [seoManager(), translator] }, [
     "translator",
     "gone" as PatrollerView["id"],
   ]);
@@ -542,8 +562,14 @@ void test("a patroller missing from the held order shows after the held ones, an
 });
 
 void test("an open patroller stays open when it moves", () => {
-  const before = render({ patrollers: [seoManager(), translator] }, { open: "translator" });
-  const after = render({ patrollers: [translator, seoManager()] }, { open: "translator" });
+  const before = render(
+    { patrolDraft: null, patrollers: [seoManager(), translator] },
+    { open: "translator" },
+  );
+  const after = render(
+    { patrolDraft: null, patrollers: [translator, seoManager()] },
+    { open: "translator" },
+  );
 
   assert.equal(before.openRole, "Translator");
   assert.equal(after.openRole, "Translator");
@@ -578,7 +604,7 @@ void test("a report leads to where its subject shows, named so, and one without 
     report("6", { summary: { kind: "text", text: "Checked every link on Pricing" } }),
   ];
   const shown = render(
-    { patrollers: [seoManager({ reports })] },
+    { patrolDraft: null, patrollers: [seoManager({ reports })] },
     { open: "seoManager", inDraft: false },
   );
 
@@ -605,7 +631,7 @@ void test("a Live report seen from a draft leads to Live", () => {
       place: { kind: "file", fileId: "file-1" },
     }),
   ];
-  const view = { patrollers: [seoManager({ reports })] };
+  const view = { patrolDraft: null, patrollers: [seoManager({ reports })] };
 
   assert.deepEqual(render(view, { open: "seoManager" }).leads("seoManager"), [
     "Wrote SEO for Pricing in German: show it on Live's Canvas in German",
@@ -618,10 +644,11 @@ void test("a Live report seen from a draft leads to Live", () => {
 });
 
 void test("a patroller that checks at publish says so while idle, and what it's on while working", () => {
-  const idle = render({ patrollers: [linkChecker()] });
+  const idle = render({ patrolDraft: null, patrollers: [linkChecker()] });
   assert.deepEqual(idle.subtitles, ["Checks when you publish"]);
 
   const working = render({
+    patrolDraft: null,
     patrollers: [
       linkChecker({ working: { subject: footer, locales: [{ locale: "en", count: 1 }] } }),
     ],
@@ -631,6 +658,7 @@ void test("a patroller that checks at publish says so while idle, and what it's 
 
 void test("a patroller's open findings are counted at the end of its row, and a row without any shows no count", () => {
   const shown = render({
+    patrolDraft: null,
     patrollers: [
       linkChecker({ findings: [finding(1), finding(2, { field: "link" })] }),
       translator,
@@ -638,12 +666,16 @@ void test("a patroller's open findings are counted at the end of its row, and a 
   });
 
   assert.deepEqual(shown.counts, ["2", ""]);
-  assert.deepEqual(render({ patrollers: [linkChecker({ findings: [finding(1)] })] }).counts, ["1"]);
+  assert.deepEqual(
+    render({ patrolDraft: null, patrollers: [linkChecker({ findings: [finding(1)] })] }).counts,
+    ["1"],
+  );
 });
 
 void test("the popover lists open findings above reports, each with what it's about and its actions", () => {
   const shown = render(
     {
+      patrolDraft: null,
       patrollers: [linkChecker({ findings: [finding(1), finding(2, { place: null, fix: null })] })],
     },
     { open: "linkChecker" },
@@ -666,6 +698,7 @@ void test("the popover lists open findings above reports, each with what it's ab
 void test("a broken link reads its url and how it failed, and is dismissed as a link that's fine", () => {
   const shown = render(
     {
+      patrolDraft: null,
       patrollers: [
         linkChecker({
           findings: [
@@ -695,7 +728,10 @@ void test("a broken link reads its url and how it failed, and is dismissed as a 
 
 void test("Live's findings can't be applied or handed to the agent: they're fixed in the Patrol Draft", () => {
   const shown = render(
-    { patrollers: [linkChecker({ duty: "asYouGo", findings: [finding(1, { live: true })] })] },
+    {
+      patrolDraft: null,
+      patrollers: [linkChecker({ duty: "asYouGo", findings: [finding(1, { live: true })] })],
+    },
     { open: "linkChecker", inDraft: false },
   );
 
@@ -705,9 +741,25 @@ void test("Live's findings can't be applied or handed to the agent: they're fixe
   );
 });
 
+void test("on Live, findings lead to the open Patrol Draft, where they're fixed", () => {
+  const patrolDraft = { id: "draft-1", name: "Patrol" };
+  const shown = render(
+    {
+      patrollers: [linkChecker({ duty: "asYouGo", findings: [finding(1, { live: true })] })],
+      patrolDraft,
+    },
+    { open: "linkChecker", inDraft: false },
+  );
+
+  assert.deepEqual(
+    shown.findings("linkChecker").map(({ actions }) => actions),
+    [["Show", "Open the Patrol Draft", "Dismiss"]],
+  );
+});
+
 void test("the popover shows the history of dismissals: what, who, and when", () => {
   const shown = render(
-    { patrollers: [linkChecker({ dismissals: [dismissal(1)] })] },
+    { patrolDraft: null, patrollers: [linkChecker({ dismissals: [dismissal(1)] })] },
     { open: "linkChecker" },
   );
 
@@ -738,6 +790,7 @@ const proofreader = (overrides: Partial<PatrollerView> = {}): PatrollerView => (
 
 void test("the Proofreader says what it's proofreading, and offers to replace what it flagged", () => {
   const working = render({
+    patrolDraft: null,
     patrollers: [
       proofreader({ working: { subject: welcome, locales: [{ locale: "en", count: 1 }] } }),
     ],
@@ -746,6 +799,7 @@ void test("the Proofreader says what it's proofreading, and offers to replace wh
 
   const shown = render(
     {
+      patrolDraft: null,
       patrollers: [
         proofreader({
           findings: [

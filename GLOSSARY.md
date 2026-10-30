@@ -379,7 +379,7 @@ A conversation with Camox's agent, held by editors in the studio and by Connecte
 _Avoid_: Conversation, chat, session
 
 **Brief**:
-What Camox's agent writes when it starts a draft from a Live thread: the context the editor's request depends on, opening the draft's thread ahead of the request itself.
+What Camox's agent writes when it starts a draft from a Live thread: the context the editor's request depends on, opening the draft's thread ahead of the request itself. Camox writes one too when it opens the Patrol Draft, listing the findings its agent is there to fix, and starts the agent with it.
 _Avoid_: Summary, context note, handoff message
 
 **AI Usage Record**:

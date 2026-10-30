@@ -45,7 +45,8 @@ export const RECONCILE_ENTRY = "camox.reconcile";
 /**
  * The kind of the transcript entry opening a draft's thread a Live thread handed a request off
  * to: the Brief, which the model reads and editors see as from Camox, ahead of the editor's
- * messages.
+ * messages. In a draft Camox opened, such as its Patrol Draft, Camox's own messages are Briefs
+ * too, with their `operationId` as data, and start the agent's run, which acts for Camox.
  */
 export const BRIEF_ENTRY = "camox.brief";
 

@@ -1,3 +1,4 @@
+import { CAMOX_ACTOR } from "@camox/api-contract/drafts";
 import { and, eq, inArray, isNotNull, isNull, type SQL, sql } from "drizzle-orm";
 import { Effect, Exit, type Scope } from "effect";
 
@@ -198,7 +199,8 @@ const authorize = Effect.fn("access.authorize")(function* (ctx: AccessContext, p
   if (!row) return undefined;
   return {
     project: row.project,
-    member: row.memberId != null,
+    // Camox acts in every project, for the runs it starts (`CAMOX_USER`).
+    member: row.memberId != null || userId === CAMOX_ACTOR,
     draft: row.draft,
     defaultLocale: row.defaultLocale,
   };

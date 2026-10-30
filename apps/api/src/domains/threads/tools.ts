@@ -6,6 +6,7 @@ import {
   resolveTools,
   toolProviders,
 } from "@camox/ai-tools";
+import { CAMOX_ACTOR } from "@camox/api-contract/drafts";
 import type { Touch } from "@camox/api-contract/threads";
 import type {
   ToolExecutionApi,
@@ -16,6 +17,7 @@ import { eq } from "drizzle-orm";
 import { Effect } from "effect";
 import { z } from "zod";
 
+import { CAMOX_USER } from "../../authorization";
 import { createDb } from "../../db";
 import { toORPCError } from "../../lib/run-service";
 import { user } from "../../schema";
@@ -81,7 +83,10 @@ export function threadToolDispatch(
   return async ({ name, meta }, args, invocation) => {
     const { projectId, draftId, userId, apiOrigin } = await actor(invocation, meta.kind);
     const db = createDb(env.DB);
-    const acting = await db.select().from(user).where(eq(user.id, userId)).get();
+    const acting =
+      userId === CAMOX_ACTOR
+        ? CAMOX_USER
+        : await db.select().from(user).where(eq(user.id, userId)).get();
     const ctx = agentServiceContext({
       db,
       env,

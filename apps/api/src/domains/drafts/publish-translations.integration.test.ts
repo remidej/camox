@@ -7,8 +7,9 @@ import {
 import { generateUuidv7, PAGE_TEXT_LINK_PREFIX } from "@camox/api-contract/ids";
 import { queryKeys } from "@camox/api-contract/query-keys";
 import { call } from "@orpc/server";
+import { abortAllDurableObjects, createScheduledController } from "cloudflare:test";
 import { env } from "cloudflare:workers";
-import { describe, expect, it } from "vite-plus/test";
+import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 
 import {
   callSeedingLive,
@@ -24,7 +25,9 @@ import {
   answerEvery,
   failEverySchedule,
   forgetScheduled,
+  forgetScheduledPatrols,
   scheduled,
+  scheduledPatrols,
 } from "../../../test/generation";
 import { forgetSent, refreshes, sentTo } from "../../../test/project-rooms";
 import { createDb, type Database } from "../../db";
@@ -34,10 +37,23 @@ import { AiCallError } from "../../lib/retry-ai-call";
 import { runService } from "../../lib/run-service";
 import { router } from "../../router";
 import { blocks, pages } from "../../schema";
+import type { Bindings } from "../../types";
+import worker from "../../worker";
+import { LIVE_PATROL_CRON } from "../patrol/live-patrol";
 
 // Publishing a draft takes every locale live together (ADR 0033): it waits for the draft's
 // pending translations, always. What a release writes on Live is translated in a draft Camox
 // opens, its catch-up draft, which it publishes once the translations are done.
+
+// The Patrol Draft's agent runs on pi-ai's fake provider.
+vi.mock("../../lib/thread-model", async () => {
+  const { testThreadModel } = await import("../../../test/thread-model");
+  return { threadModel: testThreadModel };
+});
+
+afterEach(async () => {
+  await abortAllDurableObjects();
+});
 
 type Headers = Record<string, string>;
 type ToolResponse =
@@ -409,6 +425,23 @@ describe("a release's catch-up draft", () => {
       checking: [],
       findings: [{ locale: "de", about: { kind: "missingPage", url: missing } }],
     });
+  });
+
+  it("opens beside the Patrol Draft, which later releases don't join", async () => {
+    const f = await fixture();
+    await f.release(linkedText("Read ", `${PAGE_TEXT_LINK_PREFIX}${generateUuidv7()}`, "pricing"));
+
+    // The Live patrol finds the link to a missing page, which opens the Patrol Draft.
+    await worker.scheduled(createScheduledController({ cron: LIVE_PATROL_CRON }), env as Bindings);
+    const patrols = scheduledPatrols();
+    forgetScheduledPatrols();
+    for (const job of patrols) await runService(runAiJob(f.db, job));
+    await f.release("Hello");
+
+    const names = (await catchUpDrafts(f))
+      .map((draft) => draft.name)
+      .sort((a, b) => (a ?? "").localeCompare(b ?? ""));
+    expect(names).toEqual(["Patrol", "Translations"]);
   });
 
   it("takes later releases in while it's open rather than opening another", async () => {

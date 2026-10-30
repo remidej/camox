@@ -7,7 +7,7 @@ import type { ServiceContext } from "../_shared/service-context";
 import { hasPendingTranslations } from "../translations/service";
 import * as overlay from "./overlay";
 import { peopleNamed, personOf } from "./people";
-import { drafts, endedDrafts } from "./schema";
+import { type CamoxDraftPurpose, drafts, endedDrafts } from "./schema";
 import { draftOf, type Draft, type DraftScope } from "./scope";
 
 // Drafts' lifecycle outside a request: starting, dropping and finding how one ended. Requests
@@ -50,14 +50,16 @@ export const startDraft = Effect.fn("startDraft")(function* (
     name: string | null;
     threadId?: string | null;
     liveThreadId?: string | null;
+    /** What Camox opens the draft for, when it does. */
+    purpose?: CamoxDraftPurpose;
   },
 ) {
   // Two requests racing to start the same draft both land here; the primary key keeps one.
   // The insert skips an ended draft's id in the same statement, so it can't race an ending.
   const inserted = yield* Effect.promise(() =>
     db.run(sql`
-      insert into ${drafts} (id, project_id, name, created_by, created_at, thread_id, live_thread_id)
-      select ${draft.id}, ${draft.projectId}, ${draft.name}, ${draft.createdBy}, ${Date.now()}, ${draft.threadId ?? null}, ${draft.liveThreadId ?? null}
+      insert into ${drafts} (id, project_id, name, created_by, created_at, thread_id, live_thread_id, purpose)
+      select ${draft.id}, ${draft.projectId}, ${draft.name}, ${draft.createdBy}, ${Date.now()}, ${draft.threadId ?? null}, ${draft.liveThreadId ?? null}, ${draft.purpose ?? null}
       where not exists (select 1 from ${endedDrafts} where ${endedDrafts.id} = ${draft.id})
       on conflict do nothing`),
   );

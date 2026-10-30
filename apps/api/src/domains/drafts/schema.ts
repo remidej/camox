@@ -5,6 +5,9 @@ import { index, int, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-c
 
 import { projects } from "../projects/schema";
 
+/** What Camox opens a draft for (`purpose`): to catch translations up, or to fix Live's findings. */
+export type CamoxDraftPurpose = "catchUp" | "patrol";
+
 /** A draft: a named set of content changes over Live, owned by a project (ADR 0011). */
 export const drafts = sqliteTable(
   "drafts",
@@ -16,6 +19,9 @@ export const drafts = sqliteTable(
     name: text(),
     // The creating user's id. No foreign key, so a departed member's draft survives.
     createdBy: text("created_by").notNull(),
+    // What Camox opened the draft for: its Catch-up Draft, or its Patrol Draft. Null for every
+    // draft a person or their agent started.
+    purpose: text().$type<CamoxDraftPurpose>(),
     createdAt: int("created_at").notNull(),
     // The draft's thread with Camox's agent, set aside when someone first opens it there, or as
     // the agent on Live starts the draft; a thread starts with its first message. It lives in its
@@ -63,10 +69,11 @@ export const drafts = sqliteTable(
   },
   (table) => [
     index("drafts_project_idx").on(table.projectId),
-    // Camox keeps one catch-up draft open per project (ADR 0017): `camox` is `CAMOX_ACTOR`.
-    uniqueIndex("drafts_catch_up_idx")
-      .on(table.projectId)
-      .where(sql`${table.createdBy} = 'camox'`),
+    // Camox keeps one draft open per project for each purpose: one Catch-up Draft (ADR 0017), one
+    // Patrol Draft (ADR 0034).
+    uniqueIndex("drafts_purpose_idx")
+      .on(table.projectId, table.purpose)
+      .where(sql`${table.purpose} is not null`),
   ],
 );
 

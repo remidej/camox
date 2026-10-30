@@ -80,6 +80,7 @@ function ProjectPatrol({ projectId, inDraft }: { projectId: number; inDraft: boo
   const roster = useMovingRows(shown?.patrollers.map(({ id }) => id).join(" "));
   const [openFileId, setOpenFileId] = React.useState<string | null>(null);
   const showReport = useShowReport(inDraft, setOpenFileId);
+  const navigate = useNavigate();
   const applyFix = useMutation(patrolMutations.applyFix());
   const dismissFinding = useMutation(patrolMutations.dismissFinding());
   if (!shown) return null;
@@ -121,6 +122,10 @@ function ProjectPatrol({ projectId, inDraft }: { projectId: number; inDraft: boo
           studioStore.trigger.askAgent({ text: askAgentMessage(finding, patroller.role) });
         }}
         onDismiss={(finding) => dismissFinding.mutate({ projectId, findingId: finding.id })}
+        onOpenPatrolDraft={(draft) => {
+          openReports(null);
+          void navigate({ to: window.location.href, draft: draft.id });
+        }}
       />
       {openFileId && (
         <AssetLightbox
@@ -134,6 +139,9 @@ function ProjectPatrol({ projectId, inDraft }: { projectId: number; inDraft: boo
     </div>
   );
 }
+
+/** The project's open Patrol Draft, as the Patrol names it. */
+type PatrolDraft = NonNullable<PatrolView["patrolDraft"]>;
 
 /** What the Patrol shows where it is: a report's or a finding's subject, in its locale. */
 export type Shown = { place: ReportPlace | null; live: boolean; locale: string | null };
@@ -247,6 +255,7 @@ export function PatrolRoster({
   onApply,
   onAsk,
   onDismiss,
+  onOpenPatrolDraft,
 }: {
   view: PatrolView;
   now: number;
@@ -263,6 +272,8 @@ export function PatrolRoster({
   onAsk: (patroller: PatrollerView, finding: FindingView) => void;
   /** Dismisses a finding for the whole project. */
   onDismiss: (finding: FindingView) => void;
+  /** Opens the Patrol Draft, where Live's findings are fixed. */
+  onOpenPatrolDraft: (draft: PatrolDraft) => void;
 }) {
   return (
     <ul className="flex flex-col gap-px p-1">
@@ -279,6 +290,8 @@ export function PatrolRoster({
           onApply={onApply}
           onAsk={onAsk}
           onDismiss={onDismiss}
+          patrolDraft={view.patrolDraft}
+          onOpenPatrolDraft={onOpenPatrolDraft}
         />
       ))}
     </ul>
@@ -323,6 +336,8 @@ function PatrollerRow({
   onApply,
   onAsk,
   onDismiss,
+  patrolDraft,
+  onOpenPatrolDraft,
 }: {
   patroller: PatrollerView;
   now: number;
@@ -335,6 +350,8 @@ function PatrollerRow({
   onApply: (finding: FindingView) => void;
   onAsk: (patroller: PatrollerView, finding: FindingView) => void;
   onDismiss: (finding: FindingView) => void;
+  patrolDraft: PatrolDraft | null;
+  onOpenPatrolDraft: (draft: PatrolDraft) => void;
 }) {
   const statusId = React.useId();
   const working = patroller.working && workingSentence(patroller.id, patroller.working);
@@ -395,6 +412,8 @@ function PatrollerRow({
             onApply={onApply}
             onAsk={(finding) => onAsk(patroller, finding)}
             onDismiss={onDismiss}
+            patrolDraft={patrolDraft}
+            onOpenPatrolDraft={onOpenPatrolDraft}
           />
         </PopoverContent>
       </Popover>
@@ -419,6 +438,8 @@ export function PatrollerDetails({
   onApply,
   onAsk,
   onDismiss,
+  patrolDraft,
+  onOpenPatrolDraft,
 }: {
   patroller: PatrollerView;
   now: number;
@@ -428,6 +449,9 @@ export function PatrollerDetails({
   /** Fills the draft's chat with the finding, for the agent. */
   onAsk: (finding: FindingView) => void;
   onDismiss: (finding: FindingView) => void;
+  /** The project's open Patrol Draft, where Live's findings are fixed, if any. */
+  patrolDraft: PatrolDraft | null;
+  onOpenPatrolDraft: (draft: PatrolDraft) => void;
 }) {
   return (
     <>
@@ -460,6 +484,16 @@ export function PatrollerDetails({
                 {inDraft && !finding.live && (
                   <Button variant="outline" size="xs" onClick={() => onAsk(finding)}>
                     Ask the agent
+                  </Button>
+                )}
+                {/* On Live, a finding leads to the Patrol Draft, where Camox's agent fixes it. */}
+                {!inDraft && patrolDraft && (
+                  <Button
+                    variant="outline"
+                    size="xs"
+                    onClick={() => onOpenPatrolDraft(patrolDraft)}
+                  >
+                    Open the Patrol Draft
                   </Button>
                 )}
                 <Button variant="ghost" size="xs" onClick={() => onDismiss(finding)}>

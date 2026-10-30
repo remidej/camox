@@ -187,8 +187,14 @@ export type PatrollerView = {
   dismissals: DismissalView[];
 };
 
-/** Every patroller of the registry, the latest activity first; never-worked ones last. */
-export type PatrolView = { patrollers: PatrollerView[] };
+/**
+ * Every patroller of the registry, the latest activity first; never-worked ones last. With the
+ * project's open Patrol Draft, where Live's findings are fixed, if any.
+ */
+export type PatrolView = {
+  patrollers: PatrollerView[];
+  patrolDraft: { id: string; name: string | null } | null;
+};
 
 /** How many reports the Patrol shows of each patroller; the rest are counted. */
 export const REPORTS_SHOWN = 5;

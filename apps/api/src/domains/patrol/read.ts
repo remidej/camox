@@ -36,9 +36,10 @@ import { files } from "../files/schema";
 import { defaultLocaleTag } from "../locales/default-locale";
 import { pages } from "../pages/schema";
 import type { FindingRow } from "./findings";
+import { holdsIn } from "./fixes";
 import { dutyOnLive, PATROLLERS } from "./patrollers";
 import { findingDismissals, findings, patrolChecks, reports } from "./schema";
-import { liveWorkScopes } from "./scopes";
+import { liveWorkScopes, patrolDraftOf } from "./scopes";
 import type { PendingWork, WorkScopes } from "./working";
 
 // The Patrol read (ADR 0024): every patroller of the registry, with its reports in the scope the
@@ -379,7 +380,15 @@ const draftsNamed = (
   return draftsById;
 };
 
-/** The open findings of the scope the request names, each with its patroller. */
+/** Live's own open findings, the oldest first, each with its patroller. */
+export const liveFindings = (db: Database, projectId: number) =>
+  openFindingsIn(db, projectId, null, [null], new Map());
+
+/**
+ * The open findings of the scope the request names, each with its patroller. In the Patrol
+ * Draft, Live's findings come after its own, but for those the draft fixed: its agent works on
+ * them there (ADR 0034).
+ */
 export const listFindings = Effect.fn("patrol.listFindings")(function* (
   ctx: ServiceContext,
   rawInput: z.input<typeof getPatrolInput>,
@@ -388,7 +397,25 @@ export const listFindings = Effect.fn("patrol.listFindings")(function* (
   const { scope } = yield* accessTo(ctx, { project: projectId }, "member");
   const viewed = draftIn(scope);
   const { catchUp, scopes } = yield* liveWorkScopes(ctx.db, projectId);
-  return yield* openFindingsIn(ctx.db, projectId, viewed, scopes, draftsNamed(viewed, catchUp));
+  const own = yield* openFindingsIn(
+    ctx.db,
+    projectId,
+    viewed,
+    scopes,
+    draftsNamed(viewed, catchUp),
+  );
+  if (!viewed || (yield* patrolDraftOf(ctx.db, projectId))?.id !== viewed.id) return own;
+  const live = yield* liveFindings(ctx.db, projectId);
+  const left = yield* Effect.filter(live, (finding) =>
+    holdsIn(ctx, viewed, {
+      entity: finding.subject.entity,
+      entityId: finding.subject.id,
+      locale: finding.locale,
+      field: finding.field,
+      about: finding.about,
+    }),
+  );
+  return [...own, ...left];
 }, Effect.scoped);
 
 /** A draft's open findings, the oldest first: those that hold its publish (ADR 0033). */
@@ -504,5 +531,9 @@ export const getPatrol = Effect.fn("patrol.get")(function* (
   });
   // The latest activity first, those that never worked last, in the registry's order.
   const order = (patroller: PatrollerView) => patroller.lastActivityAt ?? 0;
-  return { patrollers: patrollers.sort((a, b) => order(b) - order(a)) } satisfies PatrolView;
+  const patrolDraft = yield* patrolDraftOf(ctx.db, projectId);
+  return {
+    patrollers: patrollers.sort((a, b) => order(b) - order(a)),
+    patrolDraft: patrolDraft ? { id: patrolDraft.id, name: patrolDraft.name } : null,
+  } satisfies PatrolView;
 }, Effect.scoped);

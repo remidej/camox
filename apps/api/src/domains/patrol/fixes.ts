@@ -23,6 +23,7 @@ import { PATROLLERS } from "./patrollers";
 import { withReplacement } from "./proofreader";
 import { subjectKey, writeReport } from "./reports";
 import { findings } from "./schema";
+import { patrolDraftOf } from "./scopes";
 
 // What members do with a finding (ADR 0034): apply its suggested fix, which edits content as
 // they would, in the draft the finding is in, or dismiss it for the whole project.
@@ -102,7 +103,11 @@ const writeField = Effect.fn("patrol.writeField")(function* (
  * The value of a finding's field once its fix is made, or undefined when the content no longer
  * holds what the finding is about.
  */
-function fixedValue(holder: Holder, finding: FindingRow, fix: FindingFix): unknown {
+function fixedValue(
+  holder: Holder,
+  finding: Pick<FindingRow, "field" | "about">,
+  fix: FindingFix,
+): unknown {
   const value = (holder.content as Record<string, unknown> | null)?.[finding.field];
   const { about } = finding;
   switch (fix.kind) {
@@ -117,11 +122,32 @@ function fixedValue(holder: Holder, finding: FindingRow, fix: FindingFix): unkno
   }
 }
 
+/** What the content of a finding is in a draft, by its subject and field. */
+type FoundIn = Pick<FindingRow, "entity" | "entityId" | "locale" | "field" | "about">;
+
+/** Whether a draft's content still holds what a finding is about: its link, or its sentence. */
+export const holdsIn = Effect.fn("patrol.holdsIn")(function* (
+  ctx: ServiceContext,
+  draft: Draft,
+  finding: FoundIn,
+) {
+  const holder = yield* holderOf(ctx, draftOf(draft), finding.locale, {
+    entity: finding.entity,
+    id: finding.entityId,
+  });
+  const { about } = finding;
+  // Fixing it changes the content only while the content holds it.
+  const fix: FindingFix =
+    "url" in about ? { kind: "removeLink" } : { kind: "replaceText", replacement: about.text };
+  return holder !== undefined && fixedValue(holder, finding, fix) !== undefined;
+});
+
 /**
  * Applies a finding's suggested fix in the request's draft, as the member: only while its
  * content still holds what the finding is about. The finding is then resolved, and its patroller
  * reports the fix. Content that changed since is checked again instead: `applied` is false.
- * Live's findings are fixed in the Patrol Draft, not applied.
+ * Live's findings are fixed in the Patrol Draft, not applied from Live: there, the fix edits the
+ * draft, and the Live finding stays open until a publish takes it off Live and a run sees it.
  */
 export const applyFix = Effect.fn("patrol.applyFix")(function* (
   ctx: ServiceContext,
@@ -134,7 +160,9 @@ export const applyFix = Effect.fn("patrol.applyFix")(function* (
     return yield* new InvalidInputError({ message: "Live's findings are fixed in a draft" });
   }
   const finding = yield* findingOf(ctx, projectId, findingId);
-  if (finding.draftId !== draft.id) return yield* new NotFoundError();
+  const live =
+    finding.draftId === null && (yield* patrolDraftOf(ctx.db, projectId))?.id === draft.id;
+  if (finding.draftId !== draft.id && !live) return yield* new NotFoundError();
   if (!finding.fix) {
     return yield* new InvalidInputError({ message: "This finding suggests no fix" });
   }
@@ -146,14 +174,14 @@ export const applyFix = Effect.fn("patrol.applyFix")(function* (
   });
   const fixed = holder && fixedValue(holder, finding, finding.fix);
   if (fixed === undefined) {
-    if (isCheckedEntity(finding.entity)) {
+    if (!live && isCheckedEntity(finding.entity)) {
       const { entity, entityId: id, locale } = finding;
       yield* requestRecheck(ctx.db, patroller, scoped, { entity, id, locale });
     }
     return { applied: false } satisfies ApplyResult;
   }
   yield* writeField(ctx, scoped, finding, fixed, project.uuid);
-  yield* resolveFinding(ctx.db, finding);
+  if (!live) yield* resolveFinding(ctx.db, finding);
   yield* writeReport(ctx.db, patroller, {
     projectId,
     draftId: draft.id,

@@ -5,6 +5,7 @@ import type { Database } from "../../db";
 import { AiJobQueue, jobName, type PatrolJob } from "../../lib/ai-job-queue";
 import { projects } from "../projects/schema";
 import { writeFindings } from "./findings";
+import { toPatrolDraft } from "./patrol-draft";
 import { PATROLLERS } from "./patrollers";
 import { writeCheck } from "./reports";
 
@@ -65,5 +66,7 @@ export const runPatrolJob = Effect.fn("patrol.runPatrolJob")(function* (
   const { found } = yield* patrol(db, job.projectId);
   const opened = yield* writeFindings(db, patroller, scope, found);
   yield* writeCheck(db, patroller, scope);
+  // What's new goes to the Patrol Draft, where Camox's agent fixes it.
+  yield* toPatrolDraft(db, patroller, job.projectId, opened);
   return opened;
 });

@@ -1,16 +1,16 @@
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { Effect } from "effect";
 
 import type { Database } from "../../db";
 import { catchUpDraftOf, isCatchUpDraft } from "../drafts/catch-up";
-import { drafts } from "../drafts/schema";
+import { type CamoxDraftPurpose, drafts } from "../drafts/schema";
 
 // Which scope a patroller's work shows in, in the Patrol (ADR 0024). Work in a draft is the
 // draft's, except the catch-up draft's, which is Live's: that draft exists only to bring Live's
 // translations up to date (ADR 0017). This is the one place that knows it.
 
 /** The Patrol scope of work done in a draft: Live (null) for the catch-up draft, else its own. */
-export const patrolScopeOf = (draft: { id: string; createdBy: string }) =>
+export const patrolScopeOf = (draft: { id: string; purpose: CamoxDraftPurpose | null }) =>
   isCatchUpDraft(draft) ? null : draft.id;
 
 /**
@@ -25,11 +25,24 @@ export const liveWorkScopes = Effect.fn("patrol.liveWorkScopes")(function* (
   return { catchUp, scopes: [null, ...(catchUp ? [catchUp.id] : [])] as (string | null)[] };
 });
 
+/**
+ * The project's open Patrol Draft's row, if any: the draft Camox opened to fix Live's findings
+ * (`patrol-draft.ts`), whose agent works on them.
+ */
+export const patrolDraftOf = (db: Database, projectId: number) =>
+  Effect.promise(() =>
+    db
+      .select()
+      .from(drafts)
+      .where(and(eq(drafts.projectId, projectId), eq(drafts.purpose, "patrol")))
+      .get(),
+  );
+
 /** A draft's row as the Patrol tells its scope, or undefined once the draft ended. */
 export const patrolDraftRow = (db: Database, draftId: string) =>
   Effect.tryPromise(() =>
     db
-      .select({ id: drafts.id, createdBy: drafts.createdBy })
+      .select({ id: drafts.id, purpose: drafts.purpose })
       .from(drafts)
       .where(eq(drafts.id, draftId))
       .get(),
