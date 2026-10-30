@@ -5,11 +5,12 @@ import { and, eq, isNull } from "drizzle-orm";
 import { describe, expect, it } from "vite-plus/test";
 
 import {
+  callSeedingLive,
   createProjectFixture,
   createRpcContext,
-  syncDefinitionSet,
-  callSeedingLive,
+  runChecks,
   seedLive,
+  syncDefinitionSet,
 } from "../../../test/fixtures";
 import { sentTo } from "../../../test/project-rooms";
 import { router } from "../../router";
@@ -106,8 +107,11 @@ async function fixture() {
 
   const preview = (draftId: string) =>
     call(router.drafts.previewPublish, { projectId }, member(inDraft(draftId)));
-  const publishWith = (draftId: string, token: string) =>
-    call(router.drafts.publish, { projectId, token }, member(inDraft(draftId)));
+  /** Publishes with `token`, once the checks the draft's review requested ran. */
+  const publishWith = async (draftId: string, token: string) => {
+    await runChecks(base.db, draftId);
+    return call(router.drafts.publish, { projectId, token }, member(inDraft(draftId)));
+  };
   const publish = async (draftId: string) => publishWith(draftId, (await preview(draftId)).token);
   const deleteDraft = (draftId: string) =>
     call(router.drafts.delete, { projectId }, member(inDraft(draftId)));

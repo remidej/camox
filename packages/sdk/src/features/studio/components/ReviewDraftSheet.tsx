@@ -1,6 +1,8 @@
 import {
+  CHECKS_RUNNING_ERROR,
   CONFLICTS_CHANGED_ERROR,
   type EndedDraft,
+  FINDINGS_OPEN_ERROR,
   REVISION_CHANGED_ERROR,
   TRANSLATIONS_PENDING_ERROR,
 } from "@camox/api-contract/drafts";
@@ -22,6 +24,7 @@ import { Spinner } from "@camox/ui/spinner";
 import { toast } from "@camox/ui/toaster";
 import { useMutation } from "@tanstack/react-query";
 import {
+  CircleAlert,
   CircleCheck,
   type LucideIcon,
   OctagonX,
@@ -34,12 +37,13 @@ import * as React from "react";
 
 import { getDraftReadClient } from "@/lib/api-client";
 import { useDraftScope } from "@/lib/draft-scope";
-import { draftMutations, type DraftSummary } from "@/lib/queries";
+import { draftMutations, type DraftSummary, patrolMutations } from "@/lib/queries";
 import { cn } from "@/lib/utils";
 
 import { reads, useReadQuery, useStudioCache } from "../../../lib/studio-reads";
 import { previewStore } from "../../preview/previewStore";
 import { draftLabel, plural, timeAgo } from "../draftLabel";
+import { findingSentence, fixLabel } from "../findingSentence";
 import { localeLabel } from "../localeOptions";
 import { type CanvasTarget, useShowInCanvas } from "../showInCanvas";
 
@@ -47,6 +51,7 @@ type Subject = PublishPreview["changes"][number];
 type Problem = PublishPreview["blockers"][number];
 type Conflict = PublishPreview["conflicts"][number];
 type Lost = PublishPreview["lost"][number];
+type Finding = PublishPreview["findings"][number];
 
 const dateFormat = new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric" });
 const listFormat = new Intl.ListFormat("en", { style: "long", type: "conjunction" });
@@ -152,7 +157,7 @@ function Card({
   title: string;
   /** What the member can do about it, under what it says. */
   action?: React.ReactNode;
-  children: React.ReactNode;
+  children?: React.ReactNode;
 }) {
   return (
     <li
@@ -164,7 +169,7 @@ function Card({
         <p className="text-sm font-medium" data-card-title>
           {title}
         </p>
-        <div className="text-muted-foreground text-sm">{children}</div>
+        {children && <div className="text-muted-foreground text-sm">{children}</div>}
         {action && <div className="pt-1">{action}</div>}
       </div>
     </li>
@@ -251,6 +256,89 @@ function ProblemCards({
         </ul>
       </Card>,
     ];
+  });
+}
+
+/** Where the Canvas shows a finding: its block or item on its page. */
+function findingTarget(finding: Finding): CanvasTarget | null {
+  const { place } = finding;
+  if (place?.kind !== "page") return null;
+  return {
+    pageId: place.pageId,
+    locale: finding.locale,
+    blockId: place.blockId,
+    itemId: place.itemId,
+    field: place.blockId ? { name: finding.field, kind: null } : null,
+  };
+}
+
+/**
+ * One card per open finding of the draft, which holds its publish (ADR 0033), with the Patrol's
+ * actions: show it in the Canvas, apply its fix, or dismiss it.
+ */
+function FindingCards({
+  projectId,
+  findings,
+  onChanged,
+  onShow,
+}: {
+  projectId: number;
+  findings: Finding[];
+  onChanged: () => void;
+  onShow: (target: CanvasTarget) => void;
+}) {
+  const applyFix = useMutation({
+    ...patrolMutations.applyFix(),
+    onSuccess: ({ applied }) => {
+      if (!applied)
+        toast.info("The text changed since it was checked, so it's being checked again.");
+      onChanged();
+    },
+    onError: (error) => toast.error(error.message || "Could not apply the fix"),
+  });
+  const dismiss = useMutation({
+    ...patrolMutations.dismissFinding(),
+    onSuccess: onChanged,
+    onError: (error) => toast.error(error.message || "Could not dismiss it"),
+  });
+  const busy = applyFix.isPending || dismiss.isPending;
+  return findings.map((finding) => {
+    const target = findingTarget(finding);
+    return (
+      <Card
+        key={finding.id}
+        tone="danger"
+        icon={CircleAlert}
+        title={findingSentence(finding)}
+        action={
+          <span className="flex flex-wrap gap-1">
+            {target && (
+              <Button variant="outline" size="sm" onClick={() => onShow(target)}>
+                Show
+              </Button>
+            )}
+            {finding.fix && (
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={busy}
+                onClick={() => applyFix.mutate({ projectId, findingId: finding.id })}
+              >
+                {fixLabel(finding.fix)}
+              </Button>
+            )}
+            <Button
+              variant="ghost"
+              size="sm"
+              disabled={busy}
+              onClick={() => dismiss.mutate({ projectId, findingId: finding.id })}
+            >
+              Dismiss
+            </Button>
+          </span>
+        }
+      />
+    );
   });
 }
 
@@ -394,9 +482,10 @@ function Cards({
   /** Opens the draft's thread, for a blocker only the agent fixes. */
   onOpenThread: () => void;
 }) {
-  const { blockers, conflicts, lost, changes, defaultLocale } = preview;
+  const { blockers, findings, conflicts, lost, changes, defaultLocale } = preview;
   const warnings = preview.warnings.filter(isShownWarning);
-  if (blockers.length + warnings.length + conflicts.length + lost.length === 0) return null;
+  const count = blockers.length + findings.length + warnings.length + conflicts.length;
+  if (count + lost.length === 0) return null;
   const deleted = new Set(
     changes
       .filter((change) => change.change === "deleted")
@@ -410,6 +499,12 @@ function Cards({
         icon={OctagonX}
         onShow={onShow}
         onOpenThread={onOpenThread}
+      />
+      <FindingCards
+        projectId={projectId}
+        findings={findings}
+        onChanged={onChanged}
+        onShow={onShow}
       />
       <ProblemCards
         problems={warnings}
@@ -493,9 +588,15 @@ const PUBLISH_ABORTED: Record<string, string> = {
   failed: "The publish couldn't finish on Camox's side, and Live is as it was. Try again.",
 };
 
+/** The patrollers still checking the draft: "The Link checker is checking the draft." */
+function checkingSentence(roles: string[]): string {
+  const who = listFormat.format(roles.map((role) => `the ${role}`));
+  return `${who[0]!.toUpperCase()}${who.slice(1)} ${roles.length > 1 ? "are" : "is"} checking the draft.`;
+}
+
 /**
  * What's fine or still running: the draft is up to date with Live, its latest code changes
- * building, its translations, and the page SEO being written.
+ * building, its translations, its patrollers' checks, and the page SEO being written.
  */
 function StatusLines({
   preview,
@@ -505,7 +606,7 @@ function StatusLines({
   /** The website's locales, to tell a multilingual website. */
   locales: { tag: string; isDefault: boolean }[];
 }) {
-  const { conflicts, translating, warnings, code } = preview;
+  const { conflicts, translating, checking, warnings, code } = preview;
   const translations = locales.filter((locale) => !locale.isDefault).map((locale) => locale.tag);
   const seoPages = new Set(
     warnings.filter((warning) => warning.code === "metaTitlePending").map((warning) => warning.id),
@@ -536,6 +637,12 @@ function StatusLines({
             Translated into {listFormat.format(translations.map(localeLabel))}
           </StatusLine>
         )
+      )}
+      {checking.length > 0 && (
+        <StatusLine done={false}>
+          {checkingSentence(checking.map(({ role }) => role))} Publishing waits for{" "}
+          {checking.length > 1 ? "them" : "it"}.
+        </StatusLine>
       )}
       {seoPages > 0 && (
         <StatusLine done={false}>Writing SEO for {plural(seoPages, "page")}…</StatusLine>
@@ -784,6 +891,12 @@ export function ReviewDraftSheet({
         void preview.refetch();
         return;
       }
+      const code = (error as { code?: string }).code;
+      if (code === FINDINGS_OPEN_ERROR || code === CHECKS_RUNNING_ERROR) {
+        toast.info(error.message);
+        void preview.refetch();
+        return;
+      }
       toast.error(error.message || "Could not publish the draft");
       void preview.refetch();
     },
@@ -793,11 +906,14 @@ export function ReviewDraftSheet({
   const headline = data?.overview.status === "ready" ? data.overview.headline : null;
   const busy = publish.isPending;
   // Publishing waits for the draft's latest code changes to build, so they're previewed first,
-  // and for its pending translations, so every locale goes live together (ADR 0033).
+  // for its pending translations, so every locale goes live together, and for its patrollers'
+  // checks and the findings they raised (ADR 0033).
   const ready =
     !!data &&
     data.blockers.length === 0 &&
     data.translating.length === 0 &&
+    data.findings.length === 0 &&
+    data.checking.length === 0 &&
     !data.code?.building &&
     !data.code?.publishing &&
     !busy &&

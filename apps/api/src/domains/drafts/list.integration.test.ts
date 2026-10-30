@@ -5,9 +5,10 @@ import { call } from "@orpc/server";
 import { describe, expect, it } from "vite-plus/test";
 
 import {
+  callSeedingLive,
   createProjectFixture,
   createRpcContext,
-  callSeedingLive,
+  reviewed,
   syncDefinitionSet,
 } from "../../../test/fixtures";
 import { refreshes, sentTo } from "../../../test/project-rooms";
@@ -80,7 +81,7 @@ async function fixture() {
   const publish = async (draftId: string, who: typeof ada = me) =>
     call(
       router.drafts.publish,
-      { projectId, token: (await preview(draftId)).token },
+      { projectId, token: (await reviewed(base.db, draftId, preview(draftId))).token },
       as(who, inDraft(draftId)),
     );
   const deleteDraft = (draftId: string) =>

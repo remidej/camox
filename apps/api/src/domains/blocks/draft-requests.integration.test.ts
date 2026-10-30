@@ -6,10 +6,11 @@ import { eq } from "drizzle-orm";
 import { describe, expect, it } from "vite-plus/test";
 
 import {
-  createProjectFixture,
-  syncDefinitionSet,
-  createRpcContext,
   callSeedingLive,
+  createProjectFixture,
+  createRpcContext,
+  reviewed,
+  syncDefinitionSet,
 } from "../../../test/fixtures";
 import { forgetSent, refreshes, sentTo } from "../../../test/project-rooms";
 import { router } from "../../router";
@@ -276,7 +277,7 @@ describe("block procedures in the draft a request names", () => {
   });
 
   it("names the draft an edit came from in its invalidation, and Live once the draft is published", async () => {
-    const { createBlock, editTitle, member, project } = await fixture();
+    const { db, createBlock, editTitle, member, project } = await fixture();
     const block = await createBlock("Live");
     const draft = generateUuidv7();
     const blockRefreshedIn = (scope: string | null) =>
@@ -290,7 +291,11 @@ describe("block procedures in the draft a request names", () => {
     // Live changes only by publishing (ADR 0009).
     forgetSent(project.id);
     const input = { projectId: project.id };
-    const { token } = await call(router.drafts.previewPublish, input, member(inDraft(draft)));
+    const { token } = await reviewed(
+      db,
+      draft,
+      call(router.drafts.previewPublish, input, member(inDraft(draft))),
+    );
     await call(router.drafts.publish, { ...input, token }, member(inDraft(draft)));
     expect(blockRefreshedIn(null)).toBe(true);
   });

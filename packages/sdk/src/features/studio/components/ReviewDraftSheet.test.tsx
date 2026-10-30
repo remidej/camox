@@ -46,6 +46,8 @@ const home = {
   nickname: "Home",
 };
 
+type Finding = import("@camox/api-contract/patrol").FindingView;
+
 const emptyPreview = {
   blockers: [],
   conflicts: [],
@@ -55,6 +57,8 @@ const emptyPreview = {
     { entity: "block", id: blockId, label: "Hero", owner: home, locale: "en", change: "changed" },
   ],
   translating: [] as string[],
+  findings: [] as Finding[],
+  checking: [] as { id: string; role: string }[],
   defaultLocale: "en",
   token: "token-1",
   overview: { status: "pending" } as
@@ -572,6 +576,94 @@ void test("shows blockers first, saying what's wrong and where, and disables Pub
     ]);
     assert.match(dialogText(), /"Author" is required but empty\s*Quote · Home/);
     assert.equal(publishButton()?.disabled, true);
+  } finally {
+    await close();
+  }
+});
+
+/** The Link checker's finding of a footer link to About, which the draft deleted. */
+const aboutLink: Finding = {
+  id: 7,
+  about: { kind: "missingPage", url: "camox:page:about", text: "About us", page: "About" },
+  fix: { kind: "removeLink" },
+  subject: { entity: "block", id: blockId, name: "Footer" },
+  locale: "en",
+  field: "link",
+  raisedAt: Date.UTC(2026, 9, 13),
+  live: false,
+  place: { kind: "page", pageId: home.id, blockId, itemId: null },
+};
+
+void test("lists the draft's open findings with their actions, and disables Publish", async (t) => {
+  mockApi(t, (path) =>
+    path === "drafts/previewPublish" ? json({ ...emptyPreview, findings: [aboutLink] }) : json({}),
+  );
+  const close = await openReview();
+  try {
+    assert.deepEqual(cardTitles(), [
+      "“About us” in Footer links to About, a page that no longer exists",
+    ]);
+    assert.ok(buttonNamed(/^Show$/));
+    assert.ok(buttonNamed(/^Remove the link$/));
+    assert.ok(buttonNamed(/^Dismiss$/));
+    assert.equal(publishButton()?.disabled, true);
+    assert.equal(buttonNamed(/anyway/i), undefined);
+  } finally {
+    await close();
+  }
+});
+
+for (const [action, procedure] of [
+  [/^Remove the link$/, "patrol/applyFix"],
+  [/^Dismiss$/, "patrol/dismissFinding"],
+] as const) {
+  void test(`offers to publish once a finding is cleared with ${procedure}`, async (t) => {
+    let findings = [aboutLink];
+    const calls = mockApi(t, (path) => {
+      if (path === "drafts/previewPublish") return json({ ...emptyPreview, findings });
+      if (path === procedure) {
+        findings = [];
+        return json(path === "patrol/applyFix" ? { applied: true } : {});
+      }
+      return json({});
+    });
+    const close = await openReview();
+    try {
+      await click(buttonNamed(action));
+
+      assert.deepEqual(
+        calls.filter((call) => call.path === procedure).map((call) => [call.input, call.draft]),
+        [[{ projectId: 1, findingId: 7 }, draftId]],
+      );
+      assert.deepEqual(cardTitles(), []);
+      assert.equal(publishButton()?.disabled, false);
+    } finally {
+      await close();
+    }
+  });
+}
+
+void test("shows the draft's checks still running as what publishing waits for, until they settle", async (t) => {
+  let checking = [{ id: "linkChecker", role: "Link checker" }];
+  mockApi(t, (path) =>
+    path === "drafts/previewPublish" ? json({ ...emptyPreview, checking }) : json({}),
+  );
+  const close = await openReview();
+  try {
+    assert.ok(
+      statusLines().includes("The Link checker is checking the draft. Publishing waits for it."),
+    );
+    assert.equal(publishButton()?.disabled, true);
+
+    // The check settles, and the project room refreshes the draft's publish preview.
+    checking = [];
+    await React.act(async () => {
+      await queryClient.invalidateQueries({ queryKey: ["camox", "drafts"] });
+    });
+    await settle();
+
+    assert.doesNotMatch(dialogText(), /checking the draft/);
+    assert.equal(publishButton()?.disabled, false);
   } finally {
     await close();
   }

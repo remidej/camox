@@ -9,9 +9,11 @@ import { call } from "@orpc/server";
 import { describe, expect, it } from "vite-plus/test";
 
 import {
+  callSeedingLive,
   createProjectFixture,
   createRpcContext,
-  callSeedingLive,
+  reviewed,
+  runAllChecks,
   syncDefinitionSet,
   type TestDefinitionSet,
 } from "../../test/fixtures";
@@ -124,7 +126,7 @@ async function fixture() {
   const publish = async (draftId: string) =>
     call(
       router.drafts.publish,
-      { projectId: project.id, token: (await preview(draftId)).token },
+      { projectId: project.id, token: (await reviewed(db, draftId, preview(draftId))).token },
       member(inDraft(draftId)),
     );
 
@@ -134,6 +136,8 @@ async function fixture() {
     forgetScheduled(...jobs.map((job) => job.entityId));
     const keyed = new Map(jobs.map((job) => [JSON.stringify({ ...job, delayMs: 0 }), job]));
     for (const job of keyed.values()) await runService(runAiJob(db, job));
+    // A catch-up draft is published once its checks ran too (ADR 0033).
+    await runAllChecks(db);
   };
   /** Takes German live, translated: the model says each text "auf Deutsch". */
   const publishGerman = async () => {

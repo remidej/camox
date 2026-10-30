@@ -7,6 +7,7 @@ import {
   callSeedingLive,
   createProjectFixture,
   createRpcContext,
+  reviewed,
   runTranslations,
   syncDefinitionSet,
 } from "../../../test/fixtures";
@@ -115,7 +116,7 @@ async function fixture() {
     await runTranslations(db);
     return call(
       router.drafts.publish,
-      { projectId, token: (await preview(id)).token },
+      { projectId, token: (await reviewed(db, id, preview(id))).token },
       member({ [DRAFT_HEADER]: id }),
     );
   };

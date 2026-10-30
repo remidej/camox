@@ -6,6 +6,8 @@ import {
   PUBLISH_BLOCKED_ERROR,
   REVISION_CHANGED_ERROR,
   TRANSLATIONS_PENDING_ERROR,
+  FINDINGS_OPEN_ERROR,
+  CHECKS_RUNNING_ERROR,
 } from "@camox/api-contract/drafts";
 import { ORPCError } from "@orpc/server";
 import { Cause, Effect, Exit, Option } from "effect";
@@ -62,6 +64,14 @@ export function toORPCError(error: ServiceError) {
         status: 409,
         message: error.message,
         data: { translating: error.translating },
+      });
+    case "FindingsOpenError":
+      return new ORPCError(FINDINGS_OPEN_ERROR, { status: 422, message: error.message });
+    case "ChecksRunningError":
+      return new ORPCError(CHECKS_RUNNING_ERROR, {
+        status: 409,
+        message: error.message,
+        data: { checking: error.checking },
       });
   }
 }

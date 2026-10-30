@@ -5,7 +5,14 @@ import { env } from "cloudflare:workers";
 import { afterEach, describe, expect, it, onTestFinished, vi } from "vite-plus/test";
 
 import { callTool, connectAgent, listTools, mcpRequest } from "../../../test/connected-agents";
-import { addMember, createRpcContext, startDraft } from "../../../test/fixtures";
+import {
+  addMember,
+  callSeedingLive,
+  createRpcContext,
+  reviewed,
+  runChecks,
+  startDraft,
+} from "../../../test/fixtures";
 import {
   answerFrom,
   answerNext,
@@ -66,7 +73,11 @@ const inDraft = (website: Website, draftId: string) => ({
 /** Publishes the draft `draftId` of `website`, as its member would in the studio. */
 async function publishDraft(website: Website, draftId: string) {
   const input = { projectId: website.project.id };
-  const { token } = await call(router.drafts.previewPublish, input, inDraft(website, draftId));
+  const { token } = await reviewed(
+    website.db,
+    draftId,
+    call(router.drafts.previewPublish, input, inDraft(website, draftId)),
+  );
   await call(router.drafts.publish, { ...input, token }, inDraft(website, draftId));
 }
 
@@ -75,6 +86,33 @@ async function publishDraft(website: Website, draftId: string) {
  * saying who sent it.
  */
 const lastWritten = (editorMessages: string[]) => editorMessages.at(-1)!.split("\n\n")[0];
+
+/** Rich text, as content stores it: plain text, then a link to `url` reading `label`. */
+const linkedText = (before: string, url: string, label: string) => {
+  const text = (value: string) => ({
+    type: "text",
+    text: value,
+    format: 0,
+    detail: 0,
+    mode: "normal",
+    style: "",
+    version: 1,
+  });
+  const element = { version: 1, direction: "ltr", format: "", indent: 0 };
+  return JSON.stringify({
+    root: {
+      type: "root",
+      ...element,
+      children: [
+        {
+          type: "paragraph",
+          ...element,
+          children: [text(before), { type: "link", url, ...element, children: [text(label)] }],
+        },
+      ],
+    },
+  });
+};
 
 /** What `start_draft` answered, read as the Connected Agent reads it. */
 const answerOf = (result: { isError?: boolean; content: { text: string }[] }) => {
@@ -171,6 +209,41 @@ describe("start_draft", () => {
     );
 
     expect(answer.blockers).toEqual([{ problem: expect.any(String), page: "/pricing" }]);
+  });
+
+  it("answers with the draft's open findings and the checks publishing waits for", async () => {
+    const website = await websiteFixture({ pricing: "Plans start at $9.", about: "About us." });
+    const member = { context: createRpcContext(website.db, website.memberUser) };
+    const pages = await call(router.pages.list, { projectId: website.project.id }, member);
+    const about = pages.find((page) => page.pathSegment === "about")!;
+    const pricing = pages.find((page) => page.pathSegment === "pricing")!;
+    const [block] = (await call(router.blocks.getPageMarkdown, { pageId: pricing.id }, member))
+      .blocks;
+    await callSeedingLive(
+      router.blocks.updateContent,
+      {
+        id: block!.id,
+        content: { body: linkedText("See ", `camox:page:${about.id}`, "about us") },
+      },
+      member,
+    );
+    const { accessToken } = await connectAgent(website.memberUser.id);
+    answerWithScript(`await tools.deletePage({ id: ${JSON.stringify(about.id)} });`);
+    answerNext("Deleted the about page.");
+
+    const answer = answerOf(
+      await callTool(accessToken, "start_draft", { name: "No about", message: "Delete /about." }),
+    );
+
+    expect(answer).toMatchObject({ blockers: [], findings: [], checking: ["Link checker"] });
+    await runChecks(website.db, answer.draft as string);
+    const later = answerOf(
+      await callTool(accessToken, "get_draft", { draft: answer.draft as string }),
+    );
+    expect(later).toMatchObject({
+      checking: [],
+      findings: [{ finding: expect.stringMatching(/“about us”.*no longer exists/) }],
+    });
   });
 
   it("says when the agent's turn failed", async () => {
@@ -437,6 +510,9 @@ describe("get_draft", () => {
       state: "open",
       turnRunning: false,
       blockers: [],
+      findings: [],
+      // The patrollers check once the draft has been idle for a while.
+      checking: ["Link checker"],
       messages: [
         {
           from: "connectedAgent",

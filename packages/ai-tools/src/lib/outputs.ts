@@ -1,5 +1,6 @@
 import { posthogRegionSchema } from "@camox/api-contract/analytics";
 import { PUBLISH_ABORT_REASONS } from "@camox/api-contract/drafts";
+import { PATROLLER_IDS } from "@camox/api-contract/patrol";
 import { z } from "zod";
 
 import { ENTITY_KINDS } from "../../../../apps/api/src/domains/drafts/overlay";
@@ -258,6 +259,47 @@ const problemSchema = z.strictObject({
   message: z.string(),
 });
 
+/** What a finding is about, by its kind (ADR 0034). */
+const findingAboutSchema = z.discriminatedUnion("kind", [
+  z.strictObject({
+    kind: z.literal("missingPage"),
+    url: z.string(),
+    text: z.string(),
+    page: z.string().nullable(),
+  }),
+  z.strictObject({
+    kind: z.literal("brokenLink"),
+    url: z.string(),
+    text: z.string(),
+    failure: z.discriminatedUnion("kind", [
+      z.strictObject({ kind: z.literal("status"), status: z.number() }),
+      z.strictObject({ kind: z.literal("unreachable") }),
+      z.strictObject({ kind: z.literal("timeout") }),
+    ]),
+  }),
+  z.strictObject({
+    kind: z.enum(["misspelling", "grammar"]),
+    text: z.string(),
+    sentence: z.string(),
+  }),
+]);
+
+/** An open finding of a draft, as agents see it: without where the studio shows it. */
+const findingSchema = z.strictObject({
+  id: z.number(),
+  about: findingAboutSchema,
+  fix: z.strictObject({ kind: z.literal("removeLink") }).nullable(),
+  subject: z.strictObject({
+    entity: z.enum(["page", "block", "sharedContent", "repeatableItem", "record", "file"]),
+    id: z.string(),
+    name: z.string(),
+  }),
+  locale: z.string(),
+  field: z.string(),
+  raisedAt: z.number(),
+  live: z.boolean(),
+});
+
 export const publishPreviewSchema = z.strictObject({
   blockers: z.array(problemSchema),
   conflicts: z.array(
@@ -275,6 +317,8 @@ export const publishPreviewSchema = z.strictObject({
     z.strictObject({ ...subjectFields, change: z.enum(["created", "changed", "deleted"]) }),
   ),
   translating: z.array(z.string()),
+  findings: z.array(findingSchema),
+  checking: z.array(z.strictObject({ id: z.enum(PATROLLER_IDS), role: z.string() })),
   defaultLocale: z.string().nullable(),
   token: z.string(),
   code: z

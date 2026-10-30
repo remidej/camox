@@ -8,7 +8,7 @@ import { draftArgument, openOrEndedDraft } from "./draft-ref";
 import { WEBSITE_SCOPE } from "./oauth";
 import type { ConnectedAgentCall } from "./routes";
 import { memberServiceContext, requireScope, toolAnswer, toolRefusal } from "./tools";
-import { blockersOf } from "./turn";
+import { holdsOf } from "./turn";
 
 /**
  * A thread's message as a Connected Agent reads it: who said what, with no tool steps. Pushes
@@ -40,8 +40,9 @@ function messageOf(message: ThreadMessage) {
 
 /**
  * `get_draft`: how a draft stands, for a Connected Agent to follow up on it (ADR 0030): its name
- * and state, and for an open one, whether the agent is working, its Blockers, and its thread's
- * messages from editors, Connected Agents and the agent. An ended draft's thread is gone with it.
+ * and state, and for an open one, whether the agent is working, what holds its publish (its
+ * Blockers, open findings and checks), and its thread's messages from editors, Connected Agents
+ * and the agent. An ended draft's thread is gone with it.
  */
 export function registerGetDraft(server: McpServer, call: ConnectedAgentCall) {
   server.registerTool(
@@ -72,16 +73,16 @@ export function registerGetDraft(server: McpServer, call: ConnectedAgentCall) {
         .from(drafts)
         .where(eq(drafts.id, draft.id))
         .get();
-      const [view, blockers] = await Promise.all([
+      const [view, holds] = await Promise.all([
         row?.threadId ? call.env.THREAD.getByName(row.threadId).view() : undefined,
-        blockersOf(memberServiceContext(call, draft.id), draft.project.id),
+        holdsOf(memberServiceContext(call, draft.id), draft.project.id),
       ]);
       return toolAnswer({
         draft: draft.id,
         name: draft.name,
         state: "open",
         turnRunning: view?.running ?? false,
-        blockers,
+        ...holds,
         messages: view?.messages.flatMap(messageOf) ?? [],
       });
     },

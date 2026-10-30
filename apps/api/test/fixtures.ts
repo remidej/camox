@@ -21,7 +21,13 @@ import type { BaseContext } from "../src/orpc";
 import { router } from "../src/router";
 import { drafts, layouts, member, organizationTable, projects, session, user } from "../src/schema";
 import type { Bindings } from "../src/types";
-import { forgetScheduled, scheduled } from "./generation";
+import {
+  draftsWithScheduledChecks,
+  forgetScheduled,
+  forgetScheduledChecks,
+  scheduled,
+  scheduledChecks,
+} from "./generation";
 
 const now = 1_700_000_000_000;
 
@@ -181,6 +187,7 @@ async function publishThrowaway(db: ReturnType<typeof createDb>, draftId: string
   const context = createRpcContext(db, creator!, { [DRAFT_HEADER]: draftId });
   const input = { projectId: draft.projectId };
   const { token } = await call(router.drafts.previewPublish, input, { context });
+  await runChecks(db, draftId);
   await call(router.drafts.publish, { ...input, token }, { context });
 }
 
@@ -296,4 +303,41 @@ export async function runTranslations(db: ReturnType<typeof createDb>) {
   forgetScheduled(...jobs.map((job) => job.entityId));
   const keyed = new Map(jobs.map((job) => [JSON.stringify({ ...job, delayMs: 0 }), job]));
   for (const job of keyed.values()) await runService(runAiJob(db, job));
+  // A catch-up draft is published once its checks ran too (ADR 0033).
+  await runAllChecks(db);
+}
+
+/**
+ * Runs the patrollers' checks scheduled for a draft, as their alarms would, and forgets them:
+ * those its review requested, which publishing waits for (ADR 0033).
+ */
+export async function runChecks(db: ReturnType<typeof createDb>, draftId: string) {
+  const jobs = scheduledChecks(draftId);
+  forgetScheduledChecks(draftId);
+  for (const job of jobs) await runService(runAiJob(db, job));
+}
+
+/**
+ * A draft's publish preview, `preview`, once the checks its review requested ran: what publishing
+ * waits for (ADR 0033).
+ */
+export async function reviewed<P>(
+  db: ReturnType<typeof createDb>,
+  draftId: string,
+  preview: Promise<P>,
+): Promise<P> {
+  const shown = await preview;
+  await runChecks(db, draftId);
+  return shown;
+}
+
+/**
+ * Runs the patrollers' checks scheduled for every draft, as their alarms would, and forgets them,
+ * until none is left: a catch-up draft Camox publishes once they ran.
+ */
+export async function runAllChecks(db: ReturnType<typeof createDb>) {
+  for (let drafts = draftsWithScheduledChecks(); drafts.length > 0;) {
+    for (const draftId of drafts) await runChecks(db, draftId);
+    drafts = draftsWithScheduledChecks();
+  }
 }

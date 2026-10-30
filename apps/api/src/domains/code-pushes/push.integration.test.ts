@@ -5,7 +5,7 @@ import { eq } from "drizzle-orm";
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 
 import { type Checkout, checkoutOf } from "../../../test/checkouts";
-import { createRpcContext, startDraft } from "../../../test/fixtures";
+import { createRpcContext, reviewed, runChecks, startDraft } from "../../../test/fixtures";
 import { commitToMain, pushToMain, startDeliveringPush } from "../../../test/pushes";
 import {
   broken,
@@ -222,6 +222,7 @@ describe("pushing to an open draft", () => {
     await checkout.commit({ [PRICING_FILE]: PRICING }, "Add a pricing section");
     const first = await push(website, checkout);
     const reviewed = await previewOf(website, first.draftId);
+    await runChecks(website.db, first.draftId);
     await checkout.pull(first.draftId);
     await checkout.commit({ [PRICING_FILE]: `${PRICING}// Monthly\n` }, "Bill monthly");
 
@@ -508,10 +509,10 @@ describe("a refused push", () => {
       { projectId: website.project.id, pathSegment: "pricing", layoutId: website.layout.layoutId },
       inDraft,
     );
-    const { token } = await call(
-      router.drafts.previewPublish,
-      { projectId: website.project.id },
-      inDraft,
+    const { token } = await reviewed(
+      website.db,
+      draftId,
+      call(router.drafts.previewPublish, { projectId: website.project.id }, inDraft),
     );
     await call(router.drafts.publish, { projectId: website.project.id, token }, inDraft);
     await checkout.commit({ [PRICING_FILE]: PRICING });

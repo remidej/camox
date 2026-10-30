@@ -335,6 +335,52 @@ const findingsIn = Effect.fn("patrol.findingsIn")(function* (
   );
 });
 
+/**
+ * The open findings in any of `scopes`, the oldest first, with each one's patroller, as seen from
+ * the draft `viewedId` (none: Live). Those whose subject is gone from their scope are left out.
+ */
+const openFindings = Effect.fn("patrol.openFindings")(function* (
+  db: Database,
+  projectId: number,
+  scopes: WorkScopes,
+  draftsById: ReadonlyMap<string, Draft>,
+  viewedId: string | undefined,
+) {
+  const rows = yield* findingsIn(db, projectId, scopes);
+  const names = yield* nameSubjects(db, projectId, rows, draftsById, findingAt);
+  return rows.flatMap((row) => {
+    const named = names.get(row);
+    if (!named) return [];
+    const view: FindingView = {
+      id: row.rowId,
+      about: row.about,
+      fix: row.fix,
+      subject: { entity: row.entity, id: row.entityId, name: named.name },
+      locale: row.locale,
+      field: row.field,
+      raisedAt: row.raisedAt,
+      live: row.draftId === null || row.draftId !== viewedId,
+      place: named.place,
+    };
+    return [{ patroller: row.patroller, view }];
+  });
+});
+
+/** A draft's open findings, the oldest first: those that hold its publish (ADR 0033). */
+export const draftFindings = Effect.fn("patrol.draftFindings")(function* (
+  db: Database,
+  draft: Draft,
+) {
+  const found = yield* openFindings(
+    db,
+    draft.projectId,
+    [draft.id],
+    new Map([[draft.id, draft]]),
+    draft.id,
+  );
+  return found.map((finding) => finding.view);
+});
+
 /** Newest first; a report written later wins a tie. */
 const newestFirst = (a: ReportRow, b: ReportRow) => b.at - a.at || b.rowId - a.rowId;
 
@@ -388,24 +434,8 @@ export const getPatrol = Effect.fn("patrol.get")(function* (
   };
 
   // Findings in the scope viewed: a draft's own, or on Live, Live's and the catch-up draft's.
-  // Those whose subject is gone are left out.
   const findingScopes = viewed ? [viewed.id] : liveScopes;
-  const findingRows = yield* findingsIn(ctx.db, projectId, findingScopes);
-  const findingNames = yield* nameSubjects(ctx.db, projectId, findingRows, draftsById, findingAt);
-  const findingViewOf = (row: FindingRow): FindingView => {
-    const named = findingNames.get(row)!;
-    return {
-      id: row.rowId,
-      about: row.about,
-      fix: row.fix,
-      subject: { entity: row.entity, id: row.entityId, name: named.name },
-      locale: row.locale,
-      field: row.field,
-      raisedAt: row.raisedAt,
-      live: row.draftId === null || row.draftId !== viewed?.id,
-      place: named.place,
-    };
-  };
+  const found = yield* openFindings(ctx.db, projectId, findingScopes, draftsById, viewed?.id);
   const dismissalRows = yield* Effect.promise(() =>
     ctx.db
       .select()
@@ -444,9 +474,9 @@ export const getPatrol = Effect.fn("patrol.get")(function* (
       lastActivityAt: latest(own[0]?.at, working[index]!.since, lastCheckedAt ?? undefined),
       reports: own.slice(0, REPORTS_SHOWN).map(viewOf),
       more: mostFirst(rest),
-      findings: findingRows
-        .filter((row) => row.patroller === patroller.id && findingNames.has(row))
-        .map(findingViewOf),
+      findings: found
+        .filter((finding) => finding.patroller === patroller.id)
+        .map((finding) => finding.view),
       dismissals: dismissalRows
         .filter((row) => row.patroller === patroller.id)
         .map((row) => ({

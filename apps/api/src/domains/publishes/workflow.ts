@@ -14,7 +14,7 @@ import { runService } from "../../lib/run-service";
 import { logSpan, type SpanFields, timed } from "../../lib/timing";
 import type { Bindings } from "../../types";
 import { deleteDraftCode } from "../code/drafts";
-import { camoxContext, computePreview, publishWithCode } from "../drafts/publish";
+import { camoxContext, computePreview, heldByPatrol, publishWithCode } from "../drafts/publish";
 import { drafts } from "../drafts/schema";
 import { draftOf } from "../drafts/scope";
 import { projects } from "../projects/schema";
@@ -473,13 +473,17 @@ export class PublishWorkflow extends WorkflowEntrypoint<Bindings, PublishParams>
     }
   }
 
-  /** Step 3: why the review no longer holds, if it doesn't: Live's conflicts or a blocker. */
+  /**
+   * Step 3: why the review no longer holds, if it doesn't: Live's conflicts, a blocker, an open
+   * finding or a check to run.
+   */
   private async recheck(db: Database, params: PublishParams) {
     const row = await db.select().from(drafts).where(eq(drafts.id, params.draftId)).get();
     if (!row) return null;
     const preview = await runService(computePreview(camoxContext(db), draftOf(row)));
     if (preview.token !== params.token) return "conflictsChanged" as const;
-    if (preview.blockers.length > 0) return "blocked" as const;
+    // Open findings and checks still to run hold it too (ADR 0033).
+    if (preview.blockers.length > 0 || heldByPatrol(preview)) return "blocked" as const;
     return null;
   }
 

@@ -90,6 +90,24 @@ export class TranslationsPendingError extends Data.TaggedError("TranslationsPend
 }> {}
 
 /**
+ * The draft has open findings, each to fix or for a member to dismiss before publishing (ADR
+ * 0033).
+ */
+export class FindingsOpenError extends Data.TaggedError("FindingsOpenError")<{
+  readonly message: string;
+}> {}
+
+/**
+ * A patroller's check at publish hasn't read the draft's latest changes yet, which publishing
+ * waits for (ADR 0033).
+ */
+export class ChecksRunningError extends Data.TaggedError("ChecksRunningError")<{
+  readonly message: string;
+  /** The patrollers still to check, by their roles. */
+  readonly checking: readonly string[];
+}> {}
+
+/**
  * A member's push was refused, writing nothing (ADR 0026): `reason` is its stable code, and a
  * push that doesn't build has its build's errors.
  */
@@ -111,6 +129,8 @@ export type ServiceError =
   | PublishBlockedError
   | RevisionChangedError
   | TranslationsPendingError
+  | FindingsOpenError
+  | ChecksRunningError
   | PushRefusedError;
 
 // --- Helpers ---

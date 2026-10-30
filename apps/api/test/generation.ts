@@ -135,6 +135,9 @@ export const scheduledChecks = (draftId: string) => [
   ).values(),
 ];
 
+/** The drafts with checks scheduled, in the order they were first scheduled. */
+export const draftsWithScheduledChecks = () => [...new Set(checkJobs.map((job) => job.draftId))];
+
 /** Forgets the checks scheduled for a draft, once a test ran them. */
 export const forgetScheduledChecks = (draftId: string) => {
   const kept = checkJobs.filter((job) => job.draftId !== draftId);

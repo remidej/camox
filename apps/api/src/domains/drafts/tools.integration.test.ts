@@ -7,6 +7,8 @@ import {
   callSeedingLive,
   createProjectFixture,
   createRpcContext,
+  reviewed,
+  runAllChecks,
   syncDefinitionSet,
 } from "../../../test/fixtures";
 import { router } from "../../router";
@@ -71,11 +73,15 @@ async function fixture() {
     const other = generateUuidv7();
     await editTitle(title, { [DRAFT_HEADER]: other, [DRAFT_CREATE_HEADER]: "1" });
     const inOther = member({ [DRAFT_HEADER]: other });
-    const { token } = await call(router.drafts.previewPublish, { projectId }, inOther);
+    const { token } = await reviewed(
+      base.db,
+      other,
+      call(router.drafts.previewPublish, { projectId }, inOther),
+    );
     await call(router.drafts.publish, { projectId, token }, inOther);
   };
 
-  return { block, inDraft, callTool, result, editTitle, titleIn, publishedOnLive };
+  return { db: base.db, block, inDraft, callTool, result, editTitle, titleIn, publishedOnLive };
 }
 
 describe("draft AI tools", () => {
@@ -90,6 +96,7 @@ describe("draft AI tools", () => {
     ]);
     expect(preview.token).toEqual(expect.any(String));
 
+    await runAllChecks(f.db);
     expect(await f.result("publishDraft", { token: preview.token })).toMatchObject({
       published: true,
     });
@@ -103,6 +110,7 @@ describe("draft AI tools", () => {
     expect(conflicts).toEqual([]);
 
     await f.publishedOnLive("Theirs");
+    await runAllChecks(f.db);
     const stale = await f.result("publishDraft", { token });
 
     expect(stale).toMatchObject({ published: false, reason: "conflictsChanged" });
@@ -112,6 +120,7 @@ describe("draft AI tools", () => {
     expect(stale.preview.token).not.toBe(token);
     expect(await f.titleIn()).toBe("Theirs");
 
+    await runAllChecks(f.db);
     expect(await f.result("publishDraft", { token: stale.preview.token })).toMatchObject({
       published: true,
     });

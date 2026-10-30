@@ -9,9 +9,10 @@ import {
   callSeedingLive,
   createProjectFixture,
   createRpcContext,
+  noArtifactFields,
+  reviewed,
   seedLive,
   syncDefinitionSet,
-  noArtifactFields,
 } from "../../test/fixtures";
 import { forgetSent, refreshes, sentTo } from "../../test/project-rooms";
 import * as overlay from "../domains/drafts/overlay";
@@ -138,7 +139,7 @@ describe("a block edit in a draft", () => {
 
 describe("publishing a draft", () => {
   it("refreshes Live's readers of what it changed and every draft's conflicts, then sends its viewers to Live", async () => {
-    const { block, inDraft, projectId, sentBy } = await fixture();
+    const { db, block, inDraft, projectId, sentBy } = await fixture();
     const draftId = generateUuidv7();
     const otherDraft = generateUuidv7();
     await call(
@@ -146,7 +147,11 @@ describe("publishing a draft", () => {
       { id: block.id, content: { title: "Published" } },
       inDraft(draftId),
     );
-    const { token } = await call(router.drafts.previewPublish, { projectId }, inDraft(draftId));
+    const { token } = await reviewed(
+      db,
+      draftId,
+      call(router.drafts.previewPublish, { projectId }, inDraft(draftId)),
+    );
 
     const sent = await sentBy(() =>
       call(router.drafts.publish, { projectId, token }, inDraft(draftId)),
@@ -165,10 +170,14 @@ describe("publishing a draft", () => {
 
 describe("publishing a renamed page", () => {
   it("refreshes Live's readers of the path it had", async () => {
-    const { page, inDraft, projectId, sentBy } = await fixture();
+    const { db, page, inDraft, projectId, sentBy } = await fixture();
     const draftId = generateUuidv7();
     await call(router.pages.update, { id: page.id, pathSegment: "team" }, inDraft(draftId));
-    const { token } = await call(router.drafts.previewPublish, { projectId }, inDraft(draftId));
+    const { token } = await reviewed(
+      db,
+      draftId,
+      call(router.drafts.previewPublish, { projectId }, inDraft(draftId)),
+    );
 
     const sent = await sentBy(() =>
       call(router.drafts.publish, { projectId, token }, inDraft(draftId)),

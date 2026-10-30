@@ -11,8 +11,9 @@ import {
   createProjectFixture,
   createRpcContext,
   createServiceContext,
-  seedLiveThrough,
   inScope,
+  reviewed,
+  seedLiveThrough,
 } from "../../../test/fixtures";
 import { forgetScheduled, scheduledFor } from "../../../test/generation";
 import { runService } from "../../lib/run-service";
@@ -104,7 +105,11 @@ async function fixture(media?: MediaBinding) {
       },
     };
     const projectId = fixture.project.id;
-    const { token } = await call(router.drafts.previewPublish, { projectId }, options);
+    const { token } = await reviewed(
+      fixture.db,
+      draftId,
+      call(router.drafts.previewPublish, { projectId }, options),
+    );
     await call(router.drafts.publish, { projectId, token }, options);
   }
   return { ...fixture, ctx, app, upload };
