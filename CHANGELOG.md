@@ -1,5 +1,22 @@
 # Changelog
 
+## [0.66.0](https://github.com/remidej/camox/compare/camox-v0.65.1...camox-v0.66.0) (2026-10-30)
+
+
+### Changes
+
+* **api:** hand artifact sources to Artifact Agents ([#765](https://github.com/remidej/camox/issues/765)) ([6fdcc8e](https://github.com/remidej/camox/commit/6fdcc8e84fe8f2dd7370b55bc432624762328575))
+* **api:** start the Live thread afresh each time it hands a request off to a draft ([#772](https://github.com/remidej/camox/issues/772)) ([156a5c6](https://github.com/remidej/camox/commit/156a5c6a7ab0a4642712f9eebf55be0a3477c6ee))
+* **api:** steer the agent away from repetitive pages ([#761](https://github.com/remidej/camox/issues/761)) ([d0d9633](https://github.com/remidej/camox/commit/d0d96337f300eb286d5e9129bcfdd3a91125d9c6))
+* ask what to do with a draft started by editing on Live ([#763](https://github.com/remidej/camox/issues/763)) ([0fa9ec9](https://github.com/remidej/camox/commit/0fa9ec97354334a315c63712c3f25702d4901f34))
+* **sdk:** cover Canvas seams without overlapping blocks ([#771](https://github.com/remidej/camox/issues/771)) ([d58c4e7](https://github.com/remidej/camox/commit/d58c4e795e7c38c1e1bd1facee78003b30fc14e6))
+* **sdk:** keep the chat on the agent's work and the composer focused across threads ([#766](https://github.com/remidej/camox/issues/766)) ([f49e730](https://github.com/remidej/camox/commit/f49e7308fb89e2eb7090d2dedfd7f50af7df831f))
+* **sdk:** refetch the social preview image when the draft gets a new revision ([#770](https://github.com/remidej/camox/issues/770)) ([1a9e0b1](https://github.com/remidej/camox/commit/1a9e0b138827780b585d5969e4a414e51e10f41c))
+* **sdk:** remove the callouts about page structure being set in code ([#769](https://github.com/remidej/camox/issues/769)) ([4b48115](https://github.com/remidej/camox/commit/4b48115c9da688749fea9ff8e9b41190cba7bf08))
+* **sdk:** split the unnamed draft bar's buttons and make Publish primary ([#768](https://github.com/remidej/camox/issues/768)) ([c0bd0d3](https://github.com/remidej/camox/commit/c0bd0d38e813dc71b30d37b5e80a5dc1b8d961f4))
+* **sdk:** start the next page halfway across the agent sidebar when snapped ([#767](https://github.com/remidej/camox/issues/767)) ([bac54aa](https://github.com/remidej/camox/commit/bac54aa209e3d6bbb8ea379dd6c916416c059fa4))
+* show the Patrol as a grid of patroller avatars with profile cards ([#764](https://github.com/remidej/camox/issues/764)) ([ad57614](https://github.com/remidej/camox/commit/ad5761490c29b74d09666de6bb0ab9092ed46af0))
+
 ## [0.65.1](https://github.com/remidej/camox/compare/camox-v0.65.0...camox-v0.65.1) (2026-10-30)
 
 
