@@ -44,7 +44,7 @@ import {
   textOf,
   threadViewOf,
 } from "@camox/api-contract/threads";
-import type { AssistantMessage } from "@earendil-works/pi-ai";
+import type { AssistantMessage, ToolResultMessage } from "@earendil-works/pi-ai";
 import { RemoteCodemodeSandbox } from "@earendil-works/pi-codemode/portable";
 import {
   type AgentEventStream,
@@ -86,6 +86,7 @@ import { z } from "zod";
 import { CAMOX_USER } from "../authorization";
 import { createDb } from "../db";
 import { agentServiceContext } from "../domains/_shared/service-context";
+import type { AiUsageRecord } from "../domains/ai-usage/schema";
 import { artifactEnv, artifactWriteOf } from "../domains/artifact-agent/env";
 import { ARTIFACT_AGENT_INSTRUCTIONS, artifactRequest } from "../domains/artifact-agent/prompt";
 import {
@@ -144,7 +145,16 @@ import {
   type TurnPage,
   turnEndIn,
 } from "../domains/threads/turn-end";
-import { webTools } from "../domains/threads/web-tools";
+import {
+  type Billed,
+  callColumns,
+  meteredModels,
+  resultBytes,
+  type ToolKinds,
+  toolKindOf,
+} from "../domains/threads/usage";
+import { type WebToolCall, webTools } from "../domains/threads/web-tools";
+import { type AiAttribution, attributionColumns, d1Ledger } from "../lib/ai-usage";
 import type { MemoryFs } from "../lib/memory-fs";
 import { runService } from "../lib/run-service";
 import { serialQueue } from "../lib/serial-queue";
@@ -252,6 +262,19 @@ const TURN_BUILD_FAILURES_PREFIX = "camox.turn-build-failures:";
  * above: the end of its turn lints the files changed since.
  */
 const TURN_BASE_PREFIX = "camox.turn-base:";
+
+/**
+ * The prefix of the key holding, per conversation, the step its agent last recorded: its turn,
+ * its number in the turn, and its record's key, which a step recorded again keeps.
+ */
+const USAGE_STEP_PREFIX = "camox.usage-step:";
+type UsageStep = { turn: string | null; step: number; key: string };
+
+/**
+ * The prefix of the key holding, per conversation, the record of the step whose tools still run:
+ * it's written once they're over, with the size of their results.
+ */
+const PENDING_STEP_PREFIX = "camox.pending-step:";
 
 /**
  * The key timing the turn going, for its timing logs: when the editor's message that started it
@@ -599,6 +622,19 @@ class UntilStartedPiHarness extends PiHarness {
  */
 export class Thread extends DurableObject<Bindings> {
   readonly #model = threadModel(this.env);
+  /** Where the thread's AI usage records go (ADR 0031). */
+  readonly #ledger = d1Ledger(createDb(this.env.DB), (promise) => this.ctx.waitUntil(promise));
+  /**
+   * The models Pi calls, noting what OpenRouter billed for each. Pi calls `completeSimple` only
+   * to compact a conversation.
+   */
+  readonly #agentModels = meteredModels(this.#model.models, (message, billed) =>
+    this.#recordCompaction(message, billed),
+  );
+  /** The models `web_fetch`'s page reader calls, noting what OpenRouter billed for each. */
+  readonly #readerModels = meteredModels(this.#model.models);
+  /** The tools that work on code and on the web, which tell a step's tool kind. */
+  #toolKinds: ToolKinds = { code: new Set(), web: new Set() };
   readonly #registry = createRegistry();
   readonly #watches = new Map<WebSocket, AgentEventStream>();
   /**
@@ -637,12 +673,28 @@ export class Thread extends DurableObject<Bindings> {
         (invocation, touches) => this.#touched(invocation, touches),
       );
       const content = await studioAgentTools(dispatch, { readOnly: live });
-      const reading = [
-        ...webTools(this.env, this.#model),
-        ...codeReadingTools(),
-        searchFontsTool(this.env),
-      ];
+      const web = webTools(
+        this.env,
+        { ...this.#model, models: this.#readerModels.models },
+        {
+          searched: (call, ok) => this.#recordSearch(call, ok),
+          read: (call, answer) => this.#recordRead(call, answer),
+        },
+      );
+      const codeReading = [...codeReadingTools(), searchFontsTool(this.env)];
+      const reading = [...web, ...codeReading];
       const look = lookTool((targets, invocation) => this.#look(targets, invocation));
+      const codeWriting = [
+        ...codeWritingTools(),
+        conflictsTool(() => this.#conflicts()),
+        buildTool((invocation) => this.#build(invocation)),
+        look,
+      ];
+      // A step's tool kind is its first call's: the web's, the code's, or else content's.
+      this.#toolKinds = {
+        code: new Set([...codeReading, ...codeWriting].map(({ name }) => name)),
+        web: new Set(web.map(({ name }) => name)),
+      };
       const tools = live
         ? [
             ...content,
@@ -652,10 +704,7 @@ export class Thread extends DurableObject<Bindings> {
         : [
             ...content,
             ...reading,
-            ...codeWritingTools(),
-            conflictsTool(() => this.#conflicts()),
-            buildTool((invocation) => this.#build(invocation)),
-            look,
+            ...codeWriting,
             artifactTool((invocation, call, onActivity) =>
               this.#artifact(invocation, call, onActivity),
             ),
@@ -704,7 +753,10 @@ export class Thread extends DurableObject<Bindings> {
         // when no retry can fix it.
         hooks: [
           hook(GenerationTask, {
-            afterResponse: (message) => this.#onModelResponse(message),
+            afterResponse: async (message, api, context) => {
+              await this.#onModelResponse(message);
+              await this.#recordStep(message, { api, context });
+            },
             onYield: async (_answer, api, context) => {
               await this.#recordTurnPage({ api, context });
               const next = await this.#onYield(api, context);
@@ -715,6 +767,7 @@ export class Thread extends DurableObject<Bindings> {
               return next;
             },
             afterTools: async (_assistant, results, api, context) => {
+              await this.#recordToolResults(results, { api, context });
               await this.#handOffLateMessages({ api, context });
               if (await this.#endsOnArtifactAnswer({ api, context }, results)) {
                 await this.#endTurnOnArtifactAnswer(api, context);
@@ -734,7 +787,7 @@ export class Thread extends DurableObject<Bindings> {
       return Harness.open(
         storage,
         {
-          models: this.#model.models,
+          models: this.#agentModels.models,
           registry: this.#registry,
           settings: {
             // The thread's agent's: an Artifact Agent's conversation selects its own.
@@ -1070,7 +1123,16 @@ export class Thread extends DurableObject<Bindings> {
           },
         })),
       ),
-      hooks: [hook(GenerationTask, { afterResponse: (message) => this.#onModelResponse(message) })],
+      hooks: [
+        hook(GenerationTask, {
+          afterResponse: async (message, api, context) => {
+            await this.#onModelResponse(message);
+            await this.#recordStep(message, { api, context });
+          },
+          afterTools: (_assistant, results, api, context) =>
+            this.#recordToolResults(results, { api, context }),
+        }),
+      ],
     };
   }
 
@@ -1695,6 +1757,167 @@ export class Thread extends DurableObject<Bindings> {
     } catch (error) {
       console.error("A thread couldn't report a failed model call", error);
     }
+  }
+
+  /** The thread's project's organization, once looked up. */
+  #organizationId: string | null | undefined;
+
+  /**
+   * Who and what the thread's AI calls are for: its project and draft, and with `where`, the
+   * member whose message started the run, or else Camox, as for its Brief or a reconciling turn.
+   */
+  async #usageAttribution(where?: InConversation): Promise<AiAttribution | undefined> {
+    const identity = await this.#knownIdentity();
+    if (!identity) return undefined;
+    this.#organizationId ??=
+      (
+        await createDb(this.env.DB)
+          .select({ organizationId: projects.organizationId })
+          .from(projects)
+          .where(eq(projects.id, identity.projectId))
+          .get()
+      )?.organizationId ?? null;
+    const [entry] = where ? await this.#entriesOfRun(where, 1) : [];
+    const member = memberOfEntry(entry);
+    const byMember = member !== undefined && member !== CAMOX_ACTOR;
+    return {
+      organizationId: this.#organizationId,
+      projectId: identity.projectId,
+      draftId: identity.draftId,
+      threadId: this.#threadId(),
+      initiator: byMember ? "member" : "camox",
+      memberId: byMember ? member : null,
+    };
+  }
+
+  /**
+   * Records an AI call of the thread's, attributed as `#usageAttribution` says, in the
+   * background: recording never holds up nor fails the work it records.
+   */
+  #recordUsage(
+    where: InConversation | undefined,
+    record: (attribution: ReturnType<typeof attributionColumns>) => AiUsageRecord,
+  ) {
+    this.#ledger.record(
+      this.#usageAttribution(where).then((attribution) => record(attributionColumns(attribution))),
+    );
+  }
+
+  /**
+   * Records one of the agent's steps, the model's response `message`: its turn, its number in
+   * the turn, the tools it called and their kind. A step calling tools is written once they're
+   * over, with the size of their results (`#recordToolResults`); one still waiting, as when its
+   * run was stopped, is written as the conversation's next step is. A step recorded again keeps
+   * its number and its key: OpenRouter's id for the call, or else the step's task's.
+   */
+  async #recordStep(message: AssistantMessage, where: InConversation & { api: HookApi }) {
+    try {
+      const { api, context } = where;
+      const pendingKey = `${PENDING_STEP_PREFIX}${api.conversationId}`;
+      const stepKey = `${USAGE_STEP_PREFIX}${api.conversationId}`;
+      const live = await api.snapshot(LiveDoc, api.conversationId, context);
+      const turn = live?.run?.inputs[0] === undefined ? null : String(live.run.inputs[0]);
+      const key = message.responseId ?? `${this.#threadId()}:${String(api.taskId)}`;
+
+      const pending = await this.ctx.storage.get<AiUsageRecord>(pendingKey);
+      if (pending && pending.key !== key) {
+        this.#ledger.record(pending);
+        await this.ctx.storage.delete(pendingKey);
+      }
+
+      const last = await this.ctx.storage.get<UsageStep>(stepKey);
+      const step = last?.key === key ? last.step : last && last.turn === turn ? last.step + 1 : 1;
+      await this.ctx.storage.put(stepKey, { turn, step, key } satisfies UsageStep);
+
+      const calls = message.content.flatMap((part) =>
+        part.type === "toolCall" ? [part.name] : [],
+      );
+      const billed = this.#agentModels.billed(message);
+      const record: AiUsageRecord = {
+        ...attributionColumns(await this.#usageAttribution(where)),
+        ...callColumns(message, billed),
+        key,
+        purpose: "agent_step",
+        turnId: turn,
+        step,
+        toolCalls: calls,
+        toolKind: toolKindOf(calls, this.#toolKinds),
+      };
+      if (message.stopReason === "toolUse" && calls.length > 0) {
+        await this.ctx.storage.put(pendingKey, record);
+      } else {
+        this.#ledger.record(record);
+      }
+    } catch (error) {
+      console.error("A thread couldn't record an agent's step", error);
+    }
+  }
+
+  /**
+   * Writes the record of the step whose tools just ended, with the size of each result, in call
+   * order: `results` are the round's result entries.
+   */
+  async #recordToolResults(results: readonly EntryId[], { api, context }: InConversation) {
+    try {
+      const pendingKey = `${PENDING_STEP_PREFIX}${api.conversationId}`;
+      const pending = await this.ctx.storage.get<AiUsageRecord>(pendingKey);
+      if (!pending) return;
+      const pi = await this.harness.pi();
+      const conversation = await pi.conversation(api.conversationId, context);
+      const sizes: number[] = [];
+      for (const id of results) {
+        const found = await conversation?.entries(
+          { minEntryId: id, maxEntryId: id },
+          1,
+          undefined,
+          context,
+        );
+        const result = found?.items[0]?.model?.find(
+          (message): message is ToolResultMessage => message.role === "toolResult",
+        );
+        sizes.push(result ? resultBytes(result) : 0);
+      }
+      this.#ledger.record({ ...pending, toolResultBytes: sizes });
+      await this.ctx.storage.delete(pendingKey);
+    } catch (error) {
+      console.error("A thread couldn't record an agent's tool results", error);
+    }
+  }
+
+  /** Records a compaction Pi made: it compacts on its own, for no member. */
+  #recordCompaction(message: AssistantMessage, billed: Billed | undefined) {
+    const key = message.responseId ?? `${this.#threadId()}:compaction:${crypto.randomUUID()}`;
+    this.#recordUsage(undefined, (attribution) => ({
+      ...attribution,
+      ...callColumns(message, billed),
+      key,
+      purpose: "compaction",
+    }));
+  }
+
+  /** Records `web_search`'s search: Cloudflare doesn't tell what it cost. */
+  #recordSearch(call: WebToolCall, ok: boolean) {
+    const key = `${this.#threadId()}:web_search:${call.api.callId}`;
+    const createdAt = Date.now();
+    this.#recordUsage(call, (attribution) => ({
+      ...attribution,
+      key,
+      purpose: "web_search",
+      status: ok ? "ok" : "error",
+      createdAt,
+    }));
+  }
+
+  /** Records the call `web_fetch`'s page reader made to answer the agent's question. */
+  #recordRead(call: WebToolCall, answer: AssistantMessage) {
+    const billed = this.#readerModels.billed(answer);
+    const key = answer.responseId ?? `${this.#threadId()}:web_fetch:${call.api.callId}`;
+    this.#recordUsage(call, (attribution) => ({
+      ...attribution,
+      ...callColumns(answer, billed),
+      key,
+      purpose: "web_fetch",
+    }));
   }
 
   async #projectUuidOf(projectId: number) {
