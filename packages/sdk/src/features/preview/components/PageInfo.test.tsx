@@ -9,11 +9,13 @@ import { act } from "react";
 
 import { initApiClient } from "@/lib/api-client";
 
+import { createDraftScope } from "../../../lib/draft-scope";
 import {
   StudioQueryClientProvider,
   testDraftScope,
   testStudioCache,
 } from "../../../lib/draft-scope.fixtures";
+import { createRevisions, type Revisions, RevisionsContext } from "../../../lib/revisions";
 import { reads } from "../../../lib/studio-reads";
 
 // The page info over what the API says of the page and its layouts, with no code registry.
@@ -58,7 +60,14 @@ const page = {
   createdBy: null,
 };
 
-async function renderPageInfo(t: TestContext, part: "info" | "seo") {
+async function renderPageInfo(
+  t: TestContext,
+  part: "info" | "seo",
+  {
+    draftId = null,
+    revisions = createRevisions(),
+  }: { draftId?: string | null; revisions?: Revisions } = {},
+) {
   const window = new Window({ url: "http://localhost/about" });
   Object.assign(globalThis, {
     window,
@@ -85,7 +94,9 @@ async function renderPageInfo(t: TestContext, part: "info" | "seo") {
   const client = new QueryClient({
     defaultOptions: { queries: { staleTime: Infinity, retry: false } },
   });
-  const cache = testStudioCache(client);
+  const draftScope = createDraftScope({ queryClient: client });
+  draftScope.adopt({ draftId: draftId ?? undefined });
+  const cache = testStudioCache(client, { draftScope });
   cache.set(reads.project({ projectUuid: "site" }), { id: 1, name: "Acme" } as never);
   cache.set(reads.pageList({ projectUuid: "site" }), [page] as never);
   cache.set(reads.page({ id: "about" }), page as never);
@@ -102,7 +113,7 @@ async function renderPageInfo(t: TestContext, part: "info" | "seo") {
   const root = createRoot(host);
   await act(async () => {
     root.render(
-      <StudioQueryClientProvider client={client}>
+      <StudioQueryClientProvider client={client} draftScope={draftScope}>
         <AuthContext.Provider
           value={{
             projectUuid: "site",
@@ -111,13 +122,15 @@ async function renderPageInfo(t: TestContext, part: "info" | "seo") {
             authClient: createCamoxAuthClient("http://localhost:8788"),
           }}
         >
-          <RendererHostContext value={rendererHost}>
-            {part === "info" ? (
-              <PageInfo pageId="about" aboutOnly />
-            ) : (
-              <PageSeoContent pageId="about" />
-            )}
-          </RendererHostContext>
+          <RevisionsContext value={revisions}>
+            <RendererHostContext value={rendererHost}>
+              {part === "info" ? (
+                <PageInfo pageId="about" aboutOnly />
+              ) : (
+                <PageSeoContent pageId="about" />
+              )}
+            </RendererHostContext>
+          </RevisionsContext>
         </AuthContext.Provider>
       </StudioQueryClientProvider>,
     );
@@ -161,4 +174,20 @@ void test("the search preview shows the title the renderer's code gives the page
   renderer.send({ type: "answer", askId: asked!.askId, value: "About · Acme" });
   await settle();
   assert.equal(shown(), "About · Acme");
+});
+
+void test("the social preview fetches the page image again once a new revision of the draft shown built", async (t) => {
+  const revisions = createRevisions();
+  await renderPageInfo(t, "seo", { draftId: "draft-1", revisions });
+  const image = () => document.querySelector("img")?.getAttribute("src");
+  const before = image();
+  assert.match(before ?? "", /^\/og\?/);
+
+  act(() => revisions.announce({ draftId: "draft-2", revisionId: "rev-a", sdkVersion: "1.0.0" }));
+  assert.equal(image(), before, "another draft's revision changes nothing here");
+
+  act(() => revisions.announce({ draftId: "draft-1", revisionId: "rev-b", sdkVersion: "1.0.0" }));
+  const after = image();
+  assert.notEqual(after, before);
+  assert.equal(new URL(after!, "http://localhost").searchParams.get("camox-draft"), "draft-1");
 });

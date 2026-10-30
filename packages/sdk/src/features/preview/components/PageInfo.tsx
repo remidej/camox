@@ -48,6 +48,7 @@ import { useProjectUuid } from "@/lib/auth";
 import { useOptionalDraftScope } from "@/lib/draft-scope";
 import type { Page } from "@/lib/queries";
 import { pageMutations } from "@/lib/queries";
+import { useLatestRevision } from "@/lib/revisions";
 import { cn } from "@/lib/utils";
 import { useLocalizedPath } from "@/lib/view-locale";
 import { useViewLocale } from "@/lib/view-locale-context";
@@ -861,11 +862,13 @@ const SocialPreviewSection = ({
 }) => {
   const studioCache = useStudioCache();
   const localized = useLocalizedPath();
-  const { scope } = useOptionalDraftScope();
+  const { scope, draftId } = useOptionalDraftScope();
+  const revision = useLatestRevision(draftId);
   // `/og` renders the page in the draft the studio views. It ignores `v`, which only makes the
-  // preview fetch the image again when the editor retitles the page.
+  // preview fetch the image again when the editor retitles the page or a new revision of the
+  // draft's code built, which can change the image its layout renders.
   const version = new URLSearchParams({
-    v: `${page.metaTitle ?? ""}|${page.metaDescription ?? ""}`,
+    v: `${page.metaTitle ?? ""}|${page.metaDescription ?? ""}|${revision ?? ""}`,
   });
   const generatedOgImage = `${pageImageUrl({ origin: "", path: localized(page.fullPath) })}&${version.toString()}`;
   const ogImage = page.customOgImageUrl || (scope?.hrefFor(generatedOgImage) ?? generatedOgImage);
