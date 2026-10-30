@@ -7,6 +7,8 @@ import {
   callSeedingLive,
   createProjectFixture,
   createRpcContext,
+  reviewed,
+  runAllChecks,
   syncDefinitionSet,
 } from "../../../test/fixtures";
 import {
@@ -199,6 +201,7 @@ describe("the overview's input", () => {
       forgetScheduled(...jobs.map((job) => job.entityId));
       const keyed = new Map(jobs.map((job) => [JSON.stringify({ ...job, delayMs: 0 }), job]));
       for (const job of keyed.values()) await runService(runAiJob(db, job));
+      await runAllChecks(db);
     };
     const addLocale = (tag: string, headers: Headers) =>
       call(router.locales.add, { projectId, tag }, member(headers));
@@ -206,10 +209,10 @@ describe("the overview's input", () => {
     const team = await addPlan({ name: "Team", price: "$99" });
     const german = await draft((headers) => addLocale("de", headers));
     await runTranslations();
-    const { token } = await call(
-      router.drafts.previewPublish,
-      { projectId },
-      member(german.headers),
+    const { token } = await reviewed(
+      db,
+      german.id,
+      call(router.drafts.previewPublish, { projectId }, member(german.headers)),
     );
     await call(router.drafts.publish, { projectId, token }, member(german.headers));
 

@@ -1,5 +1,7 @@
 import type {
-  AttentionLevel,
+  FindingAbout,
+  FindingFix,
+  LinkFailure,
   PatrollerId,
   ReportEntity,
   ReportOutcome,
@@ -8,6 +10,7 @@ import type {
 import { sql } from "drizzle-orm";
 import { index, int, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
 
+import { user } from "../auth/schema";
 import { drafts } from "../drafts/schema";
 import { projects } from "../projects/schema";
 
@@ -43,7 +46,6 @@ export const reports = sqliteTable(
     key: text().notNull(),
     summary: text({ mode: "json" }).notNull().$type<StoredSummary>(),
     outcome: text().notNull().$type<ReportOutcome>(),
-    attention: text().notNull().default("none").$type<AttentionLevel>(),
     // When the work last settled.
     at: int().notNull(),
   },
@@ -55,5 +57,179 @@ export const reports = sqliteTable(
       .on(table.draftId, table.patroller, table.key)
       .where(sql`${table.draftId} is not null`),
     index("reports_project_idx").on(table.projectId),
+  ],
+);
+
+/**
+ * When a patroller last finished a check in a scope, a draft or Live (`draftId` null), whether it
+ * found anything or not (ADR 0034). One per project, scope and patroller. Like reports, not
+ * content, and a draft's end with it.
+ */
+export const patrolChecks = sqliteTable(
+  "patrol_checks",
+  {
+    rowId: int("row_id").primaryKey(),
+    projectId: int("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    draftId: text("draft_id").references(() => drafts.id, { onDelete: "cascade" }),
+    patroller: text().notNull().$type<PatrollerId>(),
+    checkedAt: int("checked_at").notNull(),
+    // The fingerprint of the draft's changes the check read: it's up to date while they're the
+    // same. Null on Live, and for checks that don't read a draft's changes.
+    fingerprint: text(),
+  },
+  (table) => [
+    uniqueIndex("patrol_checks_live_idx")
+      .on(table.projectId, table.patroller)
+      .where(sql`${table.draftId} is null`),
+    uniqueIndex("patrol_checks_draft_idx")
+      .on(table.draftId, table.patroller)
+      .where(sql`${table.draftId} is not null`),
+  ],
+);
+
+/**
+ * A problem a patroller found in content, open until a check no longer finds it, a fix is
+ * applied, or a member dismisses what it's about (ADR 0034). In a draft (only in what it changed,
+ * ending with it) or on Live (`draftId` null). Keyed by scope, patroller and key: its subject,
+ * field and identity, so a check finding it again keeps it. Not content: never a change nor a
+ * conflict.
+ */
+export const findings = sqliteTable(
+  "findings",
+  {
+    rowId: int("row_id").primaryKey(),
+    projectId: int("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    draftId: text("draft_id").references(() => drafts.id, { onDelete: "cascade" }),
+    patroller: text().notNull().$type<PatrollerId>(),
+    key: text().notNull(),
+    // Its subject: the content it's in, in a locale, and the field.
+    entity: text().notNull().$type<ReportEntity>(),
+    entityId: text("entity_id").notNull(),
+    locale: text().notNull(),
+    field: text().notNull(),
+    // What a dismissal names: no finding of the same patroller and identity is raised again.
+    identity: text().notNull(),
+    about: text({ mode: "json" }).notNull().$type<FindingAbout>(),
+    fix: text({ mode: "json" }).$type<FindingFix>(),
+    raisedAt: int("raised_at").notNull(),
+    // When Camox handed a Live finding to the Patrol Draft's agent, and told members of it. Null
+    // until its thread took it, and in drafts.
+    handedAt: int("handed_at"),
+  },
+  (table) => [
+    uniqueIndex("findings_live_idx")
+      .on(table.projectId, table.patroller, table.key)
+      .where(sql`${table.draftId} is null`),
+    uniqueIndex("findings_draft_idx")
+      .on(table.draftId, table.patroller, table.key)
+      .where(sql`${table.draftId} is not null`),
+    index("findings_identity_idx").on(table.projectId, table.patroller, table.identity),
+  ],
+);
+
+/**
+ * A member's dismissal of a finding's identity, the project's (ADR 0034): it holds in every scope
+ * at once and survives the draft it was made in, so it references no draft. Who dismissed it
+ * isn't a reference either: it stays after they leave. Never content, a change nor a conflict.
+ */
+export const findingDismissals = sqliteTable(
+  "finding_dismissals",
+  {
+    rowId: int("row_id").primaryKey(),
+    projectId: int("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    patroller: text().notNull().$type<PatrollerId>(),
+    identity: text().notNull(),
+    // What the dismissed finding was about, for the history.
+    about: text({ mode: "json" }).notNull().$type<FindingAbout>(),
+    dismissedBy: text("dismissed_by").notNull(),
+    dismissedAt: int("dismissed_at").notNull(),
+  },
+  (table) => [
+    uniqueIndex("finding_dismissals_identity_idx").on(
+      table.projectId,
+      table.patroller,
+      table.identity,
+    ),
+  ],
+);
+
+/**
+ * Subjects of a draft the Proofreader has to read again, in a locale: written since it last read
+ * them (ADR 0034). A row exists from the request until the job that read it settles, so a job that
+ * crashes can't leave the Proofreader working; it's working on a row once a job started it.
+ */
+export const proofreadingRequests = sqliteTable(
+  "proofreading_requests",
+  {
+    rowId: int("row_id").primaryKey(),
+    projectId: int("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    // Null on Live: what a release no draft published wrote, or all of it on arrival.
+    draftId: text("draft_id").references(() => drafts.id, { onDelete: "cascade" }),
+    entity: text().notNull().$type<ReportEntity>(),
+    entityId: text("entity_id").notNull(),
+    locale: text().notNull(),
+    // When it was last requested, and when a job started reading it: null until one does.
+    requestedAt: int("requested_at").notNull(),
+    startedAt: int("started_at"),
+  },
+  (table) => [
+    uniqueIndex("proofreading_requests_key_idx")
+      .on(table.draftId, table.entity, table.entityId, table.locale)
+      .where(sql`${table.draftId} is not null`),
+    uniqueIndex("proofreading_requests_live_idx")
+      .on(table.projectId, table.entity, table.entityId, table.locale)
+      .where(sql`${table.draftId} is null`),
+    index("proofreading_requests_project_idx").on(table.projectId),
+  ],
+);
+
+/**
+ * The Link checker's last check of a url outside the website, in a project (ADR 0034): how it
+ * failed, if it did, and how many checks in a row failed, since a link is raised only after two.
+ * Shared by every scope of the project, so a url checked a moment ago isn't fetched again. Not
+ * content: never a change nor a conflict.
+ */
+export const linkChecks = sqliteTable(
+  "link_checks",
+  {
+    rowId: int("row_id").primaryKey(),
+    projectId: int("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    url: text().notNull(),
+    failure: text({ mode: "json" }).$type<LinkFailure>(),
+    // Checks in a row that failed, the last one included: 0 once one succeeds.
+    failures: int().notNull(),
+    checkedAt: int("checked_at").notNull(),
+  },
+  (table) => [uniqueIndex("link_checks_url_idx").on(table.projectId, table.url)],
+);
+
+/**
+ * A member who unsubscribed from a project's emails about Live's new findings (ADR 0034). Their
+ * other projects' emails still reach them.
+ */
+export const patrolEmailUnsubscribes = sqliteTable(
+  "patrol_email_unsubscribes",
+  {
+    rowId: int("row_id").primaryKey(),
+    projectId: int("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    at: int().notNull(),
+  },
+  (table) => [
+    uniqueIndex("patrol_email_unsubscribes_member_idx").on(table.projectId, table.userId),
   ],
 );

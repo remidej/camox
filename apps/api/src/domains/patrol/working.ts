@@ -24,6 +24,9 @@ export type PendingWorkOf = (
   scopes: WorkScopes,
 ) => Effect.Effect<PendingWork[]>;
 
+/** For a patroller whose work is never pending in the Patrol. */
+export const noPendingWork: PendingWorkOf = () => Effect.succeed([]);
+
 /** Each subject and locale once, pending since it was first requested. */
 const firstRequestedPerSubject = (work: readonly PendingWork[]) => {
   const byKey = new Map<string, PendingWork>();

@@ -7,6 +7,7 @@ import {
   callSeedingLive,
   createProjectFixture,
   createRpcContext,
+  runAllChecks,
   runTranslations,
   syncDefinitionSet,
 } from "../../../test/fixtures";
@@ -158,6 +159,7 @@ async function fixture() {
     // These tests script no translations: the ones adding a locale queues settle untranslated.
     await runTranslations(db);
     const { token } = await preview(headers);
+    await runAllChecks(db);
     expect(await tool("publishDraft", { token }, headers)).toMatchObject({
       published: true,
     });

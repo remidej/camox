@@ -7,10 +7,11 @@ import { Hono } from "hono";
 import { describe, expect, it } from "vite-plus/test";
 
 import {
+  callSeedingLive,
   createProjectFixture,
   createRpcContext,
   createServiceContext,
-  callSeedingLive,
+  reviewed,
   seedLive,
   syncDefinitionSet,
 } from "../../../test/fixtures";
@@ -179,7 +180,7 @@ async function fixture() {
   const publish = async (draftId: string) =>
     call(
       router.drafts.publish,
-      { projectId, token: (await preview(draftId)).token },
+      { projectId, token: (await reviewed(base.db, draftId, preview(draftId))).token },
       member(inDraft(draftId)),
     );
   const deleteDraft = (draftId: string) =>

@@ -1,9 +1,16 @@
+import { PATROLLER_IDS } from "@camox/api-contract/patrol";
 import { DurableObject } from "cloudflare:workers";
 import { Effect, Option, Schema } from "effect";
 
 import { createDb } from "../db";
 import { aiServices } from "../lib/ai-adapters";
-import { type AiJob, entityOfStoredName, jobName, TRANSLATED_ENTITIES } from "../lib/ai-job-queue";
+import {
+  type AiJob,
+  entityOfStoredName,
+  isPatrolJob,
+  jobName,
+  TRANSLATED_ENTITIES,
+} from "../lib/ai-job-queue";
 import { runAiJob } from "../lib/ai-jobs";
 import { inline } from "../lib/background";
 import { announce } from "../lib/invalidation";
@@ -15,6 +22,25 @@ const TranslatedEntity = Schema.Literals(TRANSLATED_ENTITIES);
 
 const StoredJob = Schema.Union([
   Schema.Struct({ id: Schema.String, kind: Schema.Literal("overview"), draftId: Schema.String }),
+  Schema.Struct({
+    id: Schema.String,
+    kind: Schema.Literal("check"),
+    patroller: Schema.Literals(PATROLLER_IDS),
+    draftId: Schema.String,
+  }),
+  Schema.Struct({
+    id: Schema.String,
+    kind: Schema.Literal("patrol"),
+    patrollers: Schema.Array(Schema.Literals(PATROLLER_IDS)),
+    projectId: Schema.Number,
+  }),
+  // Patrols stored before a run patrolled for several patrollers; they drain within 6 hours.
+  Schema.Struct({
+    id: Schema.String,
+    kind: Schema.Literal("patrol"),
+    patroller: Schema.Literals(PATROLLER_IDS),
+    projectId: Schema.Number,
+  }),
   Schema.Struct({
     // Tells a re-scheduled job from the one an in-flight alarm is running.
     id: Schema.String,
@@ -48,6 +74,10 @@ const decodeStoredJob = (stored: unknown) =>
   Option.flatMap(
     Schema.decodeUnknownOption(StoredJob)(stored),
     (job): Option.Option<AiJob & { id: string }> => {
+      if ("patroller" in job && job.kind === "patrol") {
+        const { id, patroller, projectId } = job;
+        return Option.some({ id, kind: "patrol", patrollers: [patroller], projectId });
+      }
       if ("kind" in job) return Option.some(job);
       const draftId = job.draftId ?? null;
       if ("entity" in job) return Option.some({ ...job, draftId });
@@ -59,12 +89,29 @@ const decodeStoredJob = (stored: unknown) =>
   );
 
 /**
+ * The job to keep when `job` is scheduled while `pending` waits: `job`, but for a patrol of Live,
+ * which joins the pending one's patrollers, so that one run patrols for both.
+ */
+const joining = (job: AiJob, pending: Option.Option<AiJob>): AiJob => {
+  if (!isPatrolJob(job) || Option.isNone(pending) || !isPatrolJob(pending.value)) return job;
+  const patrollers = new Set([...pending.value.patrollers, ...job.patrollers]);
+  return { ...job, patrollers: PATROLLER_IDS.filter((id) => patrollers.has(id)) };
+};
+
+/**
  * Holds one pending AI job, named by its key (`AiJobQueue`), and runs it when its alarm
- * fires. Scheduling again replaces the job and restarts the delay.
+ * fires. Scheduling again replaces the job and restarts the delay, but a patrol of Live joins
+ * the pending one.
  */
 export class AiJobScheduler extends DurableObject<Bindings> {
+  /** The id of the job the alarm is running, if it is: it no longer waits to be joined. */
+  #running: string | undefined;
+
   async schedule(job: AiJob, delayMs: number): Promise<void> {
-    await this.ctx.storage.put("job", { ...job, id: crypto.randomUUID() });
+    const stored = await this.ctx.storage.get<{ id?: string }>("job");
+    const pending =
+      stored === undefined || stored.id === this.#running ? Option.none() : decodeStoredJob(stored);
+    await this.ctx.storage.put("job", { ...joining(job, pending), id: crypto.randomUUID() });
     await this.ctx.storage.setAlarm(Date.now() + delayMs);
   }
 
@@ -72,21 +119,24 @@ export class AiJobScheduler extends DurableObject<Bindings> {
     const stored = await this.ctx.storage.get("job");
     if (stored === undefined) return;
     const job = decodeStoredJob(stored);
-
-    if (Option.isSome(job)) {
-      // A job that fails settles its request and resolves; only a failure to settle throws, and
-      // Cloudflare retries the alarm with backoff. What the job wrote reaches the project's
-      // viewers like any write (ADR 0012).
-      const run = runAiJob(createDb(this.env.DB), job.value).pipe(
-        // The alarm waits for what the job schedules: nothing answers sooner for it.
-        Effect.provideContext(aiServices(this.env, inline)),
-        Effect.annotateLogs("job", jobName(job.value)),
-      );
-      await Effect.runPromise(journaled(run, announce));
-    } else {
-      console.error("[ai-job] unreadable job dropped", stored);
+    this.#running = (stored as { id?: string }).id;
+    try {
+      if (Option.isSome(job)) {
+        // A job that fails settles its request and resolves; only a failure to settle throws, and
+        // Cloudflare retries the alarm with backoff. What the job wrote reaches the project's
+        // viewers like any write (ADR 0012).
+        const run = runAiJob(createDb(this.env.DB), job.value).pipe(
+          // The alarm waits for what the job schedules: nothing answers sooner for it.
+          Effect.provideContext(aiServices(this.env, inline)),
+          Effect.annotateLogs("job", jobName(job.value)),
+        );
+        await Effect.runPromise(journaled(run, announce));
+      } else {
+        console.error("[ai-job] unreadable job dropped", stored);
+      }
+    } finally {
+      this.#running = undefined;
     }
-
     // A newer job may have been scheduled while this one ran — keep it.
     const current = await this.ctx.storage.get<{ id?: string }>("job");
     if (current?.id === (stored as { id?: string }).id) {

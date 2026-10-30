@@ -132,14 +132,29 @@ export const PUBLISH_BLOCKED_ERROR = "PUBLISH_BLOCKED";
 export const TRANSLATIONS_PENDING_ERROR = "TRANSLATIONS_PENDING";
 
 /**
+ * oRPC error code for a publish refused because the draft has open findings, each to fix or for a
+ * member to dismiss: there is no publishing past them (ADR 0033).
+ */
+export const FINDINGS_OPEN_ERROR = "FINDINGS_OPEN";
+
+/**
+ * oRPC error code for a publish refused because a patroller's check at publish hasn't read the
+ * draft's latest changes yet: publishing waits for it (ADR 0033).
+ */
+export const CHECKS_RUNNING_ERROR = "CHECKS_RUNNING";
+
+/**
  * Why the publish tool published nothing of a draft with changes, and returned a fresh preview to
  * review again, by the error code of each: Live changed since the preview, the draft has blockers,
- * translations are still running, or the draft's code changed since the preview.
+ * translations are still running, the draft has open findings, a check at publish is still
+ * running, or the draft's code changed since the preview.
  */
 export const NOT_PUBLISHED_CODES = {
   conflictsChanged: CONFLICTS_CHANGED_ERROR,
   blocked: PUBLISH_BLOCKED_ERROR,
   translating: TRANSLATIONS_PENDING_ERROR,
+  findings: FINDINGS_OPEN_ERROR,
+  checking: CHECKS_RUNNING_ERROR,
   revisionChanged: REVISION_CHANGED_ERROR,
 } as const;
 
@@ -249,6 +264,14 @@ const LOCALE_WRITES: Record<keyof Router["locales"], boolean> = {
   addBack: true,
 };
 
+// Applying a finding's fix edits content as the member would; dismissing one is the project's,
+// never content (ADR 0034).
+const PATROL_WRITES: Record<keyof Router["patrol"], boolean> = {
+  get: false,
+  applyFix: true,
+  dismissFinding: false,
+};
+
 // `definitions` is absent: its sync is a release, never a studio content write.
 const CONTENT_WRITES: Partial<Record<keyof Router, Record<string, boolean>>> = {
   blocks: BLOCK_WRITES,
@@ -256,6 +279,7 @@ const CONTENT_WRITES: Partial<Record<keyof Router, Record<string, boolean>>> = {
   collectionDefinitions: COLLECTION_WRITES,
   files: FILE_WRITES,
   pages: PAGE_WRITES,
+  patrol: PATROL_WRITES,
   repeatableItems: ITEM_WRITES,
 };
 

@@ -129,13 +129,27 @@ code {
 }
 /*
  * A working patroller's narrowed eyes follow the work, at the pace of reading, along its body:
- * across the Translator's wide wedge, down the SEO manager's tall block.
+ * across the Translator's wide wedge, the Link checker's square and the Proofreader's page, down
+ * the SEO manager's tall block.
  */
 [data-face="working"][data-squareling-variant="translator"] .squareling-eyes {
   animation: squareling-glance 2.8s cubic-bezier(0.77, 0, 0.175, 1) 300ms infinite;
 }
 [data-face="working"][data-squareling-variant="seoManager"] .squareling-eyes {
   animation: squareling-scan 2.8s cubic-bezier(0.77, 0, 0.175, 1) 300ms infinite;
+}
+[data-face="working"][data-squareling-variant="linkChecker"] .squareling-eyes {
+  animation: squareling-glance 2.8s cubic-bezier(0.77, 0, 0.175, 1) 300ms infinite;
+}
+[data-face="working"][data-squareling-variant="proofreader"] .squareling-eyes {
+  animation: squareling-glance 2.8s cubic-bezier(0.77, 0, 0.175, 1) 300ms infinite;
+}
+/* Asleep, a patroller off duty here looks down, eyes closed, breathing slowly. */
+[data-face="asleep"] .squareling-gaze {
+  transform: translate(calc(var(--squareling-towards-us) / 2), 3px);
+}
+[data-face="asleep"] .squareling-body {
+  animation: squareling-breathe 4.8s ease-in-out 300ms infinite;
 }
 @media (prefers-reduced-motion: reduce) {
   .squareling * {

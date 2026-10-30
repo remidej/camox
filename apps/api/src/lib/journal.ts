@@ -59,6 +59,12 @@ export type Change =
    * Live's: it shows in the Patrol only (ADR 0024).
    */
   | { kind: "report"; projectId: number; draftId: string | null }
+  /**
+   * A patroller's findings or their dismissals, in a draft or on Live (`draftId` null), where the
+   * catch-up draft's are Live's: they show in the Patrol, and a draft's in its publish preview
+   * (ADR 0034).
+   */
+  | { kind: "findings"; projectId: number; draftId: string | null }
   /** A draft's overview: requested, written, or failed. It shows in the draft's review only. */
   | { kind: "overview"; projectId: number; draftId: string }
   /** Definitions synced into Live by a release, or into a draft with code by a revision. */

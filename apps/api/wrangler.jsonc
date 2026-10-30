@@ -9,6 +9,7 @@
   "routes": [{ "pattern": "api.camox.ai", "custom_domain": true }],
   "vars": {
     "DASHBOARD_URL": "https://app.camox.ai",
+    "API_URL": "https://api.camox.ai",
     // The alerts address. Email Routing forwards it to an inbox (src/domains/releases/README.md).
     "ALERT_EMAIL_TO": "alerts@camox.ai",
   },
@@ -16,7 +17,8 @@
     {
       "name": "EMAIL",
       "remote": true,
-      "allowed_sender_addresses": ["auth@camox.ai", "alerts@camox.ai"],
+      // patrol@: emails about Live's new findings (src/domains/patrol/patrol-email.ts).
+      "allowed_sender_addresses": ["auth@camox.ai", "alerts@camox.ai", "patrol@camox.ai"],
     },
   ],
   "d1_databases": [
@@ -130,7 +132,7 @@
   "triggers": {
     // Daily: a new snapshot of Google Fonts' families for the agent's `searchFonts`
     // (src/domains/fonts/catalog.ts), taken with the `GOOGLE_FONTS_API_KEY` secret.
-    "crons": ["17 4 * * *"],
+    "crons": ["17 4 * * *", "0 */6 * * *"],
     "events": [
       {
         "type": "cf.artifacts.repo.pushed",

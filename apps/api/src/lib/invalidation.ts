@@ -256,6 +256,12 @@ const messagesFor = Effect.fn("invalidation.messagesFor")(function* (
         // A Live report shows in every draft's Patrol too: a Live invalidation reaches them.
         add(change.draftId, queryKeys.patrol.get);
         break;
+      case "findings":
+        // Dismissals show in every scope's Patrol: a Live invalidation reaches them. A draft's
+        // publish preview lists its findings.
+        add(change.draftId, queryKeys.patrol.get);
+        add(change.draftId, queryKeys.drafts.all);
+        break;
       case "overview":
         // Its draft's publish preview carries it.
         add(change.draftId, queryKeys.drafts.all);
@@ -303,6 +309,7 @@ function changesLive(change: Change): boolean {
       return true;
     case "translations":
     case "report":
+    case "findings":
     case "overview":
     case "drafts":
     case "ended":

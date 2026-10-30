@@ -1,10 +1,15 @@
+import { PATROLLER_IDS, type PatrollerId } from "@camox/api-contract/patrol";
 import { Context, Effect } from "effect";
 
 import {
   type AiJob,
   AiJobQueue,
+  type CheckJob,
+  isCheckJob,
   isOverviewJob,
+  isPatrolJob,
   type OverviewJob,
+  type PatrolJob,
   ScheduleError,
 } from "../src/lib/ai-job-queue";
 import { AiModel } from "../src/lib/ai-model";
@@ -35,7 +40,12 @@ const calls: ModelCall[] = [];
 /** Who each call was attributed to, in order: what its AI usage records would name. */
 const attributions: { method: Method; attribution: AiAttribution | undefined }[] = [];
 
-const answer = <M extends Method>(method: M, request: Request<M>) =>
+const answer = <M extends Method>(
+  method: M,
+  request: Request<M>,
+  /** What an unscripted call answers, instead of failing. */
+  unscriptedAnswer?: Answer<M>,
+) =>
   Effect.gen(function* () {
     attributions.push({ method, attribution: yield* AiAttribution });
     calls.push({ method, request } as ModelCall);
@@ -43,7 +53,9 @@ const answer = <M extends Method>(method: M, request: Request<M>) =>
     if (next === undefined) {
       const answerer = standing.get(method) as Answerer<M> | undefined;
       const unscripted = new AiCallError({ cause: `No ${method} answer scripted` });
-      const answered = yield* Effect.promise(async () => answerer?.(request));
+      const answered = yield* Effect.promise(async () =>
+        answerer ? answerer(request) : unscriptedAnswer,
+      );
       if (answered === undefined || answered instanceof AiCallError) {
         return yield* Effect.fail(answered ?? unscripted);
       }
@@ -60,11 +72,13 @@ const scriptedModel = AiModel.of({
   translate: (request) => answer("translate", request),
   merge: (request) => answer("merge", request),
   draftOverview: (request) => answer("draftOverview", request),
+  // Every draft that publishes is proofread first (ADR 0033): unscripted, it finds no mistakes.
+  proofread: (request) => answer("proofread", request, []),
 });
 
 /**
  * Scripts the model's next answer to `method`, or its failure once it gave up. An unscripted
- * call fails like a model that gave up.
+ * call fails like a model that gave up, except proofreading, which finds no mistakes.
  */
 export const answerNext = <M extends Method>(method: M, next: Answer<M> | AiCallError) =>
   answers.set(method, [...(answers.get(method) ?? []), next]);
@@ -82,6 +96,15 @@ export const modelAttributions = (): readonly {
   attribution: AiAttribution | undefined;
 }[] => attributions;
 
+/** Where the model's calls stand: `forgetModelCallsSince` forgets the ones after. */
+export const modelCallsMark = () => ({ calls: calls.length, attributions: attributions.length });
+
+/** Forgets the calls the model got since `mark`, as setup a test doesn't look at. */
+export const forgetModelCallsSince = (mark: ReturnType<typeof modelCallsMark>) => {
+  calls.length = Math.min(calls.length, mark.calls);
+  attributions.length = Math.min(attributions.length, mark.attributions);
+};
+
 /** Forgets scripted answers and calls, between tests. */
 export const forgetModel = () => {
   answers.clear();
@@ -91,11 +114,17 @@ export const forgetModel = () => {
 };
 
 /** A job on an entity: a generated value or a translation. */
-export type ScheduledJob = Exclude<AiJob, OverviewJob> & { delayMs: number };
+export type ScheduledJob = Exclude<AiJob, OverviewJob | CheckJob | PatrolJob> & {
+  delayMs: number;
+};
 
 const jobs: ScheduledJob[] = [];
-// Every write in a draft requests its overview: kept apart, so entity jobs read alone.
+// Every write in a draft requests its overview and its at-publish checks: kept apart, so entity
+// jobs read alone.
 const overviewJobs: (OverviewJob & { delayMs: number })[] = [];
+const checkJobs: (CheckJob & { delayMs: number })[] = [];
+// Every patrol of Live the cron requests, for every project the tests created.
+const patrolJobs: PatrolJob[] = [];
 let failures = 0;
 /** Told of each entity job as it's scheduled, when a test watches them. */
 let watcher: ((job: ScheduledJob) => void) | undefined;
@@ -108,6 +137,8 @@ const recordingScheduler = AiJobQueue.of({
         return Effect.fail(new ScheduleError({ cause: "Scheduling failed in a test" }));
       }
       if (isOverviewJob(job)) overviewJobs.push({ ...job, delayMs });
+      else if (isCheckJob(job)) checkJobs.push({ ...job, delayMs });
+      else if (isPatrolJob(job)) patrolJobs.push(job);
       else {
         jobs.push({ ...job, delayMs });
         watcher?.({ ...job, delayMs });
@@ -119,6 +150,48 @@ const recordingScheduler = AiJobQueue.of({
 /** The overview jobs scheduled for a draft, in order. */
 export const scheduledOverviews = (draftId: string) =>
   overviewJobs.filter((job) => job.draftId === draftId);
+
+/**
+ * The patrollers' checks scheduled for a draft, the latest of each patroller: a newer one
+ * replaced it, as the Durable Object does.
+ */
+export const scheduledChecks = (draftId: string) => [
+  ...new Map(
+    checkJobs.filter((job) => job.draftId === draftId).map((job) => [job.patroller, job]),
+  ).values(),
+];
+
+/** The drafts with checks scheduled, in the order they were first scheduled. */
+export const draftsWithScheduledChecks = () => [...new Set(checkJobs.map((job) => job.draftId))];
+
+/** Forgets the checks scheduled for a draft, once a test ran them. */
+export const forgetScheduledChecks = (draftId: string) => {
+  const kept = checkJobs.filter((job) => job.draftId !== draftId);
+  checkJobs.splice(0, checkJobs.length, ...kept);
+};
+
+/**
+ * The patrols of Live scheduled, one per project: a newer one joined the one pending, as the
+ * Durable Object does.
+ */
+export const scheduledPatrols = (): PatrolJob[] => {
+  const byProject = new Map<number, Set<PatrollerId>>();
+  for (const job of patrolJobs) {
+    const patrollers = byProject.get(job.projectId) ?? new Set();
+    for (const id of job.patrollers) patrollers.add(id);
+    byProject.set(job.projectId, patrollers);
+  }
+  return [...byProject].map(([projectId, patrollers]) => ({
+    kind: "patrol",
+    projectId,
+    patrollers: PATROLLER_IDS.filter((id) => patrollers.has(id)),
+  }));
+};
+
+/** Forgets the patrols of Live scheduled, once a test ran them. */
+export const forgetScheduledPatrols = () => {
+  patrolJobs.length = 0;
+};
 
 /** The jobs scheduled for these entities, in order. */
 export const scheduledFor = (...entityIds: string[]): ScheduledJob[] =>
@@ -137,6 +210,8 @@ export const forgetScheduled = (...entityIds: string[]) => {
 export const forgetAllScheduled = () => {
   jobs.length = 0;
   overviewJobs.length = 0;
+  checkJobs.length = 0;
+  patrolJobs.length = 0;
   failures = 0;
   watcher = undefined;
 };

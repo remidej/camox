@@ -5,9 +5,10 @@ import { and, eq, isNull } from "drizzle-orm";
 import { describe, expect, it } from "vite-plus/test";
 
 import {
+  callSeedingLive,
   createProjectFixture,
   createRpcContext,
-  callSeedingLive,
+  reviewed,
   seedLive,
   syncDefinitionSet,
 } from "../../../test/fixtures";
@@ -241,7 +242,7 @@ async function fixture() {
   const publish = async (draftId: string) =>
     call(
       router.drafts.publish,
-      { projectId, token: (await preview(draftId)).token },
+      { projectId, token: (await reviewed(base.db, draftId, preview(draftId))).token },
       member(inDraft(draftId)),
     );
 
@@ -489,26 +490,25 @@ describe("dangling references", () => {
     ]);
   });
 
-  it("blocks deleting a page that Live links point at", async () => {
+  it("neither blocks nor warns about links to a page the draft deletes: they're the Link checker's", async () => {
     const f = await fixture();
     const home = await f.createPage("");
     const about = await f.createPage("about");
+    const ada = await f.createAuthor("Ada");
     const linking = await f.createByline(home.id, {
       title: "Hi",
+      author: ada.id,
       link: { type: "page", text: "About", pageId: about.id },
     });
     const draft = generateUuidv7();
     await f.deletePage(about.id, startingDraft(draft));
+    await f.deleteAuthor(ada.id, inDraft(draft));
 
-    expect((await f.preview(draft)).blockers).toEqual([
-      expect.objectContaining({
-        code: "danglingPageLink",
-        entity: "block",
-        id: linking.id,
-        field: "link",
-        owner: expect.objectContaining({ kind: "page", id: home.id }),
-      }),
+    const { blockers, warnings } = await f.preview(draft);
+    expect(blockers.map(({ code, id, field }) => ({ code, id, field }))).toEqual([
+      { code: "danglingReference", id: linking.id, field: "author" },
     ]);
+    expect(warnings).toEqual([]);
   });
 
   it("leaves out content the draft deletes along with what it points at", async () => {

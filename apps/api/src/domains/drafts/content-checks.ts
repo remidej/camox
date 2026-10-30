@@ -36,7 +36,14 @@ import { pagesWithDuplicatePaths } from "../pages/duplicate-paths";
 import { generatedSeoOf, seoGenerated } from "../pages/generated-seo";
 import { localizationExclusions } from "../translations/schema";
 import * as overlay from "./overlay";
-import { draftOf, inLocale, type DraftScope, type ReadScope } from "./scope";
+import {
+  draftIn,
+  draftOf,
+  inLocale,
+  type DraftScope,
+  type LiveInLocale,
+  type ReadScope,
+} from "./scope";
 
 // What publishing a draft checks about content (ADR 0009): duplicate paths, dangling references,
 // values of the wrong kind and missing meta titles. Each check returns findings in what the draft changed, which
@@ -54,7 +61,6 @@ export const CONTENT_PROBLEM_CODES = [
   "duplicateRecordPageValue",
   "emptyRequiredReference",
   "danglingReference",
-  "danglingPageLink",
   "wrongKindValue",
   "missingMetaTitle",
   "metaTitlePending",
@@ -97,7 +103,7 @@ type Findings = { blockers: Finding[]; warnings: Finding[] };
 const storedBy = (scope: Scope, row: { draftId: string | null }) => row.draftId === scope.id;
 
 /** A content table's rows in the project, as a scope reads them. */
-const rowsIn = <T extends overlay.ContentTable>(
+export const rowsIn = <T extends overlay.ContentTable>(
   ctx: ServiceContext,
   scope: ReadScope,
   projectId: number,
@@ -226,7 +232,7 @@ const checkDuplicateRecordPageValues = Effect.fn("drafts.checkDuplicateRecordPag
 
 /** Content to check against its definition: a block, shared content, item or record. */
 export type Holder = {
-  entity: Exclude<ContentEntity, "page">;
+  entity: "block" | "sharedContent" | "repeatableItem" | "record";
   id: string;
   /** The locale of the localization holding the content. */
   locale: string;
@@ -246,13 +252,13 @@ export type Holder = {
  * whose definition is gone reads as nothing (ADR 0007), and content the scope drops with its
  * page isn't read: neither is checked. Synced placements hold their content elsewhere.
  */
-const holdersIn = Effect.fn("drafts.holdersIn")(function* (
+export const holdersIn = Effect.fn("drafts.holdersIn")(function* (
   ctx: ServiceContext,
-  scope: Scope,
+  scope: Scope | LiveInLocale,
+  projectId: number,
   visiblePages: Set<string>,
   records: RecordRow[],
 ) {
-  const { projectId } = scope;
   const blockDefs = yield* Effect.promise(() =>
     ctx.db
       .select()
@@ -275,7 +281,8 @@ const holdersIn = Effect.fn("drafts.holdersIn")(function* (
   const blockDef = new Map(blockDefs.map((d) => [`${d.projectId}:${d.blockId}`, d]));
   const collectionDef = new Map(collectionDefs.map((d) => [`${d.projectId}:${d.collectionId}`, d]));
   const holders: Holder[] = [];
-  const changed = (row: { draftId: string | null }) => storedBy(scope, row);
+  const draft = draftIn(scope);
+  const changed = (row: { draftId: string | null }) => draft !== null && storedBy(draft, row);
 
   // Item trees are rooted in a block or in shared content, read by the root's definition.
   const roots = new Map<string, unknown>();
@@ -372,9 +379,11 @@ export function problemPlaceIn(holder: Holder, field: Field | undefined): Proble
 
 /** What content checks point at: records and pages. Publishing checks files on its own. */
 type ContentPointer = Exclude<Pointer, { to: "file" }>;
+type RecordPointer = Extract<Pointer, { to: "record" }>;
 
 /**
- * References, reference-list entries and page links pointing at nothing. Content the draft
+ * References and reference-list entries pointing at nothing. Links to pages that don't exist are
+ * the Link checker's findings (ADR 0034), not problems. Content the draft
  * changed blocks publishing, and so does untouched Live content pointing at what the draft
  * deletes: the draft fixes it by editing that content. Pointers Live already left dangling are
  * warnings.
@@ -390,9 +399,9 @@ function checkDanglingPointers(
   found: Findings,
 ) {
   for (const holder of holders) {
-    const missingByField = new Map<string, { field: Field; missing: ContentPointer[] }>();
+    const missingByField = new Map<string, { field: Field; missing: RecordPointer[] }>();
     for (const { field, pointer } of pointersIn(holder.schema, holder.content)) {
-      if (pointer.to === "file" || exists.draft(keyOf(holder.projectId, pointer))) continue;
+      if (pointer.to !== "record" || exists.draft(keyOf(holder.projectId, pointer))) continue;
       if (pointer.to === "record" && !isRequiredReference(field) && excludedRecord(pointer.id))
         continue;
       const entry = missingByField.get(field.name) ?? { field, missing: [] };
@@ -404,18 +413,17 @@ function checkDanglingPointers(
       const deletedByDraft = missing.some((pointer) =>
         exists.live(keyOf(holder.projectId, pointer)),
       );
-      const what = missing[0].to === "page" ? "a page" : "a record";
       const blocking = holder.changed || deletedByDraft;
       (blocking ? found.blockers : found.warnings).push({
         entity: holder.entity,
         id: holder.id,
-        code: missing[0].to === "page" ? "danglingPageLink" : "danglingReference",
+        code: "danglingReference",
         field: name,
         ...problemPlaceIn(holder, field),
         message:
           !holder.changed && deletedByDraft
-            ? `"${title}" points at ${what} this draft deletes: edit it in this draft`
-            : `"${title}" points at ${what} that doesn't exist`,
+            ? `"${title}" points at a record this draft deletes: edit it in this draft`
+            : `"${title}" points at a record that doesn't exist`,
       });
     }
   }
@@ -559,6 +567,7 @@ const checkLocale = Effect.fn("drafts.checkLocale")(function* (
   const holders = yield* holdersIn(
     ctx,
     scope,
+    projectId,
     new Set(draftPages.map((page) => page.id)),
     draftRecords,
   );

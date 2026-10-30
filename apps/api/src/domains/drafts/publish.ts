@@ -1,5 +1,5 @@
 import { CAMOX_ACTOR, type EndedDraft } from "@camox/api-contract/drafts";
-import { env, waitUntil } from "cloudflare:workers";
+import { type FindingView, findingSentence, type PatrollerId } from "@camox/api-contract/patrol";
 import { and, eq, inArray, isNull, sql } from "drizzle-orm";
 import type { SQLiteTable } from "drizzle-orm/sqlite-core";
 import { Effect } from "effect";
@@ -13,6 +13,8 @@ import {
   PublishBlockedError,
   RevisionChangedError,
   TranslationsPendingError,
+  FindingsOpenError,
+  ChecksRunningError,
 } from "../../lib/errors";
 import { record } from "../../lib/journal";
 import { logSpan } from "../../lib/timing";
@@ -42,6 +44,9 @@ import { homeOf } from "../generated-values/service";
 import { defaultLocaleTag } from "../locales/default-locale";
 import { locales } from "../locales/schema";
 import { deleteUnreferencedOgImageBlobs, ogImageBlobsOf } from "../pages/og-image-blobs";
+import { requestStaleChecks, staleChecks } from "../patrol/checks";
+import * as patrolFindings from "../patrol/findings";
+import { draftFindings } from "../patrol/read";
 import * as patrolReports from "../patrol/reports";
 import { reportCatchUpPublished } from "../patrol/translator";
 import { holdPublishPush } from "../publishes/queue";
@@ -53,6 +58,7 @@ import * as translationBookkeeping from "../translations/bookkeeping";
 import { listedChanges } from "../translations/review";
 import * as translations from "../translations/service";
 import { accessTo } from "./access";
+import { camoxContext } from "./camox-context";
 import { isCatchUpDraft } from "./catch-up";
 import {
   checkContentProblems,
@@ -64,7 +70,7 @@ import { type FieldDiff, fieldDiffsOf } from "./field-values";
 import * as overlay from "./overlay";
 import {
   clearStatements as clearOverviewStatements,
-  fingerprintOf,
+  fingerprintOfChanges,
   type Overview,
   overviewOf,
   requestIfOutdated,
@@ -156,6 +162,16 @@ export type PublishPreview = {
    * waits for them (ADR 0033).
    */
   translating: string[];
+  /**
+   * The draft's open findings, the oldest first, each with the patroller that raised it.
+   * Publishing waits for each to be fixed or dismissed (ADR 0033).
+   */
+  findings: (FindingView & { patroller: { id: PatrollerId; role: string } })[];
+  /**
+   * The patrollers whose check at publish hasn't read the draft's latest changes yet, in the
+   * registry's order. Publishing waits for them (ADR 0033).
+   */
+  checking: { id: PatrollerId; role: string }[];
   /** The tag of the default locale, which the others are translated from (null: none yet). */
   defaultLocale: string | null;
   /** Sent back to publish, which aborts when the conflicts no longer match it. */
@@ -420,18 +436,7 @@ export const computePreview = Effect.fn("drafts.computePreview")(function* (
     change,
   }));
 
-  const fingerprint =
-    stored.length > 0
-      ? yield* fingerprintOf(
-          stored.map(({ entity, row, change }) => ({
-            entity,
-            id: row.id,
-            locale: overlay.localeOfRow(row),
-            change,
-            updatedAt: row.updatedAt,
-          })),
-        )
-      : null;
+  const fingerprint = yield* fingerprintOfChanges(stored);
 
   const translating = yield* translations.translatingLocales(ctx.db, [scope.id]);
   const row = yield* Effect.promise(() =>
@@ -445,6 +450,11 @@ export const computePreview = Effect.fn("drafts.computePreview")(function* (
     warnings,
     changes,
     translating: translating.get(scope.id) ?? [],
+    findings: yield* draftFindings(ctx.db, scope),
+    checking: (yield* staleChecks(ctx.db, scope.id, fingerprint)).map(({ id, role }) => ({
+      id,
+      role,
+    })),
     defaultLocale,
     token: encodeToken(storedConflicts),
     overview: row ? overviewOf(row, fingerprint) : ({ status: "none" } as const),
@@ -601,9 +611,11 @@ export const previewPublish = Effect.fn("drafts.previewPublish")(function* (
 ) {
   const { projectId } = yield* decodeInput(previewPublishInput, rawInput);
   const scope = yield* requireDraft(ctx, projectId);
-  const { fingerprint: _, ...preview } = yield* computePreview(ctx, scope);
-  // Someone is reviewing the draft: an outdated overview is written now, not after the debounce.
+  const { fingerprint, ...preview } = yield* computePreview(ctx, scope);
+  // Someone is reviewing the draft: an outdated overview is written now, not after the debounce,
+  // and so are the patrollers' checks that read other changes.
   yield* requestIfOutdated(ctx.db, scope.id, preview.overview);
+  yield* requestStaleChecks(ctx.db, scope.id, fingerprint);
   // Publishing it is near: its publish script goes up now, unless it already did.
   if (preview.code?.revision && !preview.code.publishing) {
     ctx.waitUntil(
@@ -723,6 +735,7 @@ const publishChecked = Effect.fn("drafts.publishChecked")(function* (
         ...translationBookkeeping.publishStatements(scope),
         ...translations.endStatements(ctx.db, scope.id),
         ...patrolReports.endStatements(ctx.db, scope.id),
+        ...patrolFindings.endStatements(ctx.db, scope.id),
         ...(options.after ?? []),
       ],
     }),
@@ -795,6 +808,8 @@ export const publishDraft = Effect.fn("drafts.publishDraft")(function* (
     });
   }
   if (preview.translating.length > 0) return yield* translationsPending(preview.translating);
+  const held = heldByPatrol(preview);
+  if (held) return yield* held;
 
   const user = yield* requireUser(ctx);
   if (preview.code) {
@@ -843,6 +858,30 @@ const translationsPending = (translating: readonly string[]) =>
     message: `Translations into ${translating.join(", ")} are still running: publishing waits for them`,
     translating,
   });
+
+/**
+ * Why the patrollers hold publishing, if they do (ADR 0033): the draft's open findings, each to
+ * fix or for a member to dismiss, or their checks still to read its latest changes.
+ */
+export const heldByPatrol = (preview: Pick<PublishPreview, "findings" | "checking">) => {
+  const { findings, checking } = preview;
+  if (findings.length > 0) {
+    return new FindingsOpenError({
+      message:
+        `The draft has ${findings.length} open finding(s) to fix, or for a member to dismiss, ` +
+        `before publishing: ${findings.map(findingSentence).join("; ")}`,
+    });
+  }
+  if (checking.length > 0) {
+    const roles = checking.map(({ role }) => role);
+    const who = roles.map((role) => `the ${role}`).join(" and ");
+    return new ChecksRunningError({
+      message: `${who[0]!.toUpperCase()}${who.slice(1)} ${roles.length > 1 ? "are" : "is"} still checking the draft: publishing waits for ${roles.length > 1 ? "them" : "it"}`,
+      checking: roles,
+    });
+  }
+  return null;
+};
 
 /**
  * Puts a draft with code in its publishing state, pinned to `revision`, and starts its publish
@@ -978,20 +1017,12 @@ function definitionsPublishStatements(db: ServiceContext["db"], scope: Scope): B
   ]);
 }
 
-/** Camox's own context, outside any request: it acts with no session. */
-export const camoxContext = (db: ServiceContext["db"]): ServiceContext => ({
-  db,
-  user: null,
-  env,
-  waitUntil,
-  client: "camox",
-  telemetryDisabled: true,
-  draft: null,
-});
+export { camoxContext };
 
 /**
- * Publishes a catch-up draft once nothing is left to translate in it, as Camox (ADR 0017). It
- * stays open, like any other draft, while it has blockers or conflicts, for a member to review;
+ * Publishes a catch-up draft once nothing is left to translate in it and its patrollers checked
+ * it, as Camox (ADR 0017, ADR 0033). It stays open, like any other draft, while it has blockers,
+ * conflicts or open findings, for a member to review;
  * one left empty is dropped. A translation requested in it meanwhile stops publishing, and its
  * own settling publishes the draft later. Does nothing for any other draft.
  */
@@ -1015,8 +1046,11 @@ export const publishWhenTranslated = Effect.fn("drafts.publishWhenTranslated")(f
     }
     return;
   }
-  const preview = yield* computePreview(ctx, scope);
+  const { fingerprint, ...preview } = yield* computePreview(ctx, scope);
   if (preview.blockers.length > 0 || preview.conflicts.length > 0) return;
+  // Its patrollers' checks settling publishes it later; what they found waits for a member.
+  if (preview.checking.length > 0) return yield* requestStaleChecks(db, scope.id, fingerprint);
+  if (preview.findings.length > 0) return;
   const { applied } = yield* publishChecked(ctx, scope, {
     shown: [],
     publishedBy: CAMOX_ACTOR,
@@ -1051,6 +1085,7 @@ export const deleteDraft = Effect.fn("drafts.deleteDraft")(function* (
         ...clearOverviewStatements(ctx.db, scope.id),
         ...translations.endStatements(ctx.db, scope.id),
         ...patrolReports.endStatements(ctx.db, scope.id),
+        ...patrolFindings.endStatements(ctx.db, scope.id),
       ],
     }),
   );

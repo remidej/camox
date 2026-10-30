@@ -9,6 +9,7 @@ import {
   callSeedingLive,
   createProjectFixture,
   createRpcContext,
+  runChecks,
   syncDefinitionSet,
 } from "../../../test/fixtures";
 import { answerNext, modelCalls, scheduledFor, scheduledOverviews } from "../../../test/generation";
@@ -298,7 +299,7 @@ describe("drafts no one reviews get no overview", () => {
 
 describe("the overview isn't content", () => {
   it("is never listed as a change or a conflict, and publishing leaves Live as the draft's content", async () => {
-    const { projectId, member, createBlock, editTitle, preview, runOverview } = await fixture();
+    const { db, projectId, member, createBlock, editTitle, preview, runOverview } = await fixture();
     const block = await createBlock("Live");
     const draft = generateUuidv7();
     await editTitle(block.id, "Mine", startingDraft(draft));
@@ -310,6 +311,7 @@ describe("the overview isn't content", () => {
     expect(after.changes).toEqual(before.changes);
     expect(after.conflicts).toEqual([]);
     expect(after.token).toEqual(before.token);
+    await runChecks(db, draft);
     await call(router.drafts.publish, { projectId, token: after.token }, member(inDraft(draft)));
     const live = await call(router.blocks.get, { id: block.id }, member());
     expect(live.block.content).toEqual({ title: "Mine" });

@@ -1,5 +1,6 @@
 import { DRAFT_SEARCH_PARAM } from "@camox/api-contract/drafts";
 import { localizedPath } from "@camox/api-contract/locales";
+import { findingSentence } from "@camox/api-contract/patrol";
 import { projectWebsiteUrl } from "@camox/api-contract/projects";
 import type { CallToolResult } from "@modelcontextprotocol/server";
 import { Effect } from "effect";
@@ -33,7 +34,7 @@ export type AwaitedTurn = {
  * Waits for the turn the Connected Agent's message started or joined in a draft's thread to end,
  * and answers how it went (ADR 0030): the agent's final message, a failure, or the editor who
  * stopped it, with a studio link to the draft on the page the turn changed, or its home page,
- * and the draft's Blockers. Past the wait, it answers that the agent is still working, with the
+ * and what holds the draft's publish: its Blockers, open findings and checks. Past the wait, it answers that the agent is still working, with the
  * draft's id, and the turn carries on. `start_draft` and `send_message` both answer with it.
  */
 export async function answerWithTurn(
@@ -65,16 +66,16 @@ export async function answerWithTurn(
     });
   }
   const ctx = memberServiceContext(call, draftId);
-  const [studioLink, blockers] = await Promise.all([
+  const [studioLink, holds] = await Promise.all([
     studioLinkOf(ctx, project, draftId, outcome.page),
-    blockersOf(ctx, project.id),
+    holdsOf(ctx, project.id),
   ]);
   const { page: _page, ...end } = outcome;
   return toolAnswer({
     draft: draftId,
     ...(end.turn === "stopped" ? { turn: end.turn, stoppedBy: end.stoppedBy.name } : end),
     studioLink,
-    blockers,
+    ...holds,
   });
 }
 
@@ -100,15 +101,22 @@ async function studioLinkOf(
   return url.href;
 }
 
-/** The draft's Blockers, as the member reads them, each with the page it's on, if any. */
-export async function blockersOf(ctx: ServiceContext, projectId: number) {
-  const { blockers } = await runService(
+/**
+ * What holds the draft's publish, as the member reads it: its Blockers, each with the page it's
+ * on, if any, its open findings, and the patrollers still checking it (ADR 0033).
+ */
+export async function holdsOf(ctx: ServiceContext, projectId: number) {
+  const { blockers, findings, checking } = await runService(
     Effect.gen(function* () {
       return yield* computePreview(ctx, yield* requireDraft(ctx, projectId));
     }),
   );
-  return blockers.map(({ message, owner }) => ({
-    problem: message,
-    ...(owner?.kind === "page" && { page: owner.path }),
-  }));
+  return {
+    blockers: blockers.map(({ message, owner }) => ({
+      problem: message,
+      ...(owner?.kind === "page" && { page: owner.path }),
+    })),
+    findings: findings.map((finding) => ({ finding: findingSentence(finding) })),
+    checking: checking.map(({ role }) => role),
+  };
 }

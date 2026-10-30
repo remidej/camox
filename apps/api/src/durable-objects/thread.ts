@@ -1,3 +1,4 @@
+import { CAMOX_ACTOR } from "@camox/api-contract/drafts";
 import { generateUuidv7 } from "@camox/api-contract/ids";
 import {
   BRIEF_ENTRY,
@@ -294,12 +295,14 @@ const participantSchema = z.object({
 
 /**
  * Who sent a message a draft's thread opens with, and their kind, which sets how the transcript
- * records it, how studios show it and how the model reads it: an editor, or a member's Connected
- * Agent, in its client (ADR 0030).
+ * records it, how studios show it and how the model reads it: an editor, a member's Connected
+ * Agent, in its client (ADR 0030), or Camox itself, as a Brief, in a draft Camox opened, such as
+ * its Patrol Draft (ADR 0034).
  */
 export type OpeningSender =
   | { kind: "editor"; editor: ThreadSender }
-  | { kind: "connectedAgent"; member: ThreadSender; client: ConnectedAgentClient };
+  | { kind: "connectedAgent"; member: ThreadSender; client: ConnectedAgentClient }
+  | { kind: "camox" };
 
 /** A message a draft's thread opens with: its text, the operation id it was sent with, and who sent it. */
 export type OpeningMessage = { operationId: string; text: string; from: OpeningSender };
@@ -311,7 +314,8 @@ export type OpeningMessage = { operationId: string; text: string; from: OpeningS
  */
 export type ThreadOpening = {
   identity: ThreadIdentity;
-  apiOrigin: string;
+  /** Absent where nothing names it, as for a cron's: the next connection's records it. */
+  apiOrigin?: string;
   brief?: string;
   messages: OpeningMessage[];
 };
@@ -349,14 +353,18 @@ const openingEntryOf = ({ operationId, from }: OpeningMessage): InputEntry => {
           operationId,
         } satisfies ConnectedAgentMessageData,
       };
+    case "camox":
+      return { kind: BRIEF_ENTRY, data: { operationId } };
   }
 };
 
 /**
  * The member a message entry acts for: the editor who sent it, or the member whose Connected
- * Agent did. None for any other entry.
+ * Agent did, or Camox for its Brief, which starts a run only in a draft Camox opened. None for
+ * any other entry.
  */
 const memberOfEntry = (entry: EntryRecord | undefined) => {
+  if (entry?.kind === BRIEF_ENTRY) return CAMOX_ACTOR;
   if (entry?.kind === EDITOR_MESSAGE_ENTRY && isSender(entry.data)) return entry.data.id;
   if (entry?.kind === CONNECTED_AGENT_MESSAGE_ENTRY) {
     return connectedAgentMessageDataSchema.safeParse(entry.data).data?.member.id;
@@ -1730,8 +1738,8 @@ export class Thread extends DurableObject<Bindings> {
   }
 
   /** Records the API's public origin, as the connection of the last message, or the API, named it. */
-  async #recordApiOrigin(apiOrigin: string) {
-    if ((await this.ctx.storage.get(API_ORIGIN_KEY)) !== apiOrigin) {
+  async #recordApiOrigin(apiOrigin: string | undefined) {
+    if (apiOrigin !== undefined && (await this.ctx.storage.get(API_ORIGIN_KEY)) !== apiOrigin) {
       await this.ctx.storage.put(API_ORIGIN_KEY, apiOrigin);
     }
   }
@@ -1795,7 +1803,7 @@ export class Thread extends DurableObject<Bindings> {
     message,
   }: {
     identity: ThreadIdentity;
-    apiOrigin: string;
+    apiOrigin?: string;
     message: OpeningMessage;
   }): Promise<void> {
     if (await this.#hasEnded()) throw new Error("The thread ended with its draft");

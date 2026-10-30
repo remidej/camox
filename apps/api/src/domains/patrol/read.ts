@@ -1,4 +1,6 @@
 import {
+  type FindingView,
+  type PatrollerId,
   type PatrollerView,
   type PatrollerWorking,
   type PatrolView,
@@ -9,7 +11,7 @@ import {
   REPORTS_SHOWN,
   type ReportView,
 } from "@camox/api-contract/patrol";
-import { and, eq, inArray, isNull, or } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNull, or } from "drizzle-orm";
 import { Effect } from "effect";
 import { z } from "zod";
 
@@ -20,6 +22,7 @@ import type { ServiceContext } from "../_shared/service-context";
 import { selectInChunks } from "../content/chunks";
 import { contentReader } from "../content/reader";
 import { accessTo } from "../drafts/access";
+import { peopleNamed, personOf } from "../drafts/people";
 import {
   draftIn,
   draftOf,
@@ -32,10 +35,12 @@ import { withFileMetadata } from "../files/generated-metadata";
 import { files } from "../files/schema";
 import { defaultLocaleTag } from "../locales/default-locale";
 import { pages } from "../pages/schema";
-import { PATROLLERS } from "./patrollers";
-import { reports } from "./schema";
-import { liveWorkScopes } from "./scopes";
-import type { PendingWork } from "./working";
+import type { FindingRow } from "./findings";
+import { heldIn } from "./fixes";
+import { dutyOnLive, PATROLLERS, patrollerById } from "./patrollers";
+import { findingDismissals, findings, patrolChecks, reports } from "./schema";
+import { liveWorkScopes, patrolDraftOf } from "./scopes";
+import type { PendingWork, WorkScopes } from "./working";
 
 // The Patrol read (ADR 0024): every patroller of the registry, with its reports in the scope the
 // studio views. A draft sees its own reports and Live's; Live sees its own. The catch-up draft's
@@ -176,45 +181,69 @@ const NAMERS: Record<ReportEntity, Namer> = {
 const subjectOf = (row: ReportRow) =>
   row.summary.kind === "structured" ? row.summary.subject : null;
 
+/** Where a subject a row names is: its scope, locale and subject, or none without a subject. */
+type SubjectAt = {
+  draftId: string | null;
+  locale: string | null;
+  subject: { entity: ReportEntity; id: string } | null;
+};
+
 /**
- * The names and places of the reports' subjects, by report, in each report's scope and locale. Reports
- * without a subject have none; those whose subject is gone are missing.
+ * The names and places of rows' subjects, by row, in each row's scope and locale. Rows without a
+ * subject have none; those whose subject is gone are missing.
  */
-const nameSubjects = Effect.fn("patrol.nameSubjects")(function* (
+const nameSubjects = Effect.fn("patrol.nameSubjects")(function* <Row>(
   db: Database,
   projectId: number,
-  rows: readonly ReportRow[],
+  rows: readonly Row[],
   draftsById: ReadonlyMap<string, Draft>,
+  at: (row: Row) => SubjectAt,
 ) {
   const defaultTag = yield* defaultLocaleTag(db, projectId);
-  const groups = new Map<string, { scope: ReadScope; entity: ReportEntity; rows: ReportRow[] }>();
+  const groups = new Map<
+    string,
+    { scope: ReadScope; entity: ReportEntity; rows: { row: Row; id: string }[] }
+  >();
   for (const row of rows) {
-    const subject = subjectOf(row);
+    const { draftId, locale, subject } = at(row);
     if (!subject) continue;
-    const locale = reportLocale(row.summary);
-    const draft = row.draftId === null ? null : draftsById.get(row.draftId);
+    const draft = draftId === null ? null : draftsById.get(draftId);
     if (draft === undefined) continue;
     const scope: ReadScope =
       locale === null || locale === defaultTag ? draft : inLocale(draft, locale);
-    const key = `${row.draftId}\u0000${locale}\u0000${subject.entity}`;
+    const key = `${draftId}\u0000${locale}\u0000${subject.entity}`;
     const group = groups.get(key) ?? { scope, entity: subject.entity, rows: [] };
-    group.rows.push(row);
+    group.rows.push({ row, id: subject.id });
     groups.set(key, group);
   }
-  const names = new Map<ReportRow, Named>();
+  const names = new Map<Row, Named>();
   for (const group of groups.values()) {
     const named = yield* NAMERS[group.entity](
       db,
       projectId,
       group.scope,
-      group.rows.map((row) => subjectOf(row)!.id),
+      group.rows.map(({ id }) => id),
     );
-    for (const row of group.rows) {
-      const name = named.get(subjectOf(row)!.id);
+    for (const { row, id } of group.rows) {
+      const name = named.get(id);
       if (name !== undefined) names.set(row, name);
     }
   }
   return names;
+});
+
+/** Where a report's subject is. */
+const reportAt = (row: ReportRow): SubjectAt => ({
+  draftId: row.draftId,
+  locale: reportLocale(row.summary),
+  subject: subjectOf(row),
+});
+
+/** Where a finding's subject is. */
+const findingAt = (row: FindingRow): SubjectAt => ({
+  draftId: row.draftId,
+  locale: row.locale,
+  subject: { entity: row.entity, id: row.entityId },
 });
 
 /**
@@ -255,6 +284,145 @@ const latest = (...times: (number | undefined)[]) => {
   return known.length > 0 ? Math.max(...known) : null;
 };
 
+/** When each patroller last checked any of `scopes`, the latest. */
+const lastCheckedIn = Effect.fn("patrol.lastCheckedIn")(function* (
+  db: Database,
+  projectId: number,
+  scopes: WorkScopes,
+) {
+  const drafts = scopes.filter((scope) => scope !== null);
+  const rows = yield* Effect.promise(() =>
+    db
+      .select({ patroller: patrolChecks.patroller, checkedAt: patrolChecks.checkedAt })
+      .from(patrolChecks)
+      .where(
+        and(
+          eq(patrolChecks.projectId, projectId),
+          or(
+            ...(scopes.includes(null) ? [isNull(patrolChecks.draftId)] : []),
+            ...(drafts.length > 0 ? [inArray(patrolChecks.draftId, drafts)] : []),
+          ),
+        ),
+      ),
+  );
+  const latestOf = new Map<PatrollerId, number>();
+  for (const { patroller, checkedAt } of rows) {
+    latestOf.set(patroller, Math.max(latestOf.get(patroller) ?? 0, checkedAt));
+  }
+  return latestOf;
+});
+
+/** The open findings in any of `scopes`, the oldest first. */
+const findingsIn = Effect.fn("patrol.findingsIn")(function* (
+  db: Database,
+  projectId: number,
+  scopes: WorkScopes,
+) {
+  const drafts = scopes.filter((scope) => scope !== null);
+  return yield* Effect.promise(() =>
+    db
+      .select()
+      .from(findings)
+      .where(
+        and(
+          eq(findings.projectId, projectId),
+          or(
+            ...(scopes.includes(null) ? [isNull(findings.draftId)] : []),
+            ...(drafts.length > 0 ? [inArray(findings.draftId, drafts)] : []),
+          ),
+        ),
+      )
+      .orderBy(asc(findings.raisedAt), asc(findings.rowId)),
+  );
+});
+
+/**
+ * The open findings in the scope viewed, the oldest first, each with its patroller: a draft's own,
+ * or on Live, Live's and the catch-up draft's. Those whose subject is gone are left out.
+ */
+const openFindingsIn = Effect.fn("patrol.openFindingsIn")(function* (
+  db: Database,
+  projectId: number,
+  viewed: { id: string } | null,
+  liveScopes: WorkScopes,
+  draftsById: ReadonlyMap<string, Draft>,
+) {
+  const rows = yield* findingsIn(db, projectId, viewed ? [viewed.id] : liveScopes);
+  const names = yield* nameSubjects(db, projectId, rows, draftsById, findingAt);
+  return rows.flatMap((row): (FindingView & { patroller: PatrollerId })[] => {
+    const named = names.get(row);
+    if (!named) return [];
+    return [
+      {
+        id: row.rowId,
+        patroller: row.patroller,
+        about: row.about,
+        fix: row.fix,
+        subject: { entity: row.entity, id: row.entityId, name: named.name },
+        locale: row.locale,
+        field: row.field,
+        raisedAt: row.raisedAt,
+        live: row.draftId === null || row.draftId !== viewed?.id,
+        place: named.place,
+      },
+    ];
+  });
+});
+
+/** The drafts whose subjects a read in `viewed` names: the one viewed, and the catch-up draft. */
+const draftsNamed = (
+  viewed: Parameters<typeof draftOf>[0] | null,
+  catchUp: Parameters<typeof draftOf>[0] | undefined,
+) => {
+  const draftsById = new Map<string, Draft>();
+  if (catchUp) draftsById.set(catchUp.id, draftOf(catchUp));
+  if (viewed) draftsById.set(viewed.id, draftOf(viewed));
+  return draftsById;
+};
+
+/** Live's own open findings, the oldest first, each with its patroller. */
+export const liveFindings = (db: Database, projectId: number) =>
+  openFindingsIn(db, projectId, null, [null], new Map());
+
+/**
+ * The open findings of the scope the request names, each with its patroller. In the Patrol
+ * Draft, Live's findings come after its own, but for those the draft fixed: its agent works on
+ * them there (ADR 0034).
+ */
+export const listFindings = Effect.fn("patrol.listFindings")(function* (
+  ctx: ServiceContext,
+  rawInput: z.input<typeof getPatrolInput>,
+) {
+  const { projectId } = yield* decodeInput(getPatrolInput, rawInput);
+  const { scope } = yield* accessTo(ctx, { project: projectId }, "member");
+  const viewed = draftIn(scope);
+  const { catchUp, scopes } = yield* liveWorkScopes(ctx.db, projectId);
+  const own = yield* openFindingsIn(
+    ctx.db,
+    projectId,
+    viewed,
+    scopes,
+    draftsNamed(viewed, catchUp),
+  );
+  if (!viewed || (yield* patrolDraftOf(ctx.db, projectId))?.id !== viewed.id) return own;
+  return [...own, ...(yield* heldIn(ctx, viewed, yield* liveFindings(ctx.db, projectId)))];
+}, Effect.scoped);
+
+/**
+ * A draft's open findings, the oldest first, each with its patroller's id and role: those that
+ * hold its publish (ADR 0033).
+ */
+export const draftFindings = Effect.fn("patrol.draftFindings")(function* (
+  db: Database,
+  draft: Draft,
+) {
+  const found = yield* openFindingsIn(db, draft.projectId, draft, [], new Map([[draft.id, draft]]));
+  return found.map(({ patroller: id, ...finding }) => {
+    const { role } = patrollerById(id);
+    return { ...finding, patroller: { id, role } };
+  });
+});
+
 /** Newest first; a report written later wins a tie. */
 const newestFirst = (a: ReportRow, b: ReportRow) => b.at - a.at || b.rowId - a.rowId;
 
@@ -267,9 +435,7 @@ export const getPatrol = Effect.fn("patrol.get")(function* (
   const { scope } = yield* accessTo(ctx, { project: projectId }, "member");
   const viewed = draftIn(scope);
   const { catchUp, scopes: liveScopes } = yield* liveWorkScopes(ctx.db, projectId);
-  const draftsById = new Map<string, Draft>();
-  if (catchUp) draftsById.set(catchUp.id, draftOf(catchUp));
-  if (viewed) draftsById.set(viewed.id, draftOf(viewed));
+  const draftsById = draftsNamed(viewed, catchUp);
 
   const rows = yield* Effect.promise(() =>
     ctx.db
@@ -284,7 +450,7 @@ export const getPatrol = Effect.fn("patrol.get")(function* (
         ),
       ),
   );
-  const names = yield* nameSubjects(ctx.db, projectId, rows, draftsById);
+  const names = yield* nameSubjects(ctx.db, projectId, rows, draftsById, reportAt);
   // Reports about a subject that's gone are left out.
   const shown = rows.filter((row) => subjectOf(row) === null || names.has(row));
 
@@ -300,7 +466,6 @@ export const getPatrol = Effect.fn("patrol.get")(function* (
       id: `${row.draftId ?? "live"}:${row.key}`,
       summary,
       outcome: row.outcome,
-      attention: row.attention,
       at: row.at,
       // Live's own, or the catch-up draft's unless that's the draft viewed.
       live: row.draftId === null || row.draftId !== viewed?.id,
@@ -308,8 +473,22 @@ export const getPatrol = Effect.fn("patrol.get")(function* (
     };
   };
 
+  const findingViews = yield* openFindingsIn(ctx.db, projectId, viewed, liveScopes, draftsById);
+  const dismissalRows = yield* Effect.promise(() =>
+    ctx.db
+      .select()
+      .from(findingDismissals)
+      .where(eq(findingDismissals.projectId, projectId))
+      .orderBy(desc(findingDismissals.dismissedAt), desc(findingDismissals.rowId)),
+  );
+  const dismissers = yield* peopleNamed(
+    ctx.db,
+    dismissalRows.map((row) => row.dismissedBy),
+  );
+
   // What's pending in the scope viewed: on Live, the catch-up draft's work is Live's.
   const workScopes = viewed ? [viewed.id] : liveScopes;
+  const lastChecked = yield* lastCheckedIn(ctx.db, projectId, workScopes);
   const working = yield* Effect.forEach(PATROLLERS, (patroller) =>
     Effect.flatMap(patroller.pending(ctx.db, projectId, workScopes), (pending) =>
       workingOn(ctx.db, projectId, pending, viewed ? draftOf(viewed) : null),
@@ -323,16 +502,34 @@ export const getPatrol = Effect.fn("patrol.get")(function* (
       const locale = reportLocale(row.summary);
       rest.set(locale, (rest.get(locale) ?? 0) + 1);
     }
+    const lastCheckedAt = lastChecked.get(patroller.id) ?? null;
     return {
       id: patroller.id,
       role: patroller.role,
+      duty: viewed ? patroller.duty.drafts : dutyOnLive(patroller, catchUp !== undefined),
       working: working[index]!.working,
-      lastActivityAt: latest(own[0]?.at, working[index]!.since),
+      lastCheckedAt,
+      lastActivityAt: latest(own[0]?.at, working[index]!.since, lastCheckedAt ?? undefined),
       reports: own.slice(0, REPORTS_SHOWN).map(viewOf),
       more: mostFirst(rest),
+      findings: findingViews
+        .filter((finding) => finding.patroller === patroller.id)
+        .map(({ patroller: _patroller, ...finding }) => finding),
+      dismissals: dismissalRows
+        .filter((row) => row.patroller === patroller.id)
+        .map((row) => ({
+          id: row.rowId,
+          about: row.about,
+          by: personOf(dismissers, row.dismissedBy),
+          at: row.dismissedAt,
+        })),
     };
   });
   // The latest activity first, those that never worked last, in the registry's order.
   const order = (patroller: PatrollerView) => patroller.lastActivityAt ?? 0;
-  return { patrollers: patrollers.sort((a, b) => order(b) - order(a)) } satisfies PatrolView;
+  const patrolDraft = yield* patrolDraftOf(ctx.db, projectId);
+  return {
+    patrollers: patrollers.sort((a, b) => order(b) - order(a)),
+    patrolDraft: patrolDraft ? { id: patrolDraft.id, name: patrolDraft.name } : null,
+  } satisfies PatrolView;
 }, Effect.scoped);

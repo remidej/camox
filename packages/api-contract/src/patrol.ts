@@ -4,8 +4,11 @@
  * Live, and names each report's subject, so the studio needs no entity loaded to show it.
  */
 
-/** A patroller's stable id. The registry in the API lists them all. */
-export type PatrollerId = "translator" | "seoManager";
+/** Every patroller's stable id. The registry in the API lists them all. */
+export const PATROLLER_IDS = ["translator", "seoManager", "linkChecker", "proofreader"] as const;
+
+/** A patroller's stable id. */
+export type PatrollerId = (typeof PATROLLER_IDS)[number];
 
 /**
  * What a structured report says was done. Each has a failed form, by the report's outcome. A
@@ -16,7 +19,10 @@ export type ReportVerb =
   | "mergedWithLive"
   | "wroteSeo"
   | "describedFile"
-  | "publishedCatchUp";
+  | "publishedCatchUp"
+  | "removedLink"
+  | "fixedLink"
+  | "fixedMistake";
 
 /** What a report can be about. */
 export type ReportEntity =
@@ -51,8 +57,11 @@ export const reportLocale = (
 /** Whether the work was done, or failed. A failure shows in its report only. */
 export type ReportOutcome = "done" | "failed";
 
-/** Whether a report needs a human. Nothing raises one yet. */
-export type AttentionLevel = "none" | "needed";
+/**
+ * Where a patroller is on duty, in drafts or on Live: it works as you go, checks when you
+ * publish, or is off there (ADR 0034).
+ */
+export type PatrollerDuty = "asYouGo" | "atPublish" | "off";
 
 /**
  * Where the studio shows a report's subject: a page on the Canvas, with the block and repeatable
@@ -68,7 +77,6 @@ export type ReportView = {
   id: string;
   summary: ReportSummary;
   outcome: ReportOutcome;
-  attention: AttentionLevel;
   /** When the work last settled, in milliseconds since the epoch. */
   at: number;
   /** Whether the report is Live's, seen from a draft or from Live. */
@@ -79,6 +87,98 @@ export type ReportView = {
    */
   place: ReportPlace | null;
 };
+
+/**
+ * What a finding is about (ADR 0034), by its kind:
+ * - `missingPage`: a link to a page that doesn't exist, the page's name as it was last known.
+ * - `brokenLink`: an external link that failed, and how.
+ * - `misspelling`, `grammar`: the flagged text, in the sentence it's in.
+ * A link's `url` is as content stores it: a page link's is `camox:page:<id>`, and `text` is what
+ * the link reads.
+ */
+export type FindingAbout =
+  | { kind: "missingPage"; url: string; text: string; page: string | null }
+  | { kind: "brokenLink"; url: string; text: string; failure: LinkFailure }
+  | { kind: "misspelling" | "grammar"; text: string; sentence: string };
+
+/** How a link failed: an HTTP error status, no connection (DNS included), or no answer in time. */
+export type LinkFailure =
+  | { kind: "status"; status: number }
+  | { kind: "unreachable" }
+  | { kind: "timeout" };
+
+export type FindingKind = FindingAbout["kind"];
+
+/**
+ * The fix a finding suggests, which applying makes: removing the link, keeping its text, or
+ * replacing the flagged text with `replacement` in its sentence, keeping its formatting.
+ */
+export type FindingFix = { kind: "removeLink" } | { kind: "replaceText"; replacement: string };
+
+/** A finding, open, in the scope viewed. */
+export type FindingView = {
+  /** What applying or dismissing it names. */
+  id: number;
+  about: FindingAbout;
+  /** The fix it suggests, if any. */
+  fix: FindingFix | null;
+  /** The content it's in, named in its locale. */
+  subject: ReportSubject;
+  /** The locale of the content it's in, by its tag. */
+  locale: string;
+  /** The content field it's in, by name. */
+  field: string;
+  /** When it was first raised, in milliseconds since the epoch. */
+  raisedAt: number;
+  /** Whether it's Live's. Live's are fixed in the Patrol Draft. */
+  live: boolean;
+  /** Where its content shows, as for reports. */
+  place: ReportPlace | null;
+};
+
+/** What a finding is about, after where it is: "links to About, a page that no longer exists". */
+function aboutSentence(about: FindingAbout): string {
+  switch (about.kind) {
+    case "missingPage":
+      return about.page === null
+        ? "links to a page that no longer exists"
+        : `links to ${about.page}, a page that no longer exists`;
+    case "brokenLink": {
+      const { failure } = about;
+      const how =
+        failure.kind === "status"
+          ? `answers with an error (${failure.status})`
+          : failure.kind === "timeout"
+            ? "doesn't answer in time"
+            : "can't be reached";
+      return `links to ${about.url}, which ${how}`;
+    }
+    case "misspelling":
+      return "may be misspelled";
+    case "grammar":
+      return "may be a grammar mistake";
+  }
+}
+
+/**
+ * A finding as one sentence, as the studio, emails, Briefs and refusals word it: "“About us” in
+ * Footer links to About, a page that no longer exists".
+ */
+export function findingSentence(finding: Pick<FindingView, "about" | "subject">): string {
+  return `“${finding.about.text}” in ${finding.subject.name} ${aboutSentence(finding.about)}`;
+}
+
+/** A member's dismissal of what a finding was about: no finding like it is raised again. */
+export type DismissalView = {
+  id: number;
+  about: FindingAbout;
+  by: { id: string; name: string };
+  /** When it was dismissed, in milliseconds since the epoch. */
+  at: number;
+};
+
+/** What applying a finding's fix did: applied it, or found its content changed and rechecked. */
+export type ApplyResult = { applied: boolean };
 
 /** How many subjects a patroller is on in one locale, a locale's tag. */
 export type LocaleCount = { locale: string; count: number };
@@ -96,18 +196,38 @@ export type PatrollerView = {
   id: PatrollerId;
   /** Its role, as editors know it: "Translator", "SEO manager". */
   role: string;
+  /** Its duty in the scope viewed. Off there, it still has its reports. */
+  duty: PatrollerDuty;
   /** Null when it isn't working in the scope. */
   working: PatrollerWorking | null;
-  /** Its latest activity in the scope, or null when it never worked there. */
+  /**
+   * When it last finished a check in the scope, whether it found anything or not, or null when it
+   * never checked there.
+   */
+  lastCheckedAt: number | null;
+  /**
+   * Its latest activity in the scope: its last check, its newest report or when its pending work
+   * started, whichever is later. Null when it never worked there.
+   */
   lastActivityAt: number | null;
   /** Its newest reports, newest first. */
   reports: ReportView[];
   /** How many more reports it has than `reports` shows, per locale, the most first. */
   more: { locale: string | null; count: number }[];
+  /** Its open findings in the scope viewed, the oldest first. Their count is the row's badge. */
+  findings: FindingView[];
+  /** The project's dismissals of its findings, the newest first. */
+  dismissals: DismissalView[];
 };
 
-/** Every patroller of the registry, the latest activity first; never-worked ones last. */
-export type PatrolView = { patrollers: PatrollerView[] };
+/**
+ * Every patroller of the registry, the latest activity first; never-worked ones last. With the
+ * project's open Patrol Draft, where Live's findings are fixed, if any.
+ */
+export type PatrolView = {
+  patrollers: PatrollerView[];
+  patrolDraft: { id: string; name: string | null } | null;
+};
 
 /** How many reports the Patrol shows of each patroller; the rest are counted. */
 export const REPORTS_SHOWN = 5;

@@ -10,7 +10,7 @@ import { eq } from "drizzle-orm";
 import { Hono } from "hono";
 import { describe, expect, it } from "vite-plus/test";
 
-import { createProjectFixture, createRpcContext } from "../../../test/fixtures";
+import { createProjectFixture, createRpcContext, reviewed } from "../../../test/fixtures";
 import { router } from "../../router";
 import { drafts, pages } from "../../schema";
 import type { AppEnv } from "../../types";
@@ -88,7 +88,11 @@ async function fixture() {
   });
   async function publish(draftId: string) {
     const projectId = base.project.id;
-    const preview = await call(router.drafts.previewPublish, { projectId }, rpc(inDraft(draftId)));
+    const preview = await reviewed(
+      base.db,
+      draftId,
+      call(router.drafts.previewPublish, { projectId }, rpc(inDraft(draftId))),
+    );
     expect(preview.blockers).toEqual([]);
     await call(router.drafts.publish, { projectId, token: preview.token }, rpc(inDraft(draftId)));
   }

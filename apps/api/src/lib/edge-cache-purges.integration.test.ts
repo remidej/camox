@@ -10,6 +10,7 @@ import {
   createProjectFixture,
   createRpcContext,
   createSessionFixture,
+  reviewed,
   seedLive,
   syncDefinitionSet,
 } from "../../test/fixtures";
@@ -70,14 +71,18 @@ async function fixture() {
 
 describe("the Live cache key", () => {
   it("is purged when a draft is published", async () => {
-    const { block, inDraft, projectId, purgesLive } = await fixture();
+    const { db, block, inDraft, projectId, purgesLive } = await fixture();
     const draftId = generateUuidv7();
     await call(
       router.blocks.updateContent,
       { id: block.id, content: { title: "Published" } },
       inDraft(draftId),
     );
-    const { token } = await call(router.drafts.previewPublish, { projectId }, inDraft(draftId));
+    const { token } = await reviewed(
+      db,
+      draftId,
+      call(router.drafts.previewPublish, { projectId }, inDraft(draftId)),
+    );
 
     expect(
       await purgesLive(() => call(router.drafts.publish, { projectId, token }, inDraft(draftId))),
@@ -162,7 +167,11 @@ describe("a deleted file", () => {
     });
     const draftId = generateUuidv7();
     await call(router.files.delete, { id: file.id }, inDraft(draftId));
-    const { token } = await call(router.drafts.previewPublish, { projectId }, inDraft(draftId));
+    const { token } = await reviewed(
+      db,
+      draftId,
+      call(router.drafts.previewPublish, { projectId }, inDraft(draftId)),
+    );
     forgetPurged(`file:${blobId}`);
 
     await call(router.drafts.publish, { projectId, token }, inDraft(draftId));

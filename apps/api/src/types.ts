@@ -9,6 +9,8 @@ export type Bindings = {
   GOOGLE_CLIENT_ID: string;
   GOOGLE_CLIENT_SECRET: string;
   DASHBOARD_URL: string;
+  /** The API's public origin, for links in what the API sends without a request, like emails. */
+  API_URL: string;
   EMAIL: SendEmail;
   /** Where alerts go, such as a failed release's. Cloudflare Email Routing forwards it. */
   ALERT_EMAIL_TO: string;

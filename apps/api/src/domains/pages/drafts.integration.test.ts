@@ -4,10 +4,11 @@ import { call } from "@orpc/server";
 import { describe, expect, it } from "vite-plus/test";
 
 import {
-  createProjectFixture,
-  syncDefinitionSet,
-  createRpcContext,
   callSeedingLive,
+  createProjectFixture,
+  createRpcContext,
+  reviewed,
+  syncDefinitionSet,
 } from "../../../test/fixtures";
 import { router } from "../../router";
 import { layouts } from "../../schema";
@@ -92,7 +93,7 @@ async function fixture() {
   const publish = async (draftId: string) =>
     call(
       router.drafts.publish,
-      { projectId, token: (await preview(draftId)).token },
+      { projectId, token: (await reviewed(base.db, draftId, preview(draftId))).token },
       member(inDraft(draftId)),
     );
   /** Changes Live the way it changes in v1: by publishing another draft. */

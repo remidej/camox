@@ -10,6 +10,15 @@ const CHUNK = 90;
 // How many chunks of one read are in flight at once.
 const CONCURRENT_CHUNKS = 6;
 
+/** `values` in chunks of `size`, in order: as many values as one statement can bind. */
+export const chunksOf = <V>(values: readonly V[], size = CHUNK) => {
+  const chunks: V[][] = [];
+  for (let start = 0; start < values.length; start += size) {
+    chunks.push(values.slice(start, start + size));
+  }
+  return chunks;
+};
+
 /**
  * What `read` returns for each chunk of `values`, in one list: one read per chunk of `size`
  * values, none for no values, several at once. `size` leaves room for the parameters each value
@@ -20,12 +29,9 @@ export const readInChunks = <V, R, E, Q>(
   read: (chunk: V[]) => Effect.Effect<readonly R[], E, Q>,
   size = CHUNK,
 ) => {
-  const chunks: V[][] = [];
-  for (let start = 0; start < values.length; start += size) {
-    chunks.push(values.slice(start, start + size));
-  }
-  return Effect.map(Effect.forEach(chunks, read, { concurrency: CONCURRENT_CHUNKS }), (rows) =>
-    rows.flat(),
+  return Effect.map(
+    Effect.forEach(chunksOf(values, size), read, { concurrency: CONCURRENT_CHUNKS }),
+    (rows) => rows.flat(),
   );
 };
 

@@ -4,9 +4,10 @@ import { call } from "@orpc/server";
 import { describe, expect, it } from "vite-plus/test";
 
 import {
+  callSeedingLive,
   createProjectFixture,
   createRpcContext,
-  callSeedingLive,
+  reviewed,
   syncDefinitionSet,
 } from "../../../test/fixtures";
 import { router } from "../../router";
@@ -114,7 +115,7 @@ async function fixture() {
   const publish = async (draftId: string) =>
     call(
       router.drafts.publish,
-      { projectId, token: (await preview(draftId)).token },
+      { projectId, token: (await reviewed(base.db, draftId, preview(draftId))).token },
       member(inDraft(draftId)),
     );
 

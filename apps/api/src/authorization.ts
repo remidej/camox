@@ -1,4 +1,4 @@
-import { DRAFT_HEADER } from "@camox/api-contract/drafts";
+import { CAMOX_ACTOR, CAMOX_NAME, DRAFT_HEADER } from "@camox/api-contract/drafts";
 import { and, eq } from "drizzle-orm";
 import { Effect } from "effect";
 
@@ -67,12 +67,28 @@ export function requireUser<U>(ctx: { user: U | null }) {
 
 // --- Membership Helpers ---
 
-/** Whether a user is a member of the org that owns a project (by project ID). */
+/**
+ * Camox itself, as the user its agent acts for in a run Camox started, in a draft Camox opened,
+ * such as its Patrol Draft (ADR 0034). It counts as a member of every project. No session holds
+ * it: sessions hold users who signed up, whose generated ids are never `CAMOX_ACTOR`.
+ */
+export const CAMOX_USER = {
+  id: CAMOX_ACTOR,
+  name: CAMOX_NAME,
+  email: "",
+  emailVerified: true,
+  image: null,
+  createdAt: new Date(0),
+  updatedAt: new Date(0),
+};
+
+/** Whether a user is a member of the org that owns a project (by project ID), or is Camox. */
 export const isProjectMember = Effect.fn("isProjectMember")(function* (
   db: Database,
   projectId: number,
   userId: string,
 ) {
+  if (userId === CAMOX_ACTOR) return true;
   const result = yield* Effect.promise(() =>
     db
       .select({ id: member.id })

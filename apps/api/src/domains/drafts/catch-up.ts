@@ -9,7 +9,7 @@ import { defaultLocaleTag } from "../locales/default-locale";
 import { locales } from "../locales/schema";
 import { isTranslated, requestTranslations, type Translatable } from "../translations/service";
 import * as overlay from "./overlay";
-import { drafts } from "./schema";
+import { type CamoxDraftPurpose, drafts } from "./schema";
 import { draftOf } from "./scope";
 import { startDraft } from "./service";
 
@@ -21,8 +21,9 @@ import { startDraft } from "./service";
 /** The name of the drafts Camox opens to catch translations up. */
 export const CATCH_UP_DRAFT_NAME = "Translations";
 
-/** Whether Camox opened a draft, to catch translations up. */
-export const isCatchUpDraft = (row: { createdBy: string }) => row.createdBy === CAMOX_ACTOR;
+/** Whether Camox opened a draft to catch translations up. */
+export const isCatchUpDraft = (row: { purpose: CamoxDraftPurpose | null }) =>
+  row.purpose === "catchUp";
 
 /** The project's open catch-up draft's row, if any. */
 export const catchUpDraftOf = (db: Database, projectId: number) =>
@@ -30,7 +31,7 @@ export const catchUpDraftOf = (db: Database, projectId: number) =>
     db
       .select()
       .from(drafts)
-      .where(and(eq(drafts.projectId, projectId), eq(drafts.createdBy, CAMOX_ACTOR)))
+      .where(and(eq(drafts.projectId, projectId), eq(drafts.purpose, "catchUp")))
       .get(),
   );
 
@@ -50,6 +51,7 @@ export const openCatchUpDraft = Effect.fn("drafts.openCatchUpDraft")(function* (
     projectId,
     createdBy: CAMOX_ACTOR,
     name: CATCH_UP_DRAFT_NAME,
+    purpose: "catchUp",
   });
   // This request's draft, or the one a racing request opened first.
   const opened = yield* open();

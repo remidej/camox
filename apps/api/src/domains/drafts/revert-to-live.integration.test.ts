@@ -12,6 +12,8 @@ import {
   callSeedingLive,
   createProjectFixture,
   createRpcContext,
+  reviewed,
+  runAllChecks,
   syncDefinitionSet,
 } from "../../../test/fixtures";
 import {
@@ -94,6 +96,8 @@ async function fixture() {
     forgetScheduled(...jobs.map((job) => job.entityId));
     const keyed = new Map(jobs.map((job) => [JSON.stringify({ ...job, delayMs: 0 }), job]));
     for (const job of keyed.values()) await runService(runAiJob(db, job));
+    // A catch-up draft is published once its checks ran too (ADR 0033).
+    await runAllChecks(db);
   };
   /** Opens a draft, which `run` writes in, and returns its headers. */
   const draft = async (run: (starting: Headers) => Promise<unknown>) => {
@@ -105,7 +109,7 @@ async function fixture() {
     call(router.drafts.previewPublish, { projectId }, member(headers));
   const publish = async (headers: Headers) => {
     await runTranslations();
-    const { token } = await preview(headers);
+    const { token } = await reviewed(db, headers[DRAFT_HEADER]!, preview(headers));
     return call(router.drafts.publish, { projectId, token }, member(headers));
   };
   const revertToLive = (
@@ -189,6 +193,7 @@ describe("using Live's version of a conflict", () => {
     await f.runTranslations();
 
     expect((await f.preview(mine.headers)).token).not.toBe(before.token);
+    await runAllChecks(f.db);
     await expect(
       call(
         router.drafts.publish,

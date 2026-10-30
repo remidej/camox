@@ -9,6 +9,8 @@ import {
   callSeedingLive,
   createProjectFixture,
   createRpcContext,
+  reviewed,
+  runAllChecks,
   seedLive,
   syncDefinitionSet,
 } from "../../../test/fixtures";
@@ -157,9 +159,11 @@ describe("the Patrol", () => {
       expect.arrayContaining([
         { id: "translator", role: "Translator" },
         { id: "seoManager", role: "SEO manager" },
+        { id: "linkChecker", role: "Link checker" },
+        { id: "proofreader", role: "Proofreader" },
       ]),
     );
-    expect(patrollers).toHaveLength(2);
+    expect(patrollers).toHaveLength(4);
     for (const patroller of patrollers) {
       expect(patroller.lastActivityAt).toBeNull();
       expect(patroller.reports).toEqual([]);
@@ -220,7 +224,6 @@ describe("the SEO manager", () => {
 
     const patroller = await seoManager();
     expect(sentences(patroller)).toEqual(["failed wroteSeo Pricing en"]);
-    expect(patroller.reports[0]!.attention).toBe("none");
   });
 
   it("leaves no report, and no time, for a page whose SEO is manual", async () => {
@@ -319,17 +322,43 @@ describe("drafts and Live", () => {
   });
 
   it("doesn't hand a draft's reports to Live when it's published", async () => {
-    const { projectId, member, createPage, writeSeo, seoManager } = await fixture();
+    const { db, projectId, member, createPage, writeSeo, seoManager } = await fixture();
     const draftId = generateUuidv7();
     const inDraft = { [DRAFT_HEADER]: draftId, [DRAFT_CREATE_HEADER]: "1" };
     const about = await createPage("About", inDraft);
     await writeSeo(about.id, { draftId });
     expect((await seoManager(inDraft)).reports).toHaveLength(1);
 
-    const { token } = await call(router.drafts.previewPublish, { projectId }, member(inDraft));
+    const { token } = await reviewed(
+      db,
+      draftId,
+      call(router.drafts.previewPublish, { projectId }, member(inDraft)),
+    );
     await call(router.drafts.publish, { projectId, token }, member(inDraft));
 
     expect((await seoManager({})).reports).toEqual([]);
+  });
+});
+
+describe("where each patroller is on duty", () => {
+  const dutyOf = (patrollers: PatrollerView[], id: PatrollerView["id"]) =>
+    patrollers.find((patroller) => patroller.id === id)!.duty;
+
+  it("has a patroller writing content work as you go in a draft, and one finding problems check at publish", async () => {
+    const { patrol } = await fixture();
+    const inDraft = await patrol();
+
+    expect(dutyOf(inDraft, "translator")).toBe("asYouGo");
+    expect(dutyOf(inDraft, "linkChecker")).toBe("atPublish");
+  });
+
+  it("has a patroller writing content off on Live, the Proofreader too, and the Link checker patrol it", async () => {
+    const { patrol } = await fixture();
+    const onLive = await patrol({});
+
+    expect(dutyOf(onLive, "seoManager")).toBe("off");
+    expect(dutyOf(onLive, "proofreader")).toBe("off");
+    expect(dutyOf(onLive, "linkChecker")).toBe("asYouGo");
   });
 });
 
@@ -419,10 +448,10 @@ describe("a patroller at work", () => {
     await runTranslations(f);
   };
   const publish = async (f: Fixture, headers: Headers) => {
-    const { token } = await call(
-      router.drafts.previewPublish,
-      { projectId: f.projectId },
-      f.member(headers),
+    const { token } = await reviewed(
+      f.db,
+      headers[DRAFT_HEADER]!,
+      call(router.drafts.previewPublish, { projectId: f.projectId }, f.member(headers)),
     );
     await call(router.drafts.publish, { projectId: f.projectId, token }, f.member(headers));
   };
@@ -575,6 +604,8 @@ describe("a patroller at work", () => {
     expect((await f.patrol()).map(({ id, working }) => ({ id, working }))).toEqual([
       { id: "seoManager", working: null },
       { id: "translator", working: null },
+      { id: "linkChecker", working: null },
+      { id: "proofreader", working: null },
     ]);
     await new Promise((resolve) => setTimeout(resolve, 5));
 
@@ -601,6 +632,25 @@ describe("a patroller at work", () => {
     });
     await runTranslations(f);
     expect((await translator(f, {})).working).toBeNull();
+  });
+
+  it("puts the Translator and the SEO manager on duty on Live while the catch-up draft translates, and leaves the Proofreader off", async () => {
+    const f = await fixture();
+    const onLive = async () =>
+      Object.fromEntries((await f.patrol({})).map(({ id, duty }) => [id, duty]));
+
+    await catchingUp(f);
+
+    expect(await onLive()).toMatchObject({
+      translator: "asYouGo",
+      seoManager: "asYouGo",
+      proofreader: "off",
+    });
+    // Once its translations settle and its checks ran, the catch-up draft is published, and
+    // they're off again.
+    await runTranslations(f);
+    await runAllChecks(f.db);
+    expect(await onLive()).toMatchObject({ translator: "off", seoManager: "off" });
   });
 
   it("refreshes the Patrol of the draft whose SEO is requested", async () => {

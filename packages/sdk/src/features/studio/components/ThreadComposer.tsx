@@ -5,12 +5,13 @@ import {
   InputGroupTextarea,
 } from "@camox/ui/input-group";
 import { ArrowUp, SquareDashedMousePointer, Square, X } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 /**
  * Where an editor writes to the agent: Enter sends, Shift+Enter adds a line. While a run is
  * going, sending steers it, and a Stop button sits beside Send. Over the message, what the
- * editor has selected, which their messages carry to the agent until they clear it.
+ * editor has selected, which their messages carry to the agent until they clear it. A message
+ * filled in from elsewhere in the studio replaces what the editor wrote, for them to send.
  */
 export function ThreadComposer({
   onSend,
@@ -19,6 +20,7 @@ export function ThreadComposer({
   onClearSelection,
   running = false,
   disabled = false,
+  filled,
 }: {
   onSend?: (text: string) => void;
   onStop?: () => void;
@@ -28,8 +30,20 @@ export function ThreadComposer({
   /** Whether a run is going, which Stop ends. */
   running?: boolean;
   disabled?: boolean;
+  /** A message filled in from elsewhere, each with its own id, so the same text fills again. */
+  filled?: { text: string; id: number };
 }) {
   const [text, setText] = useState("");
+  const [filledId, setFilledId] = useState<number>();
+  if (filled && filled.id !== filledId) {
+    setFilledId(filled.id);
+    setText(filled.text);
+  }
+  const box = useRef<HTMLTextAreaElement>(null);
+  // The editor goes on from the filled message.
+  useEffect(() => {
+    if (filledId !== undefined) box.current?.focus();
+  }, [filledId]);
   const message = text.trim();
   const canSend = !disabled && message !== "" && onSend !== undefined;
 
@@ -54,6 +68,7 @@ export function ThreadComposer({
           </InputGroupAddon>
         )}
         <InputGroupTextarea
+          ref={box}
           aria-label="Message"
           placeholder="Message Camox…"
           value={text}

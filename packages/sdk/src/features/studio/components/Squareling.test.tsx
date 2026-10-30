@@ -80,6 +80,10 @@ void test("a squareling's face follows what it does once drawn, for `studio.css`
     assert.equal(face(), "exploring");
     await act(async () => root.render(<Squareling status="changing" />));
     assert.equal(face(), "changing");
+    for (const status of ["idle", "asleep", "working", "asleep", "idle"] as const) {
+      await act(async () => root.render(<Squareling variant="translator" status={status} />));
+      assert.equal(face(), status);
+    }
     await act(async () => root.unmount());
   } finally {
     Object.assign(globalThis, before);
@@ -124,5 +128,16 @@ void test("a patroller's eyes are open while idle and narrowed while it works", 
     assert.equal(working.eyes.length, 2);
     for (const [index, open] of idle.eyes.entries())
       assert.ok(working.eyes[index]! < open, `${variant}'s working eyes are narrower`);
+  }
+});
+
+void test("an asleep patroller's eyes are closed: shut tighter than narrowed on the work", () => {
+  for (const variant of ["translator", "seoManager"] as const) {
+    const working = drawn(<Squareling variant={variant} status="working" />);
+    const asleep = drawn(<Squareling variant={variant} status="asleep" />);
+
+    assert.equal(asleep.eyes.length, 2);
+    for (const [index, narrowed] of working.eyes.entries())
+      assert.ok(asleep.eyes[index]! < narrowed, `${variant}'s asleep eyes are closed`);
   }
 });

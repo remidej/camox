@@ -1227,13 +1227,15 @@ export class FakeBrowserRun extends WorkerEntrypoint {
 
 /** The `send_email` binding: records each email instead of sending it. */
 export class FakeEmail extends WorkerEntrypoint {
-  /** @param {{ from: unknown, to: string, subject: string, text: string, html: string }} message */
+  /**
+   * @param {{ from: unknown, to: string, subject: string, text: string, html: string, headers?: Record<string, string> }} message
+   */
   async send(message) {
-    const { from, to, subject, text, html } = message;
+    const { from, to, subject, text, html, headers = {} } = message;
     if (failingEmails.some((pattern) => text.includes(pattern))) {
       throw new Error("Email sending is down");
     }
-    emailsSent.push({ from, to, subject, text, html });
+    emailsSent.push({ from, to, subject, text, html, headers });
     return { messageId: crypto.randomUUID() };
   }
 }
@@ -1731,6 +1733,50 @@ export class ReleaseFakes extends WorkerEntrypoint {
   async listGoogleFonts(families) {
     googleFonts = families;
   }
+
+  /**
+   * Scripts how a URL answers outbound fetches: each answer in turn, the last one from then on.
+   * @param {string} url
+   * @param {LinkAnswer[]} answers
+   */
+  async answerLink(url, answers) {
+    linkAnswers.set(url, [...answers]);
+  }
+
+  /**
+   * The methods a scripted URL was fetched with, in order.
+   * @param {string} url
+   */
+  async linkFetches(url) {
+    return linkFetches.get(url) ?? [];
+  }
+}
+
+/**
+ * @typedef {{ status: number, head?: number } | "unreachable"} LinkAnswer how a scripted URL
+ * answers: with `status` to a GET and `head` (or `status`) to a HEAD, or with no connection.
+ */
+/** @type {Map<string, LinkAnswer[]>} the answers scripted URLs give, in turn; the last repeats */
+const linkAnswers = new Map();
+/** @type {Map<string, string[]>} the methods each scripted URL was fetched with, in order */
+const linkFetches = new Map();
+
+/** Whether the Link checker sent a request: it names itself in its user agent. */
+const isLinkCheck = (/** @type {Request} */ request) =>
+  request.headers.get("user-agent")?.includes("Camox Link checker") ?? false;
+
+/**
+ * The outside websites links lead to (test/link-fetches.ts): a scripted URL answers as scripted,
+ * and any other a page that works, so the Link checker never reaches the real network in tests.
+ * @param {Request} request
+ */
+function serveLink(request) {
+  const answers = linkAnswers.get(request.url) ?? [{ status: 200 }];
+  linkFetches.set(request.url, [...(linkFetches.get(request.url) ?? []), request.method]);
+  const answer = answers.length > 1 ? answers.shift() : answers[0];
+  if (answer === "unreachable") throw new Error(`${request.url} can't be reached`);
+  const status = request.method === "HEAD" ? (answer.head ?? answer.status) : answer.status;
+  return new Response(request.method === "HEAD" ? null : "A page", { status });
 }
 
 /** The host of a public website the agent reads in tests (web-tools.integration.test.ts). */
@@ -1829,10 +1875,12 @@ export default {
   /**
    * The outbound fetches of the Workers under test: Git remotes reach the fake Git server, the
    * Cloudflare API its fake, the fake public website its pages, the Google Fonts Developer API
-   * its fake, and anything else goes out as it would without the fakes.
+   * its fake, the Link checker's fetches the outside websites links lead to, and anything else
+   * goes out as it would without the fakes.
    * @param {Request} request
    */
   fetch: (request) => {
+    if (isLinkCheck(request)) return serveLink(request);
     const { hostname } = new URL(request.url);
     if (hostname === FAKE_GIT_HOST) return serveGit(request);
     if (hostname === "api.cloudflare.com") return serveCloudflareApi(request);

@@ -37,10 +37,14 @@ const withoutCanvasPlace = ({ fieldKind: _fieldKind, blockId: _blockId, ...probl
 /**
  * The preview as agents see it: without which conflicts the studio offers to use Live's version
  * of, which agents can't do, nor the fields the studio's conflict cards show, nor where the
- * studio shows a problem, nor the studio's Draft Overview.
+ * studio shows a problem or a finding, nor the studio's Draft Overview.
  */
 const withoutStudioActions = ({ overview: _overview, ...preview }: PublishPreview) => ({
   ...preview,
+  findings: preview.findings.map(
+    ({ place: _place, raisedAt: _raisedAt, live: _live, patroller: _patroller, ...finding }) =>
+      finding,
+  ),
   blockers: preview.blockers.map(withoutCanvasPlace),
   warnings: preview.warnings.map(withoutCanvasPlace),
   conflicts: preview.conflicts.map(
@@ -63,7 +67,14 @@ const publishResultSchema = z.union([
   }),
   z.strictObject({
     published: z.literal(false),
-    reason: z.enum(["conflictsChanged", "blocked", "translating", "revisionChanged"]),
+    reason: z.enum([
+      "conflictsChanged",
+      "blocked",
+      "translating",
+      "findings",
+      "checking",
+      "revisionChanged",
+    ]),
     message: z.string(),
     preview: publishPreviewSchema,
   }),
@@ -79,7 +90,12 @@ const PREVIEW_SHAPE =
   "`lost` lists changes publishing will drop because their parent is gone; `warnings` are the " +
   "same problems already on Live, which don't block; `changes` lists everything the draft " +
   "creates, changes or deletes; `translating` lists the locales Camox is still translating the " +
-  "draft into, which publishing waits for; `defaultLocale` is the tag of the default locale, " +
+  "draft into, which publishing waits for; `findings` are the draft's open findings, problems " +
+  "Camox's patrollers raised in what it changed (a link to a page that no longer exists, a link " +
+  "that doesn't work, a misspelling), each with the content it's in and the fix it suggests if " +
+  "any, which publishing waits for until each is fixed or a member dismisses it; `checking` " +
+  "names the patrollers still checking the draft's latest changes, which publishing waits for; " +
+  "`defaultLocale` is the tag of the default locale, " +
   "which the others are translated from. `token` records the conflicts shown. `code` is null " +
   "unless the agent changed the draft's code: then `revision` is the last revision that built, " +
   "which the preview shows, `includesLive` whether the code holds Live's latest, and `building` " +
@@ -94,7 +110,8 @@ export const draftsProvider: ToolProvider = (ctx): ToolDefinition[] => [
     name: "previewPublish",
     description:
       "List what publishing the current draft to Live would do, without publishing. Returns " +
-      "`{ blockers, conflicts, lost, warnings, changes, translating, defaultLocale, token, code }`. " +
+      "`{ blockers, conflicts, lost, warnings, changes, translating, findings, checking, " +
+      "defaultLocale, token, code }`. " +
       PREVIEW_SHAPE +
       " Show this list to the user. `token` is the one publishDraft takes to publish exactly " +
       "what this preview showed.",
@@ -120,7 +137,11 @@ export const draftsProvider: ToolProvider = (ctx): ToolDefinition[] => [
       "translations are still running, nothing is published and it returns " +
       "`{ published: false, reason: 'translating', message, preview }`: publishing waits for " +
       "every translation, with no way around it, so tell the user which locales it waits for " +
-      "rather than retry at once. When the draft " +
+      "rather than retry at once. While the draft has open findings, or its patrollers are " +
+      "still checking it, nothing is published and it returns " +
+      "`{ published: false, reason: 'findings' | 'checking', message, preview }`: publishing " +
+      "waits for every finding to be fixed or dismissed by a member, and for every check, with " +
+      "no way around it, so fix what you can and tell the user what needs them. When the draft " +
       "has no changes, nothing is published and it returns " +
       "`{ published: false, reason: 'empty', message }`. When the draft was already deleted, " +
       "nothing is published and it returns `{ published: false, reason: 'deleted', message, " +
@@ -149,6 +170,8 @@ export const draftsProvider: ToolProvider = (ctx): ToolDefinition[] => [
             ConflictsChangedError: (error) => notPublished("conflictsChanged", error.message),
             PublishBlockedError: (error) => notPublished("blocked", error.message),
             TranslationsPendingError: (error) => notPublished("translating", error.message),
+            FindingsOpenError: (error) => notPublished("findings", error.message),
+            ChecksRunningError: (error) => notPublished("checking", error.message),
             RevisionChangedError: (error) => notPublished("revisionChanged", error.message),
           }),
         ),

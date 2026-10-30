@@ -5,7 +5,7 @@ import { abortAllDurableObjects } from "cloudflare:test";
 import { env } from "cloudflare:workers";
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 
-import { addMember, createRpcContext, startDraft } from "../../../test/fixtures";
+import { addMember, createRpcContext, runChecks, startDraft } from "../../../test/fixtures";
 import { answerNext as answerOverview } from "../../../test/generation";
 import {
   answerFrom,
@@ -477,6 +477,7 @@ async function publish(website: Website, draftId: string, member: Member) {
   const projectId = website.project.id;
   const options = inDraft(website, draftId, member);
   const { token } = await call(draftProcedures.previewPublish, { projectId }, options);
+  await runChecks(website.db, draftId);
   return call(draftProcedures.publish, { projectId, token }, options);
 }
 

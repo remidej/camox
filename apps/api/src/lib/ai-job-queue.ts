@@ -1,3 +1,4 @@
+import type { PatrollerId } from "@camox/api-contract/patrol";
 import { Context, Data, Effect } from "effect";
 
 import type { AiJobScheduler } from "../durable-objects/ai-job-scheduler";
@@ -52,14 +53,32 @@ export type TranslationJob = {
  */
 export type OverviewJob = { kind: "overview"; draftId: string };
 
+/**
+ * A patroller's check of a draft at publish (ADR 0034), keyed by patroller and draft: a newer
+ * request replaces a pending one, so it runs once the draft has been idle.
+ */
+export type CheckJob = { kind: "check"; patroller: PatrollerId; draftId: string };
+
+/**
+ * A run of patrollers' patrols of a project's Live content (ADR 0034), keyed by project: the cron
+ * trigger requests one of every patroller patrolling Live for every project every 6 hours, and a
+ * release no draft published requests the Proofreader's. Requesting one while another is pending
+ * joins it: one run patrols for both, so its new findings are told of once.
+ */
+export type PatrolJob = { kind: "patrol"; patrollers: readonly PatrollerId[]; projectId: number };
+
 /** A job the AI job scheduler runs. */
-export type AiJob = GenerationJob | TranslationJob | OverviewJob;
+export type AiJob = GenerationJob | TranslationJob | OverviewJob | CheckJob | PatrolJob;
 
 export const isTranslationJob = (job: AiJob): job is TranslationJob =>
   "kind" in job && job.kind === "translation";
 
 export const isOverviewJob = (job: AiJob): job is OverviewJob =>
   "kind" in job && job.kind === "overview";
+
+export const isCheckJob = (job: AiJob): job is CheckJob => "kind" in job && job.kind === "check";
+
+export const isPatrolJob = (job: AiJob): job is PatrolJob => "kind" in job && job.kind === "patrol";
 
 export class ScheduleError extends Data.TaggedError("ScheduleError")<{ readonly cause: unknown }> {}
 
@@ -87,6 +106,8 @@ const NAME_PARTS = {
 /** Names a job: its Durable Object, and its logs. The default locale's jobs keep their names. */
 export const jobName = (job: AiJob) => {
   if (isOverviewJob(job)) return `overview:${job.draftId}`;
+  if (isCheckJob(job)) return `check:${job.patroller}:${job.draftId}`;
+  if (isPatrolJob(job)) return `patrol:${job.projectId}`;
   if (isTranslationJob(job)) {
     const name = `translation:${job.entity}:${job.entityId}:${job.locale}:${job.draftId}`;
     return job.source === undefined ? name : `${name}:${job.source}`;

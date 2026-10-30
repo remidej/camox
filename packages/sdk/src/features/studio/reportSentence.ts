@@ -22,6 +22,9 @@ const PHRASES: Record<ReportVerb, Phrase> = {
     done: "Published the caught-up translations",
     failed: "Couldn't publish the caught-up translations",
   },
+  removedLink: { done: "Removed a link in", failed: "Couldn't remove a link in", locale: "in" },
+  fixedLink: { done: "Fixed a link in", failed: "Couldn't fix a link in", locale: "in" },
+  fixedMistake: { done: "Fixed a typo in", failed: "Couldn't fix a typo in", locale: "in" },
 };
 
 /** A report as a sentence: "Wrote SEO for Pricing in German", or the text an AI wrote. */
