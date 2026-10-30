@@ -10,8 +10,7 @@ import { defineTool, type ToolDefinition, type ToolProvider } from "../types";
 // The findings patrollers raise in the current draft (ADR 0034): reading them, and applying the
 // fix one suggests, as a member would. Only members dismiss findings: no tool does.
 
-// Typed against the contract, so a finding kind or fix the contract adds fails the type check here.
-const aboutSchema: z.ZodType<FindingAbout> = z.discriminatedUnion("kind", [
+const aboutSchema = z.discriminatedUnion("kind", [
   z.strictObject({
     kind: z.literal("missingPage"),
     url: z.string(),
@@ -34,7 +33,16 @@ const aboutSchema: z.ZodType<FindingAbout> = z.discriminatedUnion("kind", [
     sentence: z.string(),
   }),
 ]);
-const fixSchema: z.ZodType<FindingFix> = z.strictObject({ kind: z.literal("removeLink") });
+const fixSchema = z.discriminatedUnion("kind", [
+  z.strictObject({ kind: z.literal("removeLink") }),
+  z.strictObject({ kind: z.literal("replaceText"), replacement: z.string() }),
+]);
+
+/** Whether two types are the same, each assignable to the other. */
+type Same<A, B> = [A] extends [B] ? ([B] extends [A] ? true : false) : false;
+// The schemas match the contract: a finding kind or fix it adds or changes fails the type check.
+true satisfies Same<z.output<typeof aboutSchema>, FindingAbout>;
+true satisfies Same<z.output<typeof fixSchema>, FindingFix>;
 
 const findingSchema = z.strictObject({
   id: z.number(),
@@ -92,7 +100,8 @@ export const findingsProvider: ToolProvider = (ctx): ToolDefinition[] => [
     name: "applyFindingFix",
     description:
       "Apply the fix a finding of the current draft suggests (its `fix`, from listFindings), as " +
-      "a member would from the Patrol: `removeLink` unwraps the link, keeping its text. Returns " +
+      "a member would from the Patrol: `removeLink` unwraps the link, keeping its text, and " +
+      "`replaceText` replaces the flagged text with its `replacement`. Returns " +
       "`{ applied: true }` once applied, which resolves the finding. When its content changed " +
       "since the finding was raised, nothing is applied and it returns `{ applied: false }`: the " +
       "draft is checked again, so list its findings again later. A finding without a `fix` " +

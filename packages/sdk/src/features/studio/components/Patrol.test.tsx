@@ -739,11 +739,11 @@ void test("the Proofreader says what it's proofreading, and offers to replace wh
   assert.deepEqual(shown.findings("proofreader"), [
     {
       says: "“recieve” in Welcome may be misspelled",
-      actions: ["Show", "Replace with “receive”", "Dismiss"],
+      actions: ["Show", "Replace with “receive”", "Ask the agent", "Dismiss"],
     },
     {
       says: "“They was” in Welcome may be a grammar mistake",
-      actions: ["Show", "Replace with “They were”", "Dismiss"],
+      actions: ["Show", "Replace with “They were”", "Ask the agent", "Dismiss"],
     },
   ]);
   assert.deepEqual(shown.reports("proofreader"), ["Fixed a typo in Welcome in English 10m"]);
