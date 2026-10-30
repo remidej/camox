@@ -137,6 +137,7 @@ function render(
         onOpenChange={() => {}}
         onShow={() => {}}
         onApply={() => {}}
+        onAsk={() => {}}
         onDismiss={() => {}}
       />
       {opened && (
@@ -146,6 +147,7 @@ function render(
           inDraft={inDraft}
           onShow={() => {}}
           onApply={() => {}}
+          onAsk={() => {}}
           onDismiss={() => {}}
         />
       )}
@@ -321,6 +323,7 @@ function renderOne(patroller: PatrollerView) {
       onOpenChange={() => {}}
       onShow={() => {}}
       onApply={() => {}}
+      onAsk={() => {}}
       onDismiss={() => {}}
     />,
   );
@@ -650,11 +653,11 @@ void test("the popover lists open findings above reports, each with what it's ab
   assert.deepEqual(shown.findings("linkChecker"), [
     {
       says: "\u201cAbout us\u201d in Footer links to About, a page that no longer exists",
-      actions: ["Show", "Remove the link", "Dismiss"],
+      actions: ["Show", "Remove the link", "Ask the agent", "Dismiss"],
     },
     {
       says: "\u201cAbout us\u201d in Footer links to About, a page that no longer exists",
-      actions: ["Dismiss"],
+      actions: ["Ask the agent", "Dismiss"],
     },
   ]);
   assert.deepEqual(shown.reports("linkChecker"), ["Removed a link in Footer in English 10m"]);
@@ -685,12 +688,12 @@ void test("a broken link reads its url and how it failed, and is dismissed as a 
   assert.deepEqual(shown.findings("linkChecker"), [
     {
       says: "\u201cOur partner\u201d in Footer links to https://partner.example.com/, which answers with an error (404)",
-      actions: ["Show", "This link is fine"],
+      actions: ["Show", "Ask the agent", "This link is fine"],
     },
   ]);
 });
 
-void test("Live's findings can't be applied: they're fixed in the Patrol Draft", () => {
+void test("Live's findings can't be applied or handed to the agent: they're fixed in the Patrol Draft", () => {
   const shown = render(
     { patrollers: [linkChecker({ duty: "asYouGo", findings: [finding(1, { live: true })] })] },
     { open: "linkChecker", inDraft: false },
@@ -766,11 +769,11 @@ void test("the Proofreader says what it's proofreading, and offers to replace wh
   assert.deepEqual(shown.findings("proofreader"), [
     {
       says: "“recieve” in Welcome may be misspelled",
-      actions: ["Show", "Replace with “receive”", "Dismiss"],
+      actions: ["Show", "Replace with “receive”", "Ask the agent", "Dismiss"],
     },
     {
       says: "“They was” in Welcome may be a grammar mistake",
-      actions: ["Show", "Replace with “They were”", "Dismiss"],
+      actions: ["Show", "Replace with “They were”", "Ask the agent", "Dismiss"],
     },
   ]);
   assert.deepEqual(shown.reports("proofreader"), ["Fixed a typo in Welcome in English 10m"]);
