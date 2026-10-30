@@ -6,7 +6,9 @@ import { abortAllDurableObjects, createScheduledController } from "cloudflare:te
 import { env } from "cloudflare:workers";
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 
+import { emailsTo } from "../../../test/emails";
 import {
+  addMember,
   callSeedingLive,
   createProjectFixture,
   createRpcContext,
@@ -29,10 +31,11 @@ import {
   threadModelCalls,
 } from "../../../test/thread-model";
 import { connectDraftThread, said as saidIn, signIn } from "../../../test/threads";
+import app from "../../index";
 import { runAiJob } from "../../lib/ai-jobs";
 import { runService } from "../../lib/run-service";
 import { router } from "../../router";
-import { blockDefinitions, blocks, pages } from "../../schema";
+import { blockDefinitions, blocks, member, pages } from "../../schema";
 import type { Bindings } from "../../types";
 import worker from "../../worker";
 import * as overlay from "../drafts/overlay";
@@ -506,5 +509,121 @@ describe("the Patrol Draft", () => {
     const view = await call(router.patrol.get, { projectId: f.projectId }, f.member());
 
     expect(view.patrolDraft).toEqual({ id: draft!.id, name: "Patrol" });
+  });
+});
+
+describe("the email about Live's new findings", () => {
+  it("goes to each member once a run raises new findings, listing them, saying how many need a person, and linking to the Patrol Draft", async () => {
+    const f = await fixture();
+    const teammate = await addMember(f.db, f.project.organizationId);
+    const url = outsideUrl("moved");
+    await answerLink(url, { status: 404 });
+    await f.liveFooter({ link: external(url, "Partners") });
+    // The link's first failure raises nothing yet: nothing to tell.
+    await patrolLive(f.db);
+    expect(await emailsTo(f.memberUser.email)).toEqual([]);
+
+    await f.goneLink("about", "About us");
+    await f.goneLink("team", "Our team");
+    answerNext("On it.");
+    await patrolLive(f.db);
+
+    const [draft] = await f.drafts();
+    const studioLink = `https://${f.project.slug}.camox.site/?camox-draft=${draft!.id}`;
+    for (const address of [f.memberUser.email, teammate.email]) {
+      const emails = await emailsTo(address);
+      expect(emails).toHaveLength(1);
+      const [{ subject, text, html }] = emails as [(typeof emails)[number]];
+      expect(subject).toBe("The Link checker found 3 new problems on Test project");
+      expect(text).toContain("“About us” in footer links to a page, which no longer exists");
+      expect(text).toContain(`“Partners” in footer links to ${url}, which doesn't work`);
+      // Links to missing pages have a fix the agent applies; the broken link is left for a person.
+      expect(text).toContain("1 needs you");
+      expect(text).toContain(studioLink);
+      expect(html).toContain(studioLink);
+    }
+    expect(await emailsTo(f.outsiderUser.email)).toEqual([]);
+  });
+
+  it("isn't sent again for findings members were told about", async () => {
+    const f = await fixture();
+    await f.goneLink("about", "About us");
+    answerNext("On it.");
+    await patrolLive(f.db);
+    expect(await emailsTo(f.memberUser.email)).toHaveLength(1);
+
+    await patrolLive(f.db);
+    await patrolLive(f.db);
+
+    expect(await emailsTo(f.memberUser.email)).toHaveLength(1);
+  });
+
+  it("stops for a member who unsubscribed, from that project only", async () => {
+    const [f, other] = [await fixture(), await fixture()];
+    // The member belongs to the other project's organization too.
+    await f.db.insert(member).values({
+      id: `membership-${crypto.randomUUID()}`,
+      organizationId: other.project.organizationId,
+      userId: f.memberUser.id,
+      role: "member",
+      createdAt: new Date(),
+    });
+    const teammate = await addMember(f.db, f.project.organizationId);
+    await f.goneLink("about", "About us");
+    answerNext("On it.");
+    await patrolLive(f.db);
+    const [email] = await emailsTo(f.memberUser.email);
+    const link = /^<(.+)>$/.exec(email!.headers["List-Unsubscribe"]!)![1]!;
+    expect(email!.text).toContain(`Unsubscribe: ${link}`);
+
+    // As the member's inbox unsubscribes them in one click (RFC 8058).
+    const response = await app.request(
+      link,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: "List-Unsubscribe=One-Click",
+      },
+      env,
+    );
+    expect(response.status).toBe(200);
+    await f.goneLink("team", "Our team");
+    await other.goneLink("contact", "Contact");
+    answerNext("On it.");
+    answerNext("On it.");
+    await patrolLive(f.db);
+
+    const about = (address: string, text: string) =>
+      emailsTo(address).then((emails) => emails.filter((sent) => sent.text.includes(text)));
+    expect(await about(f.memberUser.email, "Our team")).toEqual([]);
+    expect(await about(teammate.email, "Our team")).toHaveLength(1);
+    expect(await about(f.memberUser.email, "Contact")).toHaveLength(1);
+  });
+
+  it("unsubscribes from its link only once the member confirms, and only as Camox signed it", async () => {
+    const f = await fixture();
+    await f.goneLink("about", "About us");
+    answerNext("On it.");
+    await patrolLive(f.db);
+    const [email] = await emailsTo(f.memberUser.email);
+    const link = /Unsubscribe: (\S+)/.exec(email!.text)![1]!;
+
+    // Opening the link, as a mail scanner might, asks first.
+    const page = await app.request(link, {}, env);
+    expect(page.status).toBe(200);
+    expect(await page.text()).toContain('<form method="post"');
+    const forged = new URL(link);
+    forged.searchParams.set("user", f.outsiderUser.id);
+    expect((await app.request(forged.href, { method: "POST" }, env)).status).toBe(404);
+    await f.goneLink("team", "Our team");
+    answerNext("On it.");
+    await patrolLive(f.db);
+    expect(await emailsTo(f.memberUser.email)).toHaveLength(2);
+
+    expect((await app.request(link, { method: "POST" }, env)).status).toBe(200);
+    await f.goneLink("contact", "Contact");
+    answerNext("On it.");
+    await patrolLive(f.db);
+    expect(await emailsTo(f.memberUser.email)).toHaveLength(2);
   });
 });

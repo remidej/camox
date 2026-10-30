@@ -1227,13 +1227,15 @@ export class FakeBrowserRun extends WorkerEntrypoint {
 
 /** The `send_email` binding: records each email instead of sending it. */
 export class FakeEmail extends WorkerEntrypoint {
-  /** @param {{ from: unknown, to: string, subject: string, text: string, html: string }} message */
+  /**
+   * @param {{ from: unknown, to: string, subject: string, text: string, html: string, headers?: Record<string, string> }} message
+   */
   async send(message) {
-    const { from, to, subject, text, html } = message;
+    const { from, to, subject, text, html, headers = {} } = message;
     if (failingEmails.some((pattern) => text.includes(pattern))) {
       throw new Error("Email sending is down");
     }
-    emailsSent.push({ from, to, subject, text, html });
+    emailsSent.push({ from, to, subject, text, html, headers });
     return { messageId: crypto.randomUUID() };
   }
 }

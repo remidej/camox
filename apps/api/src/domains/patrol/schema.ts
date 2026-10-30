@@ -10,6 +10,7 @@ import type {
 import { sql } from "drizzle-orm";
 import { index, int, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
 
+import { user } from "../auth/schema";
 import { drafts } from "../drafts/schema";
 import { projects } from "../projects/schema";
 
@@ -208,4 +209,25 @@ export const linkChecks = sqliteTable(
     checkedAt: int("checked_at").notNull(),
   },
   (table) => [uniqueIndex("link_checks_url_idx").on(table.projectId, table.url)],
+);
+
+/**
+ * A member who unsubscribed from a project's emails about Live's new findings (ADR 0034). Their
+ * other projects' emails still reach them.
+ */
+export const patrolEmailUnsubscribes = sqliteTable(
+  "patrol_email_unsubscribes",
+  {
+    rowId: int("row_id").primaryKey(),
+    projectId: int("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    at: int().notNull(),
+  },
+  (table) => [
+    uniqueIndex("patrol_email_unsubscribes_member_idx").on(table.projectId, table.userId),
+  ],
 );

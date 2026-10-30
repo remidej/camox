@@ -18,6 +18,8 @@ export type Email = {
   action: { label: string; url: string };
   /** HTML rows after the button, such as the link written out. */
   footerHtml?: string;
+  /** Headers besides the ones every email has, such as `List-Unsubscribe`. */
+  headers?: Record<string, string>;
 };
 
 export function escapeHtml(value: string): string {
@@ -71,5 +73,6 @@ export async function sendEmail(env: Bindings, email: Email): Promise<void> {
     subject: email.subject,
     text: email.text,
     html: renderHtml(email),
+    ...(email.headers && { headers: email.headers }),
   });
 }

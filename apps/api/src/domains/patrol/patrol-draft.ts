@@ -72,7 +72,8 @@ const openPatrolDraft = Effect.fn("patrol.openPatrolDraft")(function* (
  * Hands the findings a patroller's Live run raised that are new to the Patrol Draft: opens it
  * when none is open, then sends Camox's message listing them into its thread, which starts the
  * agent there, or joins its run going. Nothing new, nothing sent. A thread that can't take it is
- * logged: the findings stay open on Live.
+ * logged: the findings stay open on Live. Returns the Patrol Draft and the findings it handed
+ * it, or null when there was nothing new.
  */
 export const toPatrolDraft = Effect.fn("patrol.toPatrolDraft")(function* (
   db: Database,
@@ -80,12 +81,12 @@ export const toPatrolDraft = Effect.fn("patrol.toPatrolDraft")(function* (
   projectId: number,
   opened: readonly RaisedFinding[],
 ) {
-  if (opened.length === 0) return;
+  if (opened.length === 0) return null;
   const views = yield* liveFindings(db, projectId);
   const found = views.filter(
     (view) => view.patroller === patroller.id && opened.some((raised) => isRaised(view, raised)),
   );
-  if (found.length === 0) return;
+  if (found.length === 0) return null;
   const draft = yield* openPatrolDraft(db, projectId);
   const { threadId } = draft;
   if (!threadId) return yield* Effect.die(new Error("The Patrol Draft has no thread"));
@@ -103,4 +104,5 @@ export const toPatrolDraft = Effect.fn("patrol.toPatrolDraft")(function* (
       Effect.logError(`[patrol] the Patrol Draft's thread didn't take the findings`, error),
     ),
   );
+  return { draftId: draft.id, found };
 });
