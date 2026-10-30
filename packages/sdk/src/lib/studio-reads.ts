@@ -1,4 +1,4 @@
-import type { PatrolView } from "@camox/api-contract/patrol";
+import { PATROLLER_IDS, type PatrolView } from "@camox/api-contract/patrol";
 import {
   inScope,
   queryKeys,
@@ -354,12 +354,14 @@ export const reads = {
 
   /**
    * The Patrol of the draft viewed, or Live's: what Camox did there without being asked. The
-   * same in every locale.
+   * same in every locale. It lists the patrollers this SDK can show, so a newer API's others
+   * don't reach it.
    */
   patrol: entry<{ projectId: number }, PatrolView>({
     key: ({ projectId }) => [...queryKeys.patrol.get, projectId],
     everyLocale: true,
-    fetch: ({ api, signal }, { projectId }) => api.patrol.get({ projectId }, { signal }),
+    fetch: ({ api, signal }, { projectId }) =>
+      api.patrol.get({ projectId, patrollers: [...PATROLLER_IDS] }, { signal }),
   }),
 
   /** What publishing a draft will do; refetched whenever asked, since it depends on Live. */

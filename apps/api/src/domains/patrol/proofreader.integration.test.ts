@@ -1,6 +1,6 @@
 import { DRAFT_CREATE_HEADER, DRAFT_HEADER, LOCALE_HEADER } from "@camox/api-contract/drafts";
 import { generateUuidv7 } from "@camox/api-contract/ids";
-import type { FindingView, PatrollerView } from "@camox/api-contract/patrol";
+import { PATROLLER_IDS, type FindingView, type PatrollerView } from "@camox/api-contract/patrol";
 import { call } from "@orpc/server";
 import { describe, expect, it } from "vite-plus/test";
 
@@ -149,9 +149,9 @@ async function fixture() {
     for (const job of jobs) await runService(runAiJob(db, job));
   };
   const proofreader = async (headers: Headers): Promise<PatrollerView> =>
-    (await call(router.patrol.get, { projectId }, member(headers))).patrollers.find(
-      (patroller) => patroller.id === "proofreader",
-    )!;
+    (
+      await call(router.patrol.get, { projectId, patrollers: [...PATROLLER_IDS] }, member(headers))
+    ).patrollers.find((patroller) => patroller.id === "proofreader")!;
   const findings = async (headers: Headers) => (await proofreader(headers)).findings;
   const getHero = async (headers: Headers) =>
     (

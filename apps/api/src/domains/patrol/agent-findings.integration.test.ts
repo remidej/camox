@@ -1,5 +1,6 @@
 import { DRAFT_CREATE_HEADER, DRAFT_HEADER } from "@camox/api-contract/drafts";
 import { generateUuidv7 } from "@camox/api-contract/ids";
+import { PATROLLER_IDS } from "@camox/api-contract/patrol";
 import { call } from "@orpc/server";
 import { abortAllDurableObjects } from "cloudflare:test";
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
@@ -99,9 +100,9 @@ async function aboutDeleted() {
 
   const inDraft = member({ [DRAFT_HEADER]: draftId });
   const linkChecker = async () =>
-    (await call(router.patrol.get, { projectId }, inDraft)).patrollers.find(
-      (patroller) => patroller.id === "linkChecker",
-    )!;
+    (
+      await call(router.patrol.get, { projectId, patrollers: [...PATROLLER_IDS] }, inDraft)
+    ).patrollers.find((patroller) => patroller.id === "linkChecker")!;
   const footerLink = async () =>
     (
       (await call(router.blocks.get, { id: footer.id }, inDraft)).block.content as {

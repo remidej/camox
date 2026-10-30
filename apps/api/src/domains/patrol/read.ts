@@ -48,7 +48,18 @@ import type { PendingWork, WorkScopes } from "./working";
 // Reports name their subjects as they are now, and are left out once their subject is gone from
 // their scope and locale.
 
-export const getPatrolInput = z.object({ projectId: z.number() });
+export const getPatrolInput = z.object({
+  projectId: z.number(),
+  /** The patrollers the studio can show, by id. Others are left out of its Patrol. */
+  patrollers: z.array(z.string()).optional(),
+});
+
+/**
+ * The patrollers a studio that sends no list can show: camox 0.65.0 and earlier send none, and
+ * crash on any other patroller. Drop this default once every project is upgraded past them, and
+ * make the list required (ADR 0019).
+ */
+const BEFORE_LISTED_PATROLLERS: readonly string[] = ["translator", "seoManager"];
 
 type ReportRow = typeof reports.$inferSelect;
 
@@ -431,7 +442,10 @@ export const getPatrol = Effect.fn("patrol.get")(function* (
   ctx: ServiceContext,
   rawInput: z.input<typeof getPatrolInput>,
 ) {
-  const { projectId } = yield* decodeInput(getPatrolInput, rawInput);
+  const input = yield* decodeInput(getPatrolInput, rawInput);
+  const { projectId } = input;
+  const shownIds = new Set(input.patrollers ?? BEFORE_LISTED_PATROLLERS);
+  const roster = PATROLLERS.filter((patroller) => shownIds.has(patroller.id));
   const { scope } = yield* accessTo(ctx, { project: projectId }, "member");
   const viewed = draftIn(scope);
   const { catchUp, scopes: liveScopes } = yield* liveWorkScopes(ctx.db, projectId);
@@ -489,13 +503,13 @@ export const getPatrol = Effect.fn("patrol.get")(function* (
   // What's pending in the scope viewed: on Live, the catch-up draft's work is Live's.
   const workScopes = viewed ? [viewed.id] : liveScopes;
   const lastChecked = yield* lastCheckedIn(ctx.db, projectId, workScopes);
-  const working = yield* Effect.forEach(PATROLLERS, (patroller) =>
+  const working = yield* Effect.forEach(roster, (patroller) =>
     Effect.flatMap(patroller.pending(ctx.db, projectId, workScopes), (pending) =>
       workingOn(ctx.db, projectId, pending, viewed ? draftOf(viewed) : null),
     ),
   );
 
-  const patrollers = PATROLLERS.map((patroller, index): PatrollerView => {
+  const patrollers = roster.map((patroller, index): PatrollerView => {
     const own = shown.filter((row) => row.patroller === patroller.id).sort(newestFirst);
     const rest = new Map<string | null, number>();
     for (const row of own.slice(REPORTS_SHOWN)) {

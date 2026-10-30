@@ -1,6 +1,6 @@
 import { CAMOX_ACTOR, DRAFT_CREATE_HEADER, DRAFT_HEADER } from "@camox/api-contract/drafts";
 import { generateUuidv7, PAGE_TEXT_LINK_PREFIX } from "@camox/api-contract/ids";
-import type { FindingView, PatrollerView } from "@camox/api-contract/patrol";
+import { PATROLLER_IDS, type FindingView, type PatrollerView } from "@camox/api-contract/patrol";
 import { call } from "@orpc/server";
 import { abortAllDurableObjects, createScheduledController } from "cloudflare:test";
 import { env } from "cloudflare:workers";
@@ -131,9 +131,9 @@ async function fixture() {
       updatedAt: Date.now(),
     });
   const linkChecker = async (headers: Headers = {}): Promise<PatrollerView> =>
-    (await call(router.patrol.get, { projectId }, member(headers))).patrollers.find(
-      (patroller) => patroller.id === "linkChecker",
-    )!;
+    (
+      await call(router.patrol.get, { projectId, patrollers: [...PATROLLER_IDS] }, member(headers))
+    ).patrollers.find((patroller) => patroller.id === "linkChecker")!;
   const findings = async (headers: Headers = {}) => (await linkChecker(headers)).findings;
   const dismiss = (findingId: number, headers: Headers = {}) =>
     call(router.patrol.dismissFinding, { projectId, findingId }, member(headers));
@@ -530,7 +530,11 @@ describe("the Patrol Draft", () => {
     await patrolLive(f.db);
     const [draft] = await f.drafts();
 
-    const view = await call(router.patrol.get, { projectId: f.projectId }, f.member());
+    const view = await call(
+      router.patrol.get,
+      { projectId: f.projectId, patrollers: [...PATROLLER_IDS] },
+      f.member(),
+    );
 
     expect(view.patrolDraft).toEqual({ id: draft!.id, name: "Patrol" });
   });

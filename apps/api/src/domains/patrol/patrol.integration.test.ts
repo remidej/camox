@@ -1,6 +1,6 @@
 import { DRAFT_CREATE_HEADER, DRAFT_HEADER, LOCALE_HEADER } from "@camox/api-contract/drafts";
 import { generateUuidv7 } from "@camox/api-contract/ids";
-import { REPORTS_SHOWN, type PatrollerView } from "@camox/api-contract/patrol";
+import { REPORTS_SHOWN, type PatrollerView, PATROLLER_IDS } from "@camox/api-contract/patrol";
 import { queryKeys } from "@camox/api-contract/query-keys";
 import { call } from "@orpc/server";
 import { describe, expect, it } from "vite-plus/test";
@@ -115,7 +115,8 @@ async function fixture() {
     return run({ entity: "file", entityId: file.id });
   };
   const patrol = async (headers: Headers = inDraft) =>
-    (await call(router.patrol.get, { projectId }, member(headers))).patrollers;
+    (await call(router.patrol.get, { projectId, patrollers: [...PATROLLER_IDS] }, member(headers)))
+      .patrollers;
   const seoManager = async (headers?: Headers) =>
     (await patrol(headers)).find((patroller) => patroller.id === "seoManager")!;
   const sentences = (patroller: PatrollerView) =>
@@ -169,6 +170,27 @@ describe("the Patrol", () => {
       expect(patroller.reports).toEqual([]);
       expect(patroller.more).toEqual([]);
     }
+  });
+
+  it("shows a studio only the patrollers it lists", async () => {
+    const { projectId, member, inDraft } = await fixture();
+
+    const view = await call(
+      router.patrol.get,
+      { projectId, patrollers: ["proofreader"] },
+      member(inDraft),
+    );
+
+    expect(view.patrollers.map(({ id }) => id)).toEqual(["proofreader"]);
+  });
+
+  // camox 0.65.0 and earlier list none, and crash on a patroller they don't know (ADR 0019).
+  it("shows a studio that lists none only the Translator and the SEO manager", async () => {
+    const { projectId, member, inDraft } = await fixture();
+
+    const view = await call(router.patrol.get, { projectId }, member(inDraft));
+
+    expect(view.patrollers.map(({ id }) => id).sort()).toEqual(["seoManager", "translator"]);
   });
 });
 
