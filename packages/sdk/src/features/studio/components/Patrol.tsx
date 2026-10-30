@@ -24,10 +24,11 @@ import { useNavigate } from "../../navigation/navigation";
 import { AssetLightbox } from "../../preview/components/AssetLightbox";
 import { BOTTOM_CARD_EDGES, CARD_BODY_EDGES } from "../../preview/components/SidebarStack";
 import { timeAgo } from "../draftLabel";
-import { dismissedSentence, findingSentence, fixLabel } from "../findingSentence";
+import { askAgentMessage, dismissedSentence, findingSentence, fixLabel } from "../findingSentence";
 import { moreSentence, reportSentence, shortTimeAgo, whereReportLeads } from "../reportSentence";
 import { editCollectionItemPath } from "../routes";
 import { useShowInCanvas } from "../showInCanvas";
+import { studioStore } from "../studioStore";
 import { singleLocaleSentence, workingSentence } from "../workingSentence";
 import { Squareling } from "./Squareling";
 
@@ -108,6 +109,11 @@ function ProjectPatrol({ projectId, inDraft }: { projectId: number; inDraft: boo
           showReport(shown);
         }}
         onApply={(finding) => applyFix.mutate({ projectId, findingId: finding.id })}
+        onAsk={(patroller, finding) => {
+          // The chat takes over from the popover.
+          openReports(null);
+          studioStore.trigger.askAgent({ text: askAgentMessage(finding, patroller.role) });
+        }}
         onDismiss={(finding) => dismissFinding.mutate({ projectId, findingId: finding.id })}
       />
       {openFileId && (
@@ -233,6 +239,7 @@ export function PatrolRoster({
   onOpenChange,
   onShow,
   onApply,
+  onAsk,
   onDismiss,
 }: {
   view: PatrolView;
@@ -246,6 +253,8 @@ export function PatrolRoster({
   onShow: (shown: Shown) => void;
   /** Applies a finding's suggested fix. */
   onApply: (finding: FindingView) => void;
+  /** Fills the draft's chat with a finding of a patroller, for the agent. */
+  onAsk: (patroller: PatrollerView, finding: FindingView) => void;
   /** Dismisses a finding for the whole project. */
   onDismiss: (finding: FindingView) => void;
 }) {
@@ -262,6 +271,7 @@ export function PatrolRoster({
           onOpenChange={(next) => onOpenChange(next ? patroller.id : null)}
           onShow={onShow}
           onApply={onApply}
+          onAsk={onAsk}
           onDismiss={onDismiss}
         />
       ))}
@@ -305,6 +315,7 @@ function PatrollerRow({
   onOpenChange,
   onShow,
   onApply,
+  onAsk,
   onDismiss,
 }: {
   patroller: PatrollerView;
@@ -316,6 +327,7 @@ function PatrollerRow({
   onOpenChange: (open: boolean) => void;
   onShow: (shown: Shown) => void;
   onApply: (finding: FindingView) => void;
+  onAsk: (patroller: PatrollerView, finding: FindingView) => void;
   onDismiss: (finding: FindingView) => void;
 }) {
   const statusId = React.useId();
@@ -375,6 +387,7 @@ function PatrollerRow({
             inDraft={inDraft}
             onShow={onShow}
             onApply={onApply}
+            onAsk={(finding) => onAsk(patroller, finding)}
             onDismiss={onDismiss}
           />
         </PopoverContent>
@@ -398,6 +411,7 @@ export function PatrollerDetails({
   inDraft,
   onShow,
   onApply,
+  onAsk,
   onDismiss,
 }: {
   patroller: PatrollerView;
@@ -405,6 +419,8 @@ export function PatrollerDetails({
   inDraft: boolean;
   onShow: (shown: Shown) => void;
   onApply: (finding: FindingView) => void;
+  /** Fills the draft's chat with the finding, for the agent. */
+  onAsk: (finding: FindingView) => void;
   onDismiss: (finding: FindingView) => void;
 }) {
   return (
@@ -433,6 +449,11 @@ export function PatrollerDetails({
                 {finding.fix && !finding.live && (
                   <Button variant="outline" size="xs" onClick={() => onApply(finding)}>
                     {fixLabel(finding.fix)}
+                  </Button>
+                )}
+                {inDraft && !finding.live && (
+                  <Button variant="outline" size="xs" onClick={() => onAsk(finding)}>
+                    Ask the agent
                   </Button>
                 )}
                 <Button variant="ghost" size="xs" onClick={() => onDismiss(finding)}>

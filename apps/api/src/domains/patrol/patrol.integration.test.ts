@@ -162,9 +162,10 @@ describe("the Patrol", () => {
         { id: "translator", role: "Translator" },
         { id: "seoManager", role: "SEO manager" },
         { id: "linkChecker", role: "Link checker" },
+        { id: "proofreader", role: "Proofreader" },
       ]),
     );
-    expect(patrollers).toHaveLength(3);
+    expect(patrollers).toHaveLength(4);
     for (const patroller of patrollers) {
       expect(patroller.lastActivityAt).toBeNull();
       expect(patroller.reports).toEqual([]);
@@ -345,23 +346,25 @@ describe("where each patroller is on duty", () => {
   const duties = (patrollers: PatrollerView[]) =>
     Object.fromEntries(patrollers.map(({ id, duty }) => [id, duty]));
 
-  it("has the Translator and the SEO manager work as you go in a draft, and the Link checker check at publish", async () => {
+  it("has the Translator and the SEO manager work as you go in a draft, and the Link checker and the Proofreader check at publish", async () => {
     const { patrol } = await fixture();
 
     expect(duties(await patrol())).toEqual({
       translator: "asYouGo",
       seoManager: "asYouGo",
       linkChecker: "atPublish",
+      proofreader: "atPublish",
     });
   });
 
-  it("has the Translator and the SEO manager off on Live, and the Link checker patrol it", async () => {
+  it("has the Translator, the SEO manager and the Proofreader off on Live, and the Link checker patrol it", async () => {
     const { patrol } = await fixture();
 
     expect(duties(await patrol({}))).toEqual({
       translator: "off",
       seoManager: "off",
       linkChecker: "asYouGo",
+      proofreader: "off",
     });
   });
 });
@@ -670,6 +673,7 @@ describe("a patroller at work", () => {
       { id: "seoManager", working: null },
       { id: "translator", working: null },
       { id: "linkChecker", working: null },
+      { id: "proofreader", working: null },
     ]);
     await new Promise((resolve) => setTimeout(resolve, 5));
 

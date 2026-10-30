@@ -153,3 +153,36 @@ export const findingDismissals = sqliteTable(
     ),
   ],
 );
+
+/**
+ * Subjects of a draft the Proofreader has to read again, in a locale: written since it last read
+ * them (ADR 0034). A row exists from the request until the job that read it settles, so a job that
+ * crashes can't leave the Proofreader working; it's working on a row once a job started it.
+ */
+export const proofreadingRequests = sqliteTable(
+  "proofreading_requests",
+  {
+    rowId: int("row_id").primaryKey(),
+    projectId: int("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    draftId: text("draft_id")
+      .notNull()
+      .references(() => drafts.id, { onDelete: "cascade" }),
+    entity: text().notNull().$type<ReportEntity>(),
+    entityId: text("entity_id").notNull(),
+    locale: text().notNull(),
+    // When it was last requested, and when a job started reading it: null until one does.
+    requestedAt: int("requested_at").notNull(),
+    startedAt: int("started_at"),
+  },
+  (table) => [
+    uniqueIndex("proofreading_requests_key_idx").on(
+      table.draftId,
+      table.entity,
+      table.entityId,
+      table.locale,
+    ),
+    index("proofreading_requests_project_idx").on(table.projectId),
+  ],
+);

@@ -1,4 +1,5 @@
 import { EMPTY_THREAD_VIEW, type TouchedBatch } from "@camox/api-contract/threads";
+import { useSelector } from "@xstate/store-react";
 import * as React from "react";
 
 import { AuthContext } from "../../../lib/auth";
@@ -10,6 +11,7 @@ import { useNavigate } from "../../navigation/navigation";
 import { BOTTOM_CARD_EDGES, CARD_BODY_EDGES } from "../../preview/components/SidebarStack";
 import { EditorWhereContext } from "../editorWhereContext";
 import { FollowAgentContext } from "../followAgentContext";
+import { studioStore } from "../studioStore";
 import { useEditorSelection } from "../useEditorSelection";
 import { ConnectAgent } from "./ConnectAgent";
 import { ThreadComposer } from "./ThreadComposer";
@@ -22,8 +24,8 @@ import { ThreadMessages } from "./ThreadMessages";
  * When the agent on Live hands the editor's request off to a draft, the studio that asked enters
  * it, if it still shows Live; the card the Live turn ends on opens it too. Each message tells the
  * agent where the editor is: the page they look at, with what they selected on it unless they
- * cleared it from the composer, or the Canvas with no page selected. Under the composer, it
- * invites the editor to connect their own AI.
+ * cleared it from the composer, or the Canvas with no page selected. "Ask the agent" elsewhere in
+ * the studio fills its composer. Under the composer, it invites the editor to connect their own AI.
  */
 export function ChatWidget({ className }: { className?: string }) {
   return (
@@ -115,6 +117,11 @@ function Thread({
   const [cleared, setCleared] = React.useState<string | null>(null);
   if (cleared !== null && selectionKey !== cleared) setCleared(null);
   const carried = selection && selectionKey !== cleared ? selection : undefined;
+  // The composer keeps a message asked for, taken so that it doesn't fill again.
+  const asked = useSelector(studioStore, (state) => state.context.agentAsk);
+  React.useEffect(() => {
+    if (asked) studioStore.trigger.takeAgentAsk();
+  }, [asked]);
   // The editor's message starts a run the studio follows, even if they took over the last one.
   const sendFollowing = (text: string) => {
     follow?.resume();
@@ -134,6 +141,7 @@ function Thread({
         selection={carried?.path.at(-1)}
         onClearSelection={() => selectionKey !== null && setCleared(selectionKey)}
         running={view.running}
+        filled={asked ?? undefined}
       />
     </>
   );

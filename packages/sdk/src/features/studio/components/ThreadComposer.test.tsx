@@ -35,3 +35,11 @@ void test("with nothing selected, there's no selection over the message", () => 
 
   assert.doesNotMatch(html, /Selection|Clear selection/);
 });
+
+void test("a message filled in from elsewhere in the studio waits in the message box, unsent", () => {
+  const html = renderToString(
+    <ThreadComposer onSend={noop} filled={{ text: "Fix the footer's link", id: 1 }} />,
+  );
+
+  assert.match(html, /<textarea[^>]*>Fix the footer&#x27;s link<\/textarea>/);
+});

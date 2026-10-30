@@ -691,10 +691,22 @@ export const holderOf = Effect.fn("drafts.holderOf")(function* (
   tag: string,
   subject: { entity: string; id: string },
 ) {
+  const holders = yield* holdersOf(ctx, draft, tag);
+  return holders.find((holder) => holder.entity === subject.entity && holder.id === subject.id);
+});
+
+/**
+ * Every block, shared content, repeatable item and record a draft reads in a locale, with the
+ * definition it's read by: what a patroller's check reads.
+ */
+export const holdersOf = Effect.fn("drafts.holdersOf")(function* (
+  ctx: ServiceContext,
+  draft: Scope,
+  tag: string,
+) {
   const scope = inLocale(draftOf(draft), tag);
   const { projectId } = scope;
   const visible = (yield* rowsIn(ctx, scope, projectId, pages)).map((page) => page.id);
   const records = yield* rowsIn(ctx, scope, projectId, collectionRecords);
-  const holders = yield* holdersIn(ctx, scope, new Set(visible), records);
-  return holders.find((holder) => holder.entity === subject.entity && holder.id === subject.id);
+  return yield* holdersIn(ctx, scope, new Set(visible), records);
 });
