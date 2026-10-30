@@ -6,7 +6,9 @@ import {
   type CheckJob,
   isCheckJob,
   isOverviewJob,
+  isPatrolJob,
   type OverviewJob,
+  type PatrolJob,
   ScheduleError,
 } from "../src/lib/ai-job-queue";
 import { AiModel } from "../src/lib/ai-model";
@@ -111,13 +113,17 @@ export const forgetModel = () => {
 };
 
 /** A job on an entity: a generated value or a translation. */
-export type ScheduledJob = Exclude<AiJob, OverviewJob | CheckJob> & { delayMs: number };
+export type ScheduledJob = Exclude<AiJob, OverviewJob | CheckJob | PatrolJob> & {
+  delayMs: number;
+};
 
 const jobs: ScheduledJob[] = [];
 // Every write in a draft requests its overview and its at-publish checks: kept apart, so entity
 // jobs read alone.
 const overviewJobs: (OverviewJob & { delayMs: number })[] = [];
 const checkJobs: (CheckJob & { delayMs: number })[] = [];
+// Every patrol of Live the cron requests, for every project the tests created.
+const patrolJobs: PatrolJob[] = [];
 let failures = 0;
 /** Told of each entity job as it's scheduled, when a test watches them. */
 let watcher: ((job: ScheduledJob) => void) | undefined;
@@ -131,6 +137,7 @@ const recordingScheduler = AiJobQueue.of({
       }
       if (isOverviewJob(job)) overviewJobs.push({ ...job, delayMs });
       else if (isCheckJob(job)) checkJobs.push({ ...job, delayMs });
+      else if (isPatrolJob(job)) patrolJobs.push(job);
       else {
         jobs.push({ ...job, delayMs });
         watcher?.({ ...job, delayMs });
@@ -162,6 +169,16 @@ export const forgetScheduledChecks = (draftId: string) => {
   checkJobs.splice(0, checkJobs.length, ...kept);
 };
 
+/** The patrols of Live scheduled, each once: a newer one replaced it, as the Durable Object does. */
+export const scheduledPatrols = () => [
+  ...new Map(patrolJobs.map((job) => [`${job.patroller}:${job.projectId}`, job])).values(),
+];
+
+/** Forgets the patrols of Live scheduled, once a test ran them. */
+export const forgetScheduledPatrols = () => {
+  patrolJobs.length = 0;
+};
+
 /** The jobs scheduled for these entities, in order. */
 export const scheduledFor = (...entityIds: string[]): ScheduledJob[] =>
   jobs.filter((job) => entityIds.includes(job.entityId));
@@ -180,6 +197,7 @@ export const forgetAllScheduled = () => {
   jobs.length = 0;
   overviewJobs.length = 0;
   checkJobs.length = 0;
+  patrolJobs.length = 0;
   failures = 0;
   watcher = undefined;
 };

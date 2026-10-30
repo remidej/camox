@@ -59,8 +59,14 @@ export type OverviewJob = { kind: "overview"; draftId: string };
  */
 export type CheckJob = { kind: "check"; patroller: PatrollerId; draftId: string };
 
+/**
+ * A patroller's patrol of a project's Live content (ADR 0034), keyed by patroller and project:
+ * the cron trigger requests one for every project every 6 hours.
+ */
+export type PatrolJob = { kind: "patrol"; patroller: PatrollerId; projectId: number };
+
 /** A job the AI job scheduler runs. */
-export type AiJob = GenerationJob | TranslationJob | OverviewJob | CheckJob;
+export type AiJob = GenerationJob | TranslationJob | OverviewJob | CheckJob | PatrolJob;
 
 export const isTranslationJob = (job: AiJob): job is TranslationJob =>
   "kind" in job && job.kind === "translation";
@@ -69,6 +75,8 @@ export const isOverviewJob = (job: AiJob): job is OverviewJob =>
   "kind" in job && job.kind === "overview";
 
 export const isCheckJob = (job: AiJob): job is CheckJob => "kind" in job && job.kind === "check";
+
+export const isPatrolJob = (job: AiJob): job is PatrolJob => "kind" in job && job.kind === "patrol";
 
 export class ScheduleError extends Data.TaggedError("ScheduleError")<{ readonly cause: unknown }> {}
 
@@ -97,6 +105,7 @@ const NAME_PARTS = {
 export const jobName = (job: AiJob) => {
   if (isOverviewJob(job)) return `overview:${job.draftId}`;
   if (isCheckJob(job)) return `check:${job.patroller}:${job.draftId}`;
+  if (isPatrolJob(job)) return `patrol:${job.patroller}:${job.projectId}`;
   if (isTranslationJob(job)) {
     const name = `translation:${job.entity}:${job.entityId}:${job.locale}:${job.draftId}`;
     return job.source === undefined ? name : `${name}:${job.source}`;

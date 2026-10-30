@@ -2,6 +2,7 @@ import { WorkerEntrypoint } from "cloudflare:workers";
 
 import { createDb } from "./db";
 import { refreshFontsSnapshot } from "./domains/fonts/catalog";
+import { LIVE_PATROL_CRON, requestLivePatrols } from "./domains/patrol/live-patrol";
 import { liveScriptOfProject } from "./domains/publishes/scripts";
 import type { RevisionToLoad } from "./domains/revisions/dispatch";
 import {
@@ -12,6 +13,7 @@ import {
 } from "./domains/revisions/previewed-revision";
 import { isEdgeCached, withoutCredentials } from "./edge-cache";
 import app from "./index";
+import { runService } from "./lib/run-service";
 import type { Bindings } from "./types";
 
 export { AiJobScheduler } from "./durable-objects/ai-job-scheduler";
@@ -62,8 +64,13 @@ export default {
     }
     return app.fetch(request, env, ctx);
   },
-  // The daily cron trigger (wrangler.jsonc): a new snapshot of Google Fonts for `searchFonts`.
-  async scheduled(_controller: ScheduledController, env: Bindings): Promise<void> {
+  // The cron triggers (wrangler.jsonc): every 6 hours, patrols of every project's Live (ADR
+  // 0034); daily, a new snapshot of Google Fonts for `searchFonts`.
+  async scheduled(controller: ScheduledController, env: Bindings): Promise<void> {
+    if (controller.cron === LIVE_PATROL_CRON) {
+      await runService(requestLivePatrols(createDb(env.DB)));
+      return;
+    }
     await refreshFontsSnapshot(env);
   },
 } satisfies ExportedHandler<Bindings>;

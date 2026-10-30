@@ -7,7 +7,7 @@ import type { Journal } from "../../lib/journal";
 import type { Draft } from "../drafts/scope";
 import type { GeneratedType } from "../generated-values/schema";
 import type { Checked, CheckedSubject, RaisedFinding } from "./findings";
-import { checkLinks } from "./link-checker";
+import { checkLinks, patrolLinks } from "./link-checker";
 import {
   checkSpelling,
   pendingProofreading,
@@ -32,7 +32,8 @@ import {
 //   something or failed, never when it changed nothing.
 // - its findings (ADR 0034): problems it found in content, raised and resolved through
 //   `writeFindings` when a check settles. A patroller that checks drafts at publish declares its
-//   `check`, which `checks.ts` runs once a draft is idle and when its review opens.
+//   `check`, which `checks.ts` runs once a draft is idle and when its review opens. One that
+//   patrols Live declares its `patrol`, which `live-patrol.ts` runs every 6 hours.
 // The registry is fixed: every project has every patroller, and no setting switches one off.
 
 /** Where a patroller is on duty: in drafts, and on Live. */
@@ -57,6 +58,15 @@ export type Checker = (
   draft: Draft,
 ) => Effect.Effect<CheckResult, never, AiModel | Journal>;
 
+/** What a patrol of Live found: Live's open findings it didn't find again are resolved. */
+export type PatrolResult = { found: RaisedFinding[] };
+
+/** A patroller's patrol of a project's Live content (ADR 0034), every 6 hours. */
+export type LivePatrol = (
+  db: Database,
+  projectId: number,
+) => Effect.Effect<PatrolResult, never, AiModel | Journal>;
+
 /**
  * What a check is requested for: the subjects a unit of work wrote in the draft, or `stale`, when
  * the draft's review opened on changes its last check didn't read.
@@ -77,13 +87,17 @@ export type CheckRequests = {
   settle: (db: Database, draft: Draft) => Effect.Effect<void, never, Journal>;
 };
 
-/** A patroller's identity, its duty, how it tells what it's working on, and its check. */
+/**
+ * A patroller's identity, its duty, how it tells what it's working on, its check of drafts, and
+ * its patrol of Live.
+ */
 export type Patroller = {
   id: PatrollerId;
   role: string;
   duty: Duty;
   pending: PendingWorkOf;
   check?: Checker;
+  patrol?: LivePatrol;
   requests?: CheckRequests;
 };
 
@@ -128,6 +142,7 @@ export const linkChecker: Patroller = {
   duty: { drafts: "atPublish", live: "asYouGo" },
   pending: noPendingWork,
   check: checkLinks,
+  patrol: patrolLinks,
 };
 
 /**

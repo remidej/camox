@@ -23,6 +23,12 @@ const StoredJob = Schema.Union([
     draftId: Schema.String,
   }),
   Schema.Struct({
+    id: Schema.String,
+    kind: Schema.Literal("patrol"),
+    patroller: Schema.Literals(PATROLLER_IDS),
+    projectId: Schema.Number,
+  }),
+  Schema.Struct({
     // Tells a re-scheduled job from the one an in-flight alarm is running.
     id: Schema.String,
     kind: Schema.Literal("translation"),

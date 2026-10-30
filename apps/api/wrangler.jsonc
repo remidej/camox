@@ -130,7 +130,7 @@
   "triggers": {
     // Daily: a new snapshot of Google Fonts' families for the agent's `searchFonts`
     // (src/domains/fonts/catalog.ts), taken with the `GOOGLE_FONTS_API_KEY` secret.
-    "crons": ["17 4 * * *"],
+    "crons": ["17 4 * * *", "0 */6 * * *"],
     "events": [
       {
         "type": "cf.artifacts.repo.pushed",

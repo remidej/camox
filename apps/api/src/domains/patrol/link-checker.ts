@@ -5,17 +5,23 @@ import { Effect } from "effect";
 
 import type { Database } from "../../db";
 import { camoxContext } from "../drafts/camox-context";
-import { changedLinks, missingPageLinks } from "../drafts/content-checks";
+import {
+  changedLinks,
+  type LinkInContent,
+  liveLinks,
+  missingPageLinks,
+} from "../drafts/content-checks";
 import type { Draft } from "../drafts/scope";
 import { dismissedIdentities, type RaisedFinding } from "./findings";
-import type { Checker } from "./patrollers";
+import type { Checker, LivePatrol } from "./patrollers";
 import { linkChecks } from "./schema";
 
-// The Link checker's check of a draft (ADR 0034), in what the draft changed:
-// - links to pages the draft is missing, each with "Remove the link" as its fix.
+// The Link checker (ADR 0034) checks a draft at publish, in what the draft changed, and patrols
+// every link on Live every 6 hours (`live-patrol.ts`). It raises:
+// - links to missing pages, each with "Remove the link" as its fix.
 // - links outside the website that fail: an HTTP error, no connection, or no answer in time. A
-//   link is raised only once two checks in a row failed, the second shortly after the first, so
-//   a site's blip raises nothing.
+//   link is raised only once two checks in a row failed, so a site's blip raises nothing: in a
+//   draft the second check follows shortly after the first, on Live it's the next run.
 // A finding's identity is the link's url, project-wide.
 
 /** How soon a link that failed once is checked again. */
@@ -84,13 +90,15 @@ async function fetchLink(start: string): Promise<LinkFailure | null> {
 type UrlCheck = { failure: LinkFailure | null; failures: number };
 
 /**
- * Checks each url once: reuses a check made a moment ago, unless it was a first failure, which
- * only a second fetch confirms, and keeps each one for the project.
+ * Checks each url once: reuses a check younger than `cacheMs`, unless it was a first failure,
+ * which only a second fetch confirms, and keeps each one for the project.
  */
 const checkUrls = Effect.fn("patrol.checkUrls")(function* (
   db: Database,
   projectId: number,
   urls: readonly string[],
+  /** How long a check holds before the url is fetched again. */
+  cacheMs: number,
 ) {
   const last = new Map<string, typeof linkChecks.$inferSelect>();
   for (let start = 0; start < urls.length; start += CHUNK) {
@@ -114,7 +122,7 @@ const checkUrls = Effect.fn("patrol.checkUrls")(function* (
     (url) =>
       Effect.gen(function* () {
         const previous = last.get(url);
-        const fresh = previous !== undefined && now - previous.checkedAt < LINK_CACHE_MS;
+        const fresh = previous !== undefined && now - previous.checkedAt < cacheMs;
         if (fresh && previous.failures !== 1) {
           checks.set(url, { failure: previous.failure, failures: previous.failures });
           return;
@@ -138,16 +146,25 @@ const checkUrls = Effect.fn("patrol.checkUrls")(function* (
   return checks;
 });
 
-/** Links outside the website the draft changed that failed twice in a row, and whether one failed once. */
-const brokenLinks = Effect.fn("patrol.brokenLinks")(function* (db: Database, draft: Draft) {
-  const dismissed = yield* dismissedIdentities(db, draft.projectId, { id: "linkChecker" });
-  const links = (yield* changedLinks(camoxContext(db), draft)).flatMap((found) => {
+/**
+ * The failing links among `links` that failed twice in a row, as findings, and whether one failed
+ * once. Dismissed urls aren't fetched.
+ */
+const brokenAmong = Effect.fn("patrol.brokenAmong")(function* (
+  db: Database,
+  projectId: number,
+  links: readonly LinkInContent[],
+  cacheMs: number,
+) {
+  const dismissed = yield* dismissedIdentities(db, projectId, { id: "linkChecker" });
+  const fetched = links.flatMap((found) => {
     const url = fetchableUrl(found.link.url);
     return url === undefined || dismissed.has(found.link.url) ? [] : [{ ...found, url }];
   });
-  const checks = yield* checkUrls(db, draft.projectId, [...new Set(links.map(({ url }) => url))]);
+  const urls = [...new Set(fetched.map(({ url }) => url))];
+  const checks = yield* checkUrls(db, projectId, urls, cacheMs);
   const found: RaisedFinding[] = [];
-  for (const { holder, locale, field, link, url } of links) {
+  for (const { holder, locale, field, link, url } of fetched) {
     const check = checks.get(url)!;
     if (check.failure === null || check.failures < FAILURES_TO_RAISE) continue;
     found.push({
@@ -164,24 +181,43 @@ const brokenLinks = Effect.fn("patrol.brokenLinks")(function* (db: Database, dra
   return { found, failedOnce };
 });
 
+/** A link to a missing page, as a finding: removing the link fixes it. */
+const missingPageFinding = (
+  { holder, locale, field, link }: LinkInContent,
+  page: string | null,
+): RaisedFinding => ({
+  entity: holder.entity,
+  id: holder.id,
+  locale,
+  field: field.name,
+  identity: link.url,
+  about: { kind: "missingPage", url: link.url, text: link.text, page },
+  fix: { kind: "removeLink" },
+});
+
 export const checkLinks: Checker = (db: Database, draft: Draft) =>
   Effect.gen(function* () {
     const missing = yield* missingPageLinks(camoxContext(db), draft);
-    const broken = yield* brokenLinks(db, draft);
+    const changed = yield* changedLinks(camoxContext(db), draft);
+    const broken = yield* brokenAmong(db, draft.projectId, changed, LINK_CACHE_MS);
     return {
       checked: "everything" as const,
-      found: [
-        ...missing.map(({ holder, locale, field, link, page }): RaisedFinding => ({
-          entity: holder.entity,
-          id: holder.id,
-          locale,
-          field: field.name,
-          identity: link.url,
-          about: { kind: "missingPage", url: link.url, text: link.text, page },
-          fix: { kind: "removeLink" },
-        })),
-        ...broken.found,
-      ],
+      found: [...missing.map((link) => missingPageFinding(link, link.page)), ...broken.found],
       ...(broken.failedOnce && { recheckInMs: LINK_RECHECK_MS }),
+    };
+  });
+
+/**
+ * The Link checker's patrol of Live (ADR 0034): every link in Live's content, to pages Live is
+ * missing and outside the website. Each url is fetched once per run, so a link that failed the
+ * last run is raised when it fails this one too.
+ */
+export const patrolLinks: LivePatrol = (db: Database, projectId: number) =>
+  Effect.gen(function* () {
+    const links = yield* liveLinks(camoxContext(db), projectId);
+    const missing = links.filter((link) => link.pageMissing);
+    const broken = yield* brokenAmong(db, projectId, links, 0);
+    return {
+      found: [...missing.map((link) => missingPageFinding(link, null)), ...broken.found],
     };
   });

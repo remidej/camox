@@ -38,7 +38,14 @@ import { pagesWithDuplicatePaths } from "../pages/duplicate-paths";
 import { generatedSeoOf, seoGenerated } from "../pages/generated-seo";
 import { localizationExclusions } from "../translations/schema";
 import * as overlay from "./overlay";
-import { draftOf, inLocale, type DraftScope, type ReadScope } from "./scope";
+import {
+  draftIn,
+  draftOf,
+  inLocale,
+  type DraftScope,
+  type LiveInLocale,
+  type ReadScope,
+} from "./scope";
 
 // What publishing a draft checks about content (ADR 0009): duplicate paths, dangling references,
 // values of the wrong kind and missing meta titles. Each check returns findings in what the draft changed, which
@@ -249,11 +256,11 @@ export type Holder = {
  */
 const holdersIn = Effect.fn("drafts.holdersIn")(function* (
   ctx: ServiceContext,
-  scope: Scope,
+  scope: Scope | LiveInLocale,
+  projectId: number,
   visiblePages: Set<string>,
   records: RecordRow[],
 ) {
-  const { projectId } = scope;
   const blockDefs = yield* Effect.promise(() =>
     ctx.db
       .select()
@@ -276,7 +283,8 @@ const holdersIn = Effect.fn("drafts.holdersIn")(function* (
   const blockDef = new Map(blockDefs.map((d) => [`${d.projectId}:${d.blockId}`, d]));
   const collectionDef = new Map(collectionDefs.map((d) => [`${d.projectId}:${d.collectionId}`, d]));
   const holders: Holder[] = [];
-  const changed = (row: { draftId: string | null }) => storedBy(scope, row);
+  const draft = draftIn(scope);
+  const changed = (row: { draftId: string | null }) => draft !== null && storedBy(draft, row);
 
   // Item trees are rooted in a block or in shared content, read by the root's definition.
   const roots = new Map<string, unknown>();
@@ -561,6 +569,7 @@ const checkLocale = Effect.fn("drafts.checkLocale")(function* (
   const holders = yield* holdersIn(
     ctx,
     scope,
+    projectId,
     new Set(draftPages.map((page) => page.id)),
     draftRecords,
   );
@@ -663,6 +672,7 @@ export const missingPageLinks = Effect.fn("drafts.missingPageLinks")(function* (
     const holders = yield* holdersIn(
       ctx,
       inTag,
+      projectId,
       new Set(draftPages.map((page) => page.id)),
       records,
     );
@@ -699,12 +709,51 @@ export const changedLinks = Effect.fn("drafts.changedLinks")(function* (
     const holders = yield* holdersIn(
       ctx,
       inTag,
+      projectId,
       new Set(draftPages.map((page) => page.id)),
       records,
     );
     for (const holder of holders.filter((candidate) => candidate.changed)) {
       for (const { field, link } of linksIn(holder.schema, holder.content)) {
         found.push({ holder, locale: tag, field, link });
+      }
+    }
+  }
+  return found;
+});
+
+/** A link in Live's content, in a locale, and whether it links to a page Live doesn't have. */
+export type LiveLink = LinkInContent & { pageMissing: boolean };
+
+/**
+ * Every link in Live's content, in each of its locales: what the Link checker patrols (ADR 0034).
+ * A link to a page missing from its locale leads to the default locale's page, so it isn't missing.
+ */
+export const liveLinks = Effect.fn("drafts.liveLinks")(function* (
+  ctx: ServiceContext,
+  projectId: number,
+) {
+  const tags = new Set((yield* rowsIn(ctx, null, projectId, locales)).map((locale) => locale.tag));
+  const defaults = yield* rowsIn(ctx, null, projectId, pages);
+  const found: LiveLink[] = [];
+  for (const tag of tags) {
+    const inTag = inLocale(null, tag);
+    const livePages = yield* rowsIn(ctx, inTag, projectId, pages);
+    const onLive = new Set([...defaults, ...livePages].map((page) => page.id));
+    const records = yield* rowsIn(ctx, inTag, projectId, collectionRecords);
+    const holders = yield* holdersIn(
+      ctx,
+      inTag,
+      projectId,
+      new Set(livePages.map((page) => page.id)),
+      records,
+    );
+    for (const holder of holders) {
+      for (const { field, link } of linksIn(holder.schema, holder.content)) {
+        const pageMissing =
+          link.url.startsWith(PAGE_TEXT_LINK_PREFIX) &&
+          !onLive.has(link.url.slice(PAGE_TEXT_LINK_PREFIX.length));
+        found.push({ holder, locale: tag, field, link, pageMissing });
       }
     }
   }
@@ -739,5 +788,5 @@ export const holdersOf = Effect.fn("drafts.holdersOf")(function* (
   const { projectId } = scope;
   const visible = (yield* rowsIn(ctx, scope, projectId, pages)).map((page) => page.id);
   const records = yield* rowsIn(ctx, scope, projectId, collectionRecords);
-  return yield* holdersIn(ctx, scope, new Set(visible), records);
+  return yield* holdersIn(ctx, scope, projectId, new Set(visible), records);
 });

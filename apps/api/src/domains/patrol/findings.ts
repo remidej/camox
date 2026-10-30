@@ -92,7 +92,7 @@ const CHUNK = 90;
  * Settles a patroller's check in a scope: raises what it `found`, except dismissed identities,
  * keeping when a finding still open was first raised, and resolves its open findings in what it
  * `checked` that it no longer found. Refreshes the Patrol of the scope. A draft that ended
- * meanwhile holds none.
+ * meanwhile holds none. Returns the findings it raised that weren't open in the scope already.
  */
 export const writeFindings = Effect.fn("patrol.writeFindings")(function* (
   db: Database,
@@ -116,6 +116,7 @@ export const writeFindings = Effect.fn("patrol.writeFindings")(function* (
         subject.locale === row.locale,
     );
   const raisedAt = Date.now();
+  let opened: RaisedFinding[] = [];
 
   yield* writeInScope(
     db,
@@ -132,6 +133,8 @@ export const writeFindings = Effect.fn("patrol.writeFindings")(function* (
         .from(findings)
         .where(and(inScope(scope), eq(findings.patroller, patroller.id)));
       const resolved = open.filter((row) => covers(row) && !raised.has(row.key));
+      const openKeys = new Set(open.map((row) => row.key));
+      opened = [...raised].flatMap(([key, finding]) => (openKeys.has(key) ? [] : [finding]));
       const statements: BatchItem<"sqlite">[] = [];
       for (let start = 0; start < resolved.length; start += CHUNK) {
         const rowIds = resolved.slice(start, start + CHUNK).map((row) => row.rowId);
@@ -174,6 +177,7 @@ export const writeFindings = Effect.fn("patrol.writeFindings")(function* (
     },
     "findings",
   );
+  return opened;
 });
 
 /** Resolves one open finding, as a fix applied to it does. */
