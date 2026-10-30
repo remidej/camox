@@ -4,7 +4,7 @@ import {
   DRAFT_HEADER,
   TRANSLATIONS_PENDING_ERROR,
 } from "@camox/api-contract/drafts";
-import { generateUuidv7 } from "@camox/api-contract/ids";
+import { generateUuidv7, PAGE_TEXT_LINK_PREFIX } from "@camox/api-contract/ids";
 import { queryKeys } from "@camox/api-contract/query-keys";
 import { call } from "@orpc/server";
 import { env } from "cloudflare:workers";
@@ -14,6 +14,8 @@ import {
   callSeedingLive,
   createProjectFixture,
   createRpcContext,
+  runAllChecks,
+  runChecks,
   seedLive,
   syncDefinitionSet,
 } from "../../../test/fixtures";
@@ -109,11 +111,19 @@ async function fixture() {
    * Runs every translation job scheduled so far, as their alarms would, and forgets them, on `on`
    * or the project's database.
    */
-  const runTranslations = async (on: Database = db) => {
+  const runTranslationJobs = async (on: Database = db) => {
     const jobs = scheduled().filter(isTranslationJob);
     forgetScheduled(...jobs.map((job) => job.entityId));
     const keyed = new Map(jobs.map((job) => [JSON.stringify({ ...job, delayMs: 0 }), job]));
     for (const job of keyed.values()) await runService(runAiJob(on, job));
+  };
+  /**
+   * Runs the translation jobs, then the patrollers' checks they requested, which a catch-up draft
+   * waits for before Camox publishes it (ADR 0033).
+   */
+  const runTranslations = async (on: Database = db) => {
+    await runTranslationJobs(on);
+    await runAllChecks(on);
   };
   /** Opens a draft, which `run` writes in, and returns its headers. */
   const draft = async (run: (starting: Headers) => Promise<unknown>) => {
@@ -123,6 +133,7 @@ async function fixture() {
   };
   const publish = async (headers: Headers, { on = db }: { on?: Database } = {}) => {
     const { token } = await tool("previewPublish", {}, headers);
+    await runAllChecks(db);
     return tool("publishDraft", { token }, headers, on);
   };
 
@@ -155,6 +166,7 @@ async function fixture() {
     block,
     tool,
     runTranslations,
+    runTranslationJobs,
     draft,
     publish,
     titleIn,
@@ -299,6 +311,57 @@ describe("publishing a draft with pending translations", () => {
   });
 });
 
+/** Rich text, as content stores it: plain text, then a link to `url` reading `label`. */
+const linkedText = (before: string, url: string, label: string) =>
+  JSON.stringify({
+    root: {
+      type: "root",
+      version: 1,
+      direction: "ltr",
+      format: "",
+      indent: 0,
+      children: [
+        {
+          type: "paragraph",
+          version: 1,
+          direction: "ltr",
+          format: "",
+          indent: 0,
+          children: [
+            {
+              type: "text",
+              text: before,
+              format: 0,
+              detail: 0,
+              mode: "normal",
+              style: "",
+              version: 1,
+            },
+            {
+              type: "link",
+              url,
+              version: 1,
+              direction: "ltr",
+              format: "",
+              indent: 0,
+              children: [
+                {
+                  type: "text",
+                  text: label,
+                  format: 0,
+                  detail: 0,
+                  mode: "normal",
+                  style: "",
+                  version: 1,
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    },
+  });
+
 /** Camox's catch-up drafts among the project's open drafts. */
 const catchUpDrafts = async (f: Fixture) =>
   (await f.drafts()).drafts.filter((draft) => draft.createdBy.id === CAMOX_ACTOR);
@@ -320,6 +383,32 @@ describe("a release's catch-up draft", () => {
     expect(await f.titleIn("de", {}, released.id)).toBe("Willkommen");
     expect(await catchUpDrafts(f)).toEqual([]);
     expect((await f.drafts()).live.publishedBy).toEqual({ id: CAMOX_ACTOR, name: "Camox" });
+  });
+
+  it("waits for the patrollers' checks before Camox publishes it", async () => {
+    const f = await fixture();
+    await f.release("Welcome");
+
+    await f.runTranslationJobs();
+
+    expect(await catchUpDrafts(f)).toEqual([expect.objectContaining({ translatingLocales: [] })]);
+  });
+
+  it("stays open for a member while it has an open finding", async () => {
+    const f = await fixture();
+    const missing = `${PAGE_TEXT_LINK_PREFIX}${generateUuidv7()}`;
+    await f.release(linkedText("Read ", missing, "pricing"));
+    await f.runTranslationJobs();
+    const [catchUp] = await catchUpDrafts(f);
+
+    await runChecks(f.db, catchUp!.id);
+
+    expect(await catchUpDrafts(f)).toHaveLength(1);
+    const preview = await f.tool("previewPublish", {}, { [DRAFT_HEADER]: catchUp!.id });
+    expect(preview).toMatchObject({
+      checking: [],
+      findings: [{ locale: "de", about: { kind: "missingPage", url: missing } }],
+    });
   });
 
   it("takes later releases in while it's open rather than opening another", async () => {

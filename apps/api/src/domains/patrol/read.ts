@@ -391,6 +391,15 @@ export const listFindings = Effect.fn("patrol.listFindings")(function* (
   return yield* openFindingsIn(ctx.db, projectId, viewed, scopes, draftsNamed(viewed, catchUp));
 }, Effect.scoped);
 
+/** A draft's open findings, the oldest first: those that hold its publish (ADR 0033). */
+export const draftFindings = Effect.fn("patrol.draftFindings")(function* (
+  db: Database,
+  draft: Draft,
+) {
+  const found = yield* openFindingsIn(db, draft.projectId, draft, [], new Map([[draft.id, draft]]));
+  return found.map(({ patroller: _patroller, ...finding }): FindingView => finding);
+});
+
 /** Newest first; a report written later wins a tie. */
 const newestFirst = (a: ReportRow, b: ReportRow) => b.at - a.at || b.rowId - a.rowId;
 

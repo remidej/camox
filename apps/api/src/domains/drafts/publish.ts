@@ -1,4 +1,5 @@
 import { CAMOX_ACTOR, type EndedDraft } from "@camox/api-contract/drafts";
+import type { FindingView, PatrollerId } from "@camox/api-contract/patrol";
 import { and, eq, inArray, isNull, sql } from "drizzle-orm";
 import type { SQLiteTable } from "drizzle-orm/sqlite-core";
 import { Effect } from "effect";
@@ -12,6 +13,8 @@ import {
   PublishBlockedError,
   RevisionChangedError,
   TranslationsPendingError,
+  FindingsOpenError,
+  ChecksRunningError,
 } from "../../lib/errors";
 import { record } from "../../lib/journal";
 import { logSpan } from "../../lib/timing";
@@ -41,8 +44,9 @@ import { homeOf } from "../generated-values/service";
 import { defaultLocaleTag } from "../locales/default-locale";
 import { locales } from "../locales/schema";
 import { deleteUnreferencedOgImageBlobs, ogImageBlobsOf } from "../pages/og-image-blobs";
-import { requestStaleChecks } from "../patrol/checks";
+import { requestStaleChecks, staleChecks } from "../patrol/checks";
 import * as patrolFindings from "../patrol/findings";
+import { draftFindings } from "../patrol/read";
 import * as patrolReports from "../patrol/reports";
 import { reportCatchUpPublished } from "../patrol/translator";
 import { holdPublishPush } from "../publishes/queue";
@@ -158,6 +162,16 @@ export type PublishPreview = {
    * waits for them (ADR 0033).
    */
   translating: string[];
+  /**
+   * The draft's open findings, the oldest first. Publishing waits for each to be fixed or
+   * dismissed (ADR 0033).
+   */
+  findings: FindingView[];
+  /**
+   * The patrollers whose check at publish hasn't read the draft's latest changes yet, in the
+   * registry's order. Publishing waits for them (ADR 0033).
+   */
+  checking: { id: PatrollerId; role: string }[];
   /** The tag of the default locale, which the others are translated from (null: none yet). */
   defaultLocale: string | null;
   /** Sent back to publish, which aborts when the conflicts no longer match it. */
@@ -436,6 +450,11 @@ export const computePreview = Effect.fn("drafts.computePreview")(function* (
     warnings,
     changes,
     translating: translating.get(scope.id) ?? [],
+    findings: yield* draftFindings(ctx.db, scope),
+    checking: (yield* staleChecks(ctx.db, scope.id, fingerprint)).map(({ id, role }) => ({
+      id,
+      role,
+    })),
     defaultLocale,
     token: encodeToken(storedConflicts),
     overview: row ? overviewOf(row, fingerprint) : ({ status: "none" } as const),
@@ -789,6 +808,8 @@ export const publishDraft = Effect.fn("drafts.publishDraft")(function* (
     });
   }
   if (preview.translating.length > 0) return yield* translationsPending(preview.translating);
+  const held = heldByPatrol(preview);
+  if (held) return yield* held;
 
   const user = yield* requireUser(ctx);
   if (preview.code) {
@@ -837,6 +858,45 @@ const translationsPending = (translating: readonly string[]) =>
     message: `Translations into ${translating.join(", ")} are still running: publishing waits for them`,
     translating,
   });
+
+/** What an open finding is, in a publish refusal: "“About” in Footer links to a missing page". */
+export const findingLine = ({ about, subject }: FindingView) => {
+  const what = `“${about.text}” in ${subject.name}`;
+  switch (about.kind) {
+    case "missingPage":
+      return `${what} links to ${about.page ?? "a page"}, which no longer exists`;
+    case "brokenLink":
+      return `${what} links to ${about.url}, which doesn't work`;
+    case "misspelling":
+      return `${what} may be misspelled`;
+    case "grammar":
+      return `${what} may be a grammar mistake`;
+  }
+};
+
+/**
+ * Why the patrollers hold publishing, if they do (ADR 0033): the draft's open findings, each to
+ * fix or for a member to dismiss, or their checks still to read its latest changes.
+ */
+export const heldByPatrol = (preview: Pick<PublishPreview, "findings" | "checking">) => {
+  const { findings, checking } = preview;
+  if (findings.length > 0) {
+    return new FindingsOpenError({
+      message:
+        `The draft has ${findings.length} open finding(s) to fix, or for a member to dismiss, ` +
+        `before publishing: ${findings.map(findingLine).join("; ")}`,
+    });
+  }
+  if (checking.length > 0) {
+    const roles = checking.map(({ role }) => role);
+    const who = roles.map((role) => `the ${role}`).join(" and ");
+    return new ChecksRunningError({
+      message: `${who[0]!.toUpperCase()}${who.slice(1)} ${roles.length > 1 ? "are" : "is"} still checking the draft: publishing waits for ${roles.length > 1 ? "them" : "it"}`,
+      checking: roles,
+    });
+  }
+  return null;
+};
 
 /**
  * Puts a draft with code in its publishing state, pinned to `revision`, and starts its publish
@@ -975,8 +1035,9 @@ function definitionsPublishStatements(db: ServiceContext["db"], scope: Scope): B
 export { camoxContext };
 
 /**
- * Publishes a catch-up draft once nothing is left to translate in it, as Camox (ADR 0017). It
- * stays open, like any other draft, while it has blockers or conflicts, for a member to review;
+ * Publishes a catch-up draft once nothing is left to translate in it and its patrollers checked
+ * it, as Camox (ADR 0017, ADR 0033). It stays open, like any other draft, while it has blockers,
+ * conflicts or open findings, for a member to review;
  * one left empty is dropped. A translation requested in it meanwhile stops publishing, and its
  * own settling publishes the draft later. Does nothing for any other draft.
  */
@@ -1000,8 +1061,11 @@ export const publishWhenTranslated = Effect.fn("drafts.publishWhenTranslated")(f
     }
     return;
   }
-  const preview = yield* computePreview(ctx, scope);
+  const { fingerprint, ...preview } = yield* computePreview(ctx, scope);
   if (preview.blockers.length > 0 || preview.conflicts.length > 0) return;
+  // Its patrollers' checks settling publishes it later; what they found waits for a member.
+  if (preview.checking.length > 0) return yield* requestStaleChecks(db, scope.id, fingerprint);
+  if (preview.findings.length > 0) return;
   const { applied } = yield* publishChecked(ctx, scope, {
     shown: [],
     publishedBy: CAMOX_ACTOR,

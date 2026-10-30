@@ -7,6 +7,7 @@ import {
   callSeedingLive,
   createProjectFixture,
   createRpcContext,
+  runAllChecks,
   syncDefinitionSet,
 } from "../../../test/fixtures";
 import { answerEvery, forgetScheduled, scheduled } from "../../../test/generation";
@@ -119,10 +120,13 @@ async function fixture() {
     const keyed = new Map(jobs.map((job) => [JSON.stringify({ ...job, delayMs: 0 }), job]));
     forgetScheduled(...jobs.map((job) => job.entityId));
     for (const job of keyed.values()) await runService(runAiJob(db, job));
+    // A catch-up draft is published once its checks ran too (ADR 0033).
+    await runAllChecks(db);
   };
   /** Publishes the draft `headers` name. */
   const publish = async (headers: Headers = inDraft) => {
     const { token } = await tool("previewPublish", {}, headers);
+    await runAllChecks(db);
     expect(await tool("publishDraft", { token }, headers)).toMatchObject({ published: true });
   };
   /** A new draft, created by its first request. */

@@ -14,6 +14,7 @@ import {
   callSeedingLive,
   createProjectFixture,
   createRpcContext,
+  runAllChecks,
   seedLive,
   syncDefinitionSet,
 } from "../../../test/fixtures";
@@ -155,6 +156,8 @@ async function fixture() {
     const jobs = translationJobs();
     forgetScheduled(...jobs.map((job) => job.entityId));
     for (const job of jobs) await runService(runAiJob(db, job));
+    // A catch-up draft is published once its checks ran too (ADR 0033).
+    await runAllChecks(db);
   };
   /** Runs the translation jobs scheduled so far into one locale, leaving the others pending. */
   const runTranslationsInto = async (locale: string) => {
@@ -170,6 +173,7 @@ async function fixture() {
   };
   const publish = async (headers: Headers) => {
     const { token } = await tool("previewPublish", {}, headers);
+    await runAllChecks(db);
     return tool("publishDraft", { token }, headers);
   };
 

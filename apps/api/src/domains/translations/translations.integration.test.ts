@@ -11,6 +11,7 @@ import {
   callSeedingLive,
   createProjectFixture,
   createRpcContext,
+  runAllChecks,
   syncDefinitionSet,
   type TestDefinitionSet,
 } from "../../../test/fixtures";
@@ -212,6 +213,8 @@ async function fixture() {
     const jobs = translationJobs();
     forgetScheduled(...jobs.map((job) => job.entityId));
     for (const job of jobs) await runService(runAiJob(db, job));
+    // A catch-up draft is published once its checks ran too (ADR 0033).
+    await runAllChecks(db);
   };
 
   return {
@@ -576,6 +579,7 @@ describe("a translation job", () => {
         // Publishing waits for the translations, so the jobs run again after it, as a retry does.
         await f.runTranslations();
         const { token } = await f.tool("previewPublish");
+        await runAllChecks(f.db);
         await f.tool("publishDraft", { token });
       } else {
         await call(router.drafts.delete, { projectId: f.projectId }, f.member(f.inDraft));
@@ -881,6 +885,7 @@ describe("hand edits to a localization", () => {
     await translatedDraft(f);
     await f.tool("editBlock", { id: f.block.id, content: { subtitle: "Handbuch" }, locale: "de" });
     const { token } = await f.tool("previewPublish");
+    await runAllChecks(f.db);
     await f.tool("publishDraft", { token });
 
     const later = { [DRAFT_HEADER]: generateUuidv7(), [DRAFT_CREATE_HEADER]: "1" };
@@ -904,6 +909,7 @@ describe("a localization's bookkeeping", () => {
       f.member({ ...f.inDraft, [LOCALE_HEADER]: "fr" }),
     );
     const { token } = await f.tool("previewPublish");
+    await runAllChecks(f.db);
     await f.tool("publishDraft", { token });
 
     // A draft changes a setting French changed by hand: French stays as it is.
@@ -922,6 +928,7 @@ describe("a localization's bookkeeping", () => {
       other,
     );
     const published = await f.tool("previewPublish", {}, other);
+    await runAllChecks(f.db);
     await f.tool("publishDraft", { token: published.token }, other);
 
     const preview = await f.tool("previewPublish", {}, { [DRAFT_HEADER]: draft });
@@ -961,6 +968,7 @@ describe("the review and the change count", () => {
   async function translatedLive(f: Awaited<ReturnType<typeof fixture>>) {
     await translatedDraft(f);
     const { token } = await f.tool("previewPublish");
+    await runAllChecks(f.db);
     await f.tool("publishDraft", { token });
     const draft = generateUuidv7();
     return {
@@ -1276,6 +1284,7 @@ describe("localization conflicts", () => {
   async function translatedLive(f: Awaited<ReturnType<typeof fixture>>) {
     await translatedDraft(f);
     const { token } = await f.tool("previewPublish");
+    await runAllChecks(f.db);
     await f.tool("publishDraft", { token });
   }
   const newDraft = (): Headers => ({
@@ -1284,6 +1293,7 @@ describe("localization conflicts", () => {
   });
   const publish = async (f: Awaited<ReturnType<typeof fixture>>, headers: Headers) => {
     const { token } = await f.tool("previewPublish", {}, headers);
+    await runAllChecks(f.db);
     return f.tool("publishDraft", { token }, headers);
   };
   const localesOf = (listed: { locale: string | null }[]) =>
@@ -1424,6 +1434,7 @@ describe("localization conflicts", () => {
     await f.tool("addLocale", { tag: "de" }, f.starting);
     await f.runTranslations();
     const { token } = await f.tool("previewPublish");
+    await runAllChecks(f.db);
     await f.tool("publishDraft", { token });
     forgetAllScheduled();
     translateWithDictionaries();
@@ -1584,6 +1595,7 @@ describe("the order of blocks and items in a localization", () => {
     const { f, ids } = await threeBlocks();
     const [first, second, third] = ids;
     const { token } = await f.tool("previewPublish");
+    await runAllChecks(f.db);
     await f.tool("publishDraft", { token });
     const later = { [DRAFT_HEADER]: generateUuidv7() };
     const blocksInLater = async (locale?: string) =>

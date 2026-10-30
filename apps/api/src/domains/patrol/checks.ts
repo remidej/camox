@@ -124,19 +124,28 @@ const checkedFingerprints = Effect.fn("patrol.checkedFingerprints")(function* (
 });
 
 /**
- * Requests right away the at-publish checks that last read other changes than the draft's now,
- * `fingerprint`, or never checked it: someone is reviewing it.
+ * The at-publish checks that last read other changes than the draft's now, `fingerprint`, or
+ * never checked it: stale, or still running. Publishing waits for them (ADR 0033).
  */
-export const requestStaleChecks = Effect.fn("patrol.requestStaleChecks")(function* (
+export const staleChecks = Effect.fn("patrol.staleChecks")(function* (
   db: Database,
   draftId: string,
   fingerprint: string | null,
 ) {
   const checked = yield* checkedFingerprints(db, draftId);
-  const stale = checkingAtPublish.filter((patroller) => {
+  return checkingAtPublish.filter((patroller) => {
     const last = checked.get(patroller.id);
     return last === undefined || last !== fingerprint;
   });
+});
+
+/** Requests right away the draft's stale at-publish checks: someone is reviewing it. */
+export const requestStaleChecks = Effect.fn("patrol.requestStaleChecks")(function* (
+  db: Database,
+  draftId: string,
+  fingerprint: string | null,
+) {
+  const stale = yield* staleChecks(db, draftId, fingerprint);
   if (stale.length === 0) return;
   const draft = yield* draftById(db, draftId);
   if (!draft) return;

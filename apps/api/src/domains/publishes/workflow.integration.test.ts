@@ -13,7 +13,7 @@ import { env, exports } from "cloudflare:workers";
 import { and, eq, isNull } from "drizzle-orm";
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 
-import { callSeedingLive, createRpcContext, startDraft } from "../../../test/fixtures";
+import { callSeedingLive, createRpcContext, runChecks, startDraft } from "../../../test/fixtures";
 import { watchScheduling } from "../../../test/generation";
 import { sentTo } from "../../../test/project-rooms";
 import { deliverPushes, pushToMain } from "../../../test/pushes";
@@ -202,8 +202,12 @@ async function previewOf(website: Website, draftId: string) {
 
 type Preview = Awaited<ReturnType<typeof previewOf>>;
 
-/** Publishes the draft as its review showed it, the way the studio's Publish does. */
+/**
+ * Publishes the draft as its review showed it, the way the studio's Publish does, once the checks
+ * its review requested ran.
+ */
 async function publish(website: Website, draftId: string, preview: Preview) {
+  await runChecks(website.db, draftId);
   return call(
     router.drafts.publish,
     {

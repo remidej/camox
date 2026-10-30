@@ -1,5 +1,8 @@
+import { Effect } from "effect";
+
 import type { Database } from "../db";
 import { runOverviewJob } from "../domains/drafts/overview-job";
+import { publishWhenTranslated } from "../domains/drafts/publish";
 import { runGenerationJob } from "../domains/generated-values/generation";
 import { runCheckJob } from "../domains/patrol/checks";
 import { runTranslationJob } from "../domains/translations/job";
@@ -11,6 +14,9 @@ import { type AiJob, isCheckJob, isOverviewJob, isTranslationJob } from "./ai-jo
  */
 export const runAiJob = (db: Database, job: AiJob) => {
   if (isOverviewJob(job)) return runOverviewJob(db, job);
-  if (isCheckJob(job)) return runCheckJob(db, job);
+  // A catch-up draft Camox publishes once its checks settled too (ADR 0033).
+  if (isCheckJob(job)) {
+    return runCheckJob(db, job).pipe(Effect.andThen(publishWhenTranslated(db, job.draftId)));
+  }
   return isTranslationJob(job) ? runTranslationJob(db, job) : runGenerationJob(db, job);
 };

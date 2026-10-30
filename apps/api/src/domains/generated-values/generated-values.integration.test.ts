@@ -5,9 +5,10 @@ import { inArray, isNull, and, eq } from "drizzle-orm";
 import { describe, expect, it } from "vite-plus/test";
 
 import {
+  callSeedingLive,
   createProjectFixture,
   createRpcContext,
-  callSeedingLive,
+  reviewed,
   syncDefinitionSet,
 } from "../../../test/fixtures";
 import { answerNext, forgetScheduled, modelCalls, scheduledFor } from "../../../test/generation";
@@ -95,7 +96,7 @@ async function fixture() {
   const publish = async (draftId: string) =>
     call(
       router.drafts.publish,
-      { projectId, token: (await preview(draftId)).token },
+      { projectId, token: (await reviewed(base.db, draftId, preview(draftId))).token },
       member(inDraft(draftId)),
     );
 

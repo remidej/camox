@@ -9,6 +9,7 @@ import {
   callSeedingLive,
   createProjectFixture,
   createRpcContext,
+  reviewed,
   seedLive,
   startDraft,
   syncDefinitionSet,
@@ -76,7 +77,11 @@ async function website() {
   const inDraft = (draftId: string) => asMember({ [DRAFT_HEADER]: draftId });
   const publish = async (draftId: string) => {
     const input = { projectId: project.id };
-    const { token } = await call(router.drafts.previewPublish, input, inDraft(draftId));
+    const { token } = await reviewed(
+      db,
+      draftId,
+      call(router.drafts.previewPublish, input, inDraft(draftId)),
+    );
     await call(router.drafts.publish, { ...input, token }, inDraft(draftId));
   };
   const deleteDraft = (draftId: string) =>

@@ -5,7 +5,7 @@ import { abortAllDurableObjects } from "cloudflare:test";
 import { env } from "cloudflare:workers";
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 
-import { addMember, createRpcContext, startDraft } from "../../../test/fixtures";
+import { addMember, createRpcContext, reviewed, startDraft } from "../../../test/fixtures";
 import {
   answerFrom,
   answerNext,
@@ -75,10 +75,10 @@ const inDraft = ({ db, memberUser }: Website, draft: string) => ({
 
 async function publish(website: Website, draft: string) {
   const projectId = website.project.id;
-  const { token } = await call(
-    router.drafts.previewPublish,
-    { projectId },
-    inDraft(website, draft),
+  const { token } = await reviewed(
+    website.db,
+    draft,
+    call(router.drafts.previewPublish, { projectId }, inDraft(website, draft)),
   );
   return call(router.drafts.publish, { projectId, token }, inDraft(website, draft));
 }

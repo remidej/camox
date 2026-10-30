@@ -9,6 +9,8 @@ import {
   callSeedingLive,
   createProjectFixture,
   createRpcContext,
+  reviewed,
+  runAllChecks,
   seedLive,
   syncDefinitionSet,
 } from "../../../test/fixtures";
@@ -322,14 +324,18 @@ describe("drafts and Live", () => {
   });
 
   it("doesn't hand a draft's reports to Live when it's published", async () => {
-    const { projectId, member, createPage, writeSeo, seoManager } = await fixture();
+    const { db, projectId, member, createPage, writeSeo, seoManager } = await fixture();
     const draftId = generateUuidv7();
     const inDraft = { [DRAFT_HEADER]: draftId, [DRAFT_CREATE_HEADER]: "1" };
     const about = await createPage("About", inDraft);
     await writeSeo(about.id, { draftId });
     expect((await seoManager(inDraft)).reports).toHaveLength(1);
 
-    const { token } = await call(router.drafts.previewPublish, { projectId }, member(inDraft));
+    const { token } = await reviewed(
+      db,
+      draftId,
+      call(router.drafts.previewPublish, { projectId }, member(inDraft)),
+    );
     await call(router.drafts.publish, { projectId, token }, member(inDraft));
 
     expect((await seoManager({})).reports).toEqual([]);
@@ -510,10 +516,10 @@ describe("a patroller at work", () => {
     await runTranslations(f);
   };
   const publish = async (f: Fixture, headers: Headers) => {
-    const { token } = await call(
-      router.drafts.previewPublish,
-      { projectId: f.projectId },
-      f.member(headers),
+    const { token } = await reviewed(
+      f.db,
+      headers[DRAFT_HEADER]!,
+      call(router.drafts.previewPublish, { projectId: f.projectId }, f.member(headers)),
     );
     await call(router.drafts.publish, { projectId: f.projectId, token }, f.member(headers));
   };
@@ -704,8 +710,10 @@ describe("a patroller at work", () => {
     await catchingUp(f);
 
     expect(await onLive()).toMatchObject({ translator: "asYouGo", seoManager: "asYouGo" });
-    // Once its translations settle, the catch-up draft is published, and they're off again.
+    // Once its translations settle and its checks ran, the catch-up draft is published, and
+    // they're off again.
     await runTranslations(f);
+    await runAllChecks(f.db);
     expect(await onLive()).toMatchObject({ translator: "off", seoManager: "off" });
   });
 
