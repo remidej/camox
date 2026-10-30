@@ -116,6 +116,9 @@ export const findings = sqliteTable(
     about: text({ mode: "json" }).notNull().$type<FindingAbout>(),
     fix: text({ mode: "json" }).$type<FindingFix>(),
     raisedAt: int("raised_at").notNull(),
+    // When Camox handed a Live finding to the Patrol Draft's agent, and told members of it. Null
+    // until its thread took it, and in drafts.
+    handedAt: int("handed_at"),
   },
   (table) => [
     uniqueIndex("findings_live_idx")

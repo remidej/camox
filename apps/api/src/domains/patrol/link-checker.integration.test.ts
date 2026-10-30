@@ -1,6 +1,7 @@
 import { DRAFT_CREATE_HEADER, DRAFT_HEADER } from "@camox/api-contract/drafts";
 import { generateUuidv7, PAGE_TEXT_LINK_PREFIX } from "@camox/api-contract/ids";
 import type { FindingView, PatrollerView } from "@camox/api-contract/patrol";
+import { queryKeys } from "@camox/api-contract/query-keys";
 import { call } from "@orpc/server";
 import { describe, expect, it } from "vite-plus/test";
 
@@ -12,6 +13,7 @@ import {
 } from "../../../test/fixtures";
 import { forgetScheduledChecks, scheduledChecks } from "../../../test/generation";
 import { answerLink, linkFetches, outsideUrl } from "../../../test/link-fetches";
+import { forgetSent, refreshes, sentTo } from "../../../test/project-rooms";
 import { runAiJob } from "../../lib/ai-jobs";
 import { runService } from "../../lib/run-service";
 import { router } from "../../router";
@@ -82,6 +84,10 @@ const richText = (before: string, url: string, label: string) =>
 /** The Link checker's checks scheduled for a draft. */
 const linkChecks = (draftId: string) =>
   scheduledChecks(draftId).filter((job) => job.patroller === "linkChecker");
+
+/** Whether the Link checker's check of a draft runs within `ms` of it being requested. */
+const linkCheckRunsWithin = (draftId: string, ms: number) =>
+  linkChecks(draftId).some((job) => job.delayMs <= ms);
 
 const pageUrl = (pageId: string) => `${PAGE_TEXT_LINK_PREFIX}${pageId}`;
 
@@ -268,12 +274,13 @@ describe("the Link checker when the review opens", () => {
     await f.createFooter(home.id, { link: { type: "page", text: "About", pageId: about.id } });
     const draft = generateUuidv7();
     await f.deletePage(about.id, startingDraft(draft));
-    // The draft's last edit is too recent for the check that waits for it to be idle.
-    expect(linkChecks(draft).map((job) => job.delayMs)).toEqual([CHECK_IDLE_MS]);
+    // The check waits for the draft to be idle: it doesn't run as the editor edits.
+    expect(linkCheckRunsWithin(draft, 0)).toBe(false);
+    expect(linkCheckRunsWithin(draft, CHECK_IDLE_MS)).toBe(true);
     forgetScheduledChecks(draft);
 
     await f.preview(draft);
-    expect(linkChecks(draft).map((job) => job.delayMs)).toEqual([0]);
+    expect(linkCheckRunsWithin(draft, 0)).toBe(true);
     await f.idle(draft);
     expect((await f.findings(inDraft(draft))).map((finding) => finding.field)).toEqual(["link"]);
 
@@ -363,7 +370,11 @@ describe("applying a Link checker's fix", () => {
     expect((await f.getBlock(footer.id, inDraft(draft))).content.link).toMatchObject(link);
     await f.idle(draft);
     expect((await f.findings(inDraft(draft))).map((finding) => finding.field)).toEqual(["body"]);
-    expect((await f.linkChecker(inDraft(draft))).reports).toEqual([]);
+    // The edit led the link to another page, which reports it fixed: the fix removed nothing.
+    const reports = (await f.linkChecker(inDraft(draft))).reports;
+    expect(reports.map(({ summary }) => summary.kind === "structured" && summary.verb)).toEqual([
+      "fixedLink",
+    ]);
   });
 });
 
@@ -428,7 +439,9 @@ describe("the Link checker's checks of links outside the website, in a draft", (
 
     await f.idle(draft);
     expect(await f.findings(inDraft(draft))).toEqual([]);
-    expect(scheduledChecks(draft).map((job) => job.delayMs)).toEqual([LINK_RECHECK_MS]);
+    // The second check follows shortly after, before the draft would count as idle again.
+    expect(linkCheckRunsWithin(draft, 0)).toBe(false);
+    expect(linkCheckRunsWithin(draft, LINK_RECHECK_MS)).toBe(true);
 
     await f.idle(draft);
     expect((await f.findings(inDraft(draft))).map(broken)).toEqual([
@@ -438,6 +451,41 @@ describe("the Link checker's checks of links outside the website, in a draft", (
         about: { kind: "brokenLink", url, text: "Visit", failure: { kind: "status", status: 404 } },
         fix: null,
       },
+    ]);
+  });
+
+  it("reports a broken link fixed once the draft leads it elsewhere", async () => {
+    const f = await fixture();
+    const home = await f.createPage("");
+    const url = outsideUrl("moved");
+    await answerLink(url, { status: 404 });
+    const draft = generateUuidv7();
+    const footer = await f.createFooter(
+      home.id,
+      { link: external(url, "Partners") },
+      startingDraft(draft),
+    );
+    await f.idle(draft);
+    await f.idle(draft);
+    expect(await f.findings(inDraft(draft))).toHaveLength(1);
+
+    await f.editFooter(
+      footer.id,
+      { link: external(outsideUrl("new-home"), "Partners") },
+      inDraft(draft),
+    );
+
+    const linkChecker = await f.linkChecker(inDraft(draft));
+    expect(linkChecker.reports.map(({ summary, outcome }) => [outcome, summary])).toEqual([
+      [
+        "done",
+        {
+          kind: "structured",
+          verb: "fixedLink",
+          subject: expect.objectContaining({ entity: "block", id: footer.id }),
+          locale: "en",
+        },
+      ],
     ]);
   });
 
@@ -593,5 +641,63 @@ describe("dismissing a broken link", () => {
         failure: { kind: "status", status: 403 },
       },
     ]);
+  });
+});
+
+describe("when the Link checker last checked", () => {
+  /** A short wait, so that times written after it are later. */
+  const tick = () => new Promise((resolve) => setTimeout(resolve, 5));
+
+  it("keeps the time it last finished a check of a draft, having found nothing", async () => {
+    const f = await fixture();
+    const home = await f.createPage("");
+    const draft = generateUuidv7();
+    await f.createFooter(home.id, { body: "Hello" }, startingDraft(draft));
+    const before = Date.now();
+
+    await f.idle(draft);
+
+    const linkChecker = await f.linkChecker(inDraft(draft));
+    expect(linkChecker.findings).toEqual([]);
+    expect(linkChecker.reports).toEqual([]);
+    expect(linkChecker.lastCheckedAt).toBeGreaterThanOrEqual(before);
+    expect(linkChecker.lastActivityAt).toBe(linkChecker.lastCheckedAt);
+    // Live wasn't checked.
+    expect((await f.linkChecker({})).lastCheckedAt).toBeNull();
+  });
+
+  it("says it last worked when it last checked or reported, whichever is later", async () => {
+    const f = await fixture();
+    const { draft, inField } = await f.aboutDeleted();
+    const checked = (await f.linkChecker(inDraft(draft))).lastCheckedAt!;
+    await tick();
+
+    await f.apply(inField("link").id, inDraft(draft));
+
+    const fixed = await f.linkChecker(inDraft(draft));
+    expect(fixed.reports[0]!.at).toBeGreaterThan(checked);
+    expect(fixed.lastActivityAt).toBe(fixed.reports[0]!.at);
+    await tick();
+
+    // Applying the fix wrote the footer, which checks the draft again.
+    await f.idle(draft);
+
+    const rechecked = await f.linkChecker(inDraft(draft));
+    expect(rechecked.lastCheckedAt).toBeGreaterThan(fixed.reports[0]!.at);
+    expect(rechecked.lastActivityAt).toBe(rechecked.lastCheckedAt);
+  });
+
+  it("refreshes the Patrol of the draft it checked", async () => {
+    const f = await fixture();
+    const home = await f.createPage("");
+    const draft = generateUuidv7();
+    await f.createFooter(home.id, { body: "Hello" }, startingDraft(draft));
+    forgetSent(f.projectId);
+
+    await f.idle(draft);
+
+    expect(refreshes(sentTo(f.projectId), draft, [...queryKeys.patrol.get, f.projectId])).toBe(
+      true,
+    );
   });
 });

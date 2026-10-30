@@ -42,7 +42,8 @@ const withoutCanvasPlace = ({ fieldKind: _fieldKind, blockId: _blockId, ...probl
 const withoutStudioActions = ({ overview: _overview, ...preview }: PublishPreview) => ({
   ...preview,
   findings: preview.findings.map(
-    ({ place: _place, raisedAt: _raisedAt, live: _live, ...finding }) => finding,
+    ({ place: _place, raisedAt: _raisedAt, live: _live, patroller: _patroller, ...finding }) =>
+      finding,
   ),
   blockers: preview.blockers.map(withoutCanvasPlace),
   warnings: preview.warnings.map(withoutCanvasPlace),

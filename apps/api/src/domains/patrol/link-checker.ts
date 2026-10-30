@@ -4,14 +4,10 @@ import { and, eq, inArray } from "drizzle-orm";
 import { Effect } from "effect";
 
 import type { Database } from "../../db";
+import { readInChunks } from "../content/chunks";
 import { camoxContext } from "../drafts/camox-context";
-import {
-  changedLinks,
-  type LinkInContent,
-  liveLinks,
-  missingPageLinks,
-} from "../drafts/content-checks";
 import type { Draft } from "../drafts/scope";
+import { changedLinks, type LinkInContent, liveLinks, missingPageLinks } from "./content";
 import { dismissedIdentities, type RaisedFinding } from "./findings";
 import type { Checker, LivePatrol } from "./patrollers";
 import { linkChecks } from "./schema";
@@ -37,9 +33,6 @@ const MAX_REDIRECTS = 5;
 
 /** How many urls are fetched at once. */
 const CONCURRENT_FETCHES = 6;
-
-// D1 binds at most 100 parameters per statement.
-const CHUNK = 90;
 
 /** Checks in a row a link fails before it's raised. */
 const FAILURES_TO_RAISE = 2;
@@ -100,21 +93,15 @@ const checkUrls = Effect.fn("patrol.checkUrls")(function* (
   /** How long a check holds before the url is fetched again. */
   cacheMs: number,
 ) {
-  const last = new Map<string, typeof linkChecks.$inferSelect>();
-  for (let start = 0; start < urls.length; start += CHUNK) {
-    const rows = yield* Effect.promise(() =>
+  const rows = yield* readInChunks(urls, (chunk) =>
+    Effect.promise(() =>
       db
         .select()
         .from(linkChecks)
-        .where(
-          and(
-            eq(linkChecks.projectId, projectId),
-            inArray(linkChecks.url, urls.slice(start, start + CHUNK)),
-          ),
-        ),
-    );
-    for (const row of rows) last.set(row.url, row);
-  }
+        .where(and(eq(linkChecks.projectId, projectId), inArray(linkChecks.url, chunk))),
+    ),
+  );
+  const last = new Map(rows.map((row) => [row.url, row]));
   const now = Date.now();
   const checks = new Map<string, UrlCheck>();
   yield* Effect.forEach(
@@ -156,7 +143,7 @@ const brokenAmong = Effect.fn("patrol.brokenAmong")(function* (
   links: readonly LinkInContent[],
   cacheMs: number,
 ) {
-  const dismissed = yield* dismissedIdentities(db, projectId, { id: "linkChecker" });
+  const dismissed = yield* dismissedIdentities(db, projectId, "linkChecker");
   const fetched = links.flatMap((found) => {
     const url = fetchableUrl(found.link.url);
     return url === undefined || dismissed.has(found.link.url) ? [] : [{ ...found, url }];

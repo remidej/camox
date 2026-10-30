@@ -206,7 +206,7 @@ describe("publishing a draft with an open finding", () => {
 
     await expect(refused).rejects.toMatchObject({ code: FINDINGS_OPEN_ERROR });
     await expect(refused).rejects.toThrow(
-      /“About” in footer links to about, which no longer exists/,
+      /“About” in footer links to about, a page that no longer exists/,
     );
     expect(await f.aboutOnLive()).toBe(true);
   });

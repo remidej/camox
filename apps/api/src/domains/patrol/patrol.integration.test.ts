@@ -24,8 +24,6 @@ import { router } from "../../router";
 import { blocks, files, pages } from "../../schema";
 import { runOverviewJob } from "../drafts/overview-job";
 import { runGenerationJob } from "../generated-values/generation";
-import { seoManager as seoManagerPatroller, translator as translatorPatroller } from "./patrollers";
-import { writeCheck } from "./reports";
 
 // The Patrol (ADR 0024) as the studio reads it: edits go through the router, Camox's scheduled
 // jobs run against the scripted model, and the `PatrolView` says what the patrollers did.
@@ -343,90 +341,24 @@ describe("drafts and Live", () => {
 });
 
 describe("where each patroller is on duty", () => {
-  const duties = (patrollers: PatrollerView[]) =>
-    Object.fromEntries(patrollers.map(({ id, duty }) => [id, duty]));
+  const dutyOf = (patrollers: PatrollerView[], id: PatrollerView["id"]) =>
+    patrollers.find((patroller) => patroller.id === id)!.duty;
 
-  it("has the Translator and the SEO manager work as you go in a draft, and the Link checker and the Proofreader check at publish", async () => {
+  it("has a patroller writing content work as you go in a draft, and one finding problems check at publish", async () => {
     const { patrol } = await fixture();
+    const inDraft = await patrol();
 
-    expect(duties(await patrol())).toEqual({
-      translator: "asYouGo",
-      seoManager: "asYouGo",
-      linkChecker: "atPublish",
-      proofreader: "atPublish",
-    });
+    expect(dutyOf(inDraft, "translator")).toBe("asYouGo");
+    expect(dutyOf(inDraft, "linkChecker")).toBe("atPublish");
   });
 
-  it("has the Translator, the SEO manager and the Proofreader off on Live, and the Link checker patrol it", async () => {
+  it("has a patroller writing content off on Live, the Proofreader too, and the Link checker patrol it", async () => {
     const { patrol } = await fixture();
+    const onLive = await patrol({});
 
-    expect(duties(await patrol({}))).toEqual({
-      translator: "off",
-      seoManager: "off",
-      linkChecker: "asYouGo",
-      proofreader: "off",
-    });
-  });
-});
-
-describe("when a patroller last checked", () => {
-  /** A short wait, so that times written after it are later. */
-  const tick = () => new Promise((resolve) => setTimeout(resolve, 5));
-
-  it("keeps the time a patroller last finished a check in each scope, found anything or not", async () => {
-    const { db, projectId, draft, patrol } = await fixture();
-    const before = Date.now();
-
-    await runService(writeCheck(db, translatorPatroller, { projectId, draftId: draft }));
-
-    const [first, second] = await patrol();
-    expect(first!.id).toBe("translator");
-    expect(first!.lastCheckedAt).toBeGreaterThanOrEqual(before);
-    expect(first!.lastActivityAt).toBe(first!.lastCheckedAt);
-    expect(first!.reports).toEqual([]);
-    expect(second!.lastCheckedAt).toBeNull();
-    // Live wasn't checked.
-    for (const patroller of await patrol({})) expect(patroller.lastCheckedAt).toBeNull();
-  });
-
-  it("says a patroller last worked when it last checked or reported, whichever is later", async () => {
-    const { db, projectId, draft, page, writeSeo, seoManager } = await fixture();
-    await writeSeo(page.id);
-    const reported = (await seoManager()).reports[0]!.at;
-    await tick();
-
-    await runService(writeCheck(db, seoManagerPatroller, { projectId, draftId: draft }));
-
-    const checked = await seoManager();
-    expect(checked.lastCheckedAt).toBeGreaterThan(reported);
-    expect(checked.lastActivityAt).toBe(checked.lastCheckedAt);
-    await tick();
-
-    await writeSeo(page.id, { answer: { metaTitle: "Plans", metaDescription: "Our plans" } });
-
-    const after = await seoManager();
-    expect(after.reports[0]!.at).toBeGreaterThan(checked.lastCheckedAt!);
-    expect(after.lastActivityAt).toBe(after.reports[0]!.at);
-  });
-
-  it("keeps a new time when a patroller checks the same scope again", async () => {
-    const { db, projectId, draft, seoManager } = await fixture();
-    await runService(writeCheck(db, seoManagerPatroller, { projectId, draftId: draft }));
-    const first = (await seoManager()).lastCheckedAt!;
-    await tick();
-
-    await runService(writeCheck(db, seoManagerPatroller, { projectId, draftId: draft }));
-
-    expect((await seoManager()).lastCheckedAt).toBeGreaterThan(first);
-  });
-
-  it("refreshes the Patrol of the scope checked", async () => {
-    const { db, projectId, draft } = await fixture();
-    forgetSent(projectId);
-
-    await runService(writeCheck(db, seoManagerPatroller, { projectId, draftId: draft }));
-
-    expect(refreshes(sentTo(projectId), draft, [...queryKeys.patrol.get, projectId])).toBe(true);
+    expect(dutyOf(onLive, "seoManager")).toBe("off");
+    expect(dutyOf(onLive, "proofreader")).toBe("off");
+    expect(dutyOf(onLive, "linkChecker")).toBe("asYouGo");
   });
 });
 

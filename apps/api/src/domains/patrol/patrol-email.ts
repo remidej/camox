@@ -1,5 +1,5 @@
 import { DRAFT_SEARCH_PARAM } from "@camox/api-contract/drafts";
-import type { FindingView } from "@camox/api-contract/patrol";
+import { findingSentence } from "@camox/api-contract/patrol";
 import { projectWebsiteUrl } from "@camox/api-contract/projects";
 import { and, eq, isNull } from "drizzle-orm";
 import { Effect } from "effect";
@@ -8,13 +8,13 @@ import type { Database } from "../../db";
 import { escapeHtml, sendEmail } from "../../lib/email";
 import type { Bindings } from "../../types";
 import { member, user } from "../auth/schema";
-import { findingLine } from "../drafts/publish";
 import { projects } from "../projects/schema";
-import type { Patroller } from "./patrollers";
+import { byPatroller, type LiveFinding, newProblems } from "./patrol-draft";
 import { patrolEmailUnsubscribes } from "./schema";
 
-// The email about Live's new findings (ADR 0034): each Live run that raised new findings tells
-// every member of the project, once, what they are and where the Patrol Draft fixing them is.
+// The email about Live's new findings (ADR 0034): each Live run that handed new findings to the
+// Patrol Draft tells every member of the project, once, what they are, how many the agent left
+// for them once its turn on them ended, and where the Patrol Draft is.
 // Each email carries a link that unsubscribes its member from the project's emails, signed by
 // the API so no one else can unsubscribe them.
 
@@ -83,34 +83,49 @@ export async function unsubscribe(db: Database, { projectId, userId }: Unsubscri
     .onConflictDoNothing();
 }
 
-/** What the email says of the findings left for a person: those without a fix to apply. */
-const whatsLeft = (found: readonly FindingView[]) => {
-  const left = found.filter((finding) => finding.fix === null).length;
-  if (left === 0) {
-    return "Camox's agent is fixing them in the Patrol Draft: review its changes there, and publish them.";
-  }
-  return (
-    `Camox's agent is fixing what it can in the Patrol Draft. ` +
-    `${left} ${left === 1 ? "needs" : "need"} you: it asks about ${left === 1 ? "it" : "them"} in the draft's thread.`
-  );
+/** Some findings, as a sentence names them, by how many there are: "it", or "them". */
+const them = (count: number) => (count === 1 ? "it" : "them");
+
+/**
+ * What the email says of the findings the agent left for a person, `left` of `total`: those it
+ * didn't fix in the Patrol Draft once its turn on them ended, or null while it's still working.
+ */
+const whatsLeft = (left: number | null, total: number) => {
+  const review = "review its changes there, and publish them.";
+  if (left === null)
+    return `Camox's agent is working on ${them(total)} in the Patrol Draft: ${review}`;
+  if (left === 0) return `Camox's agent fixed ${them(total)} in the Patrol Draft: ${review}`;
+  const needs = `${left} ${left === 1 ? "needs" : "need"} you: see what the agent asks in the draft's thread.`;
+  if (left === total)
+    return `Camox's agent couldn't fix ${them(total)} in the Patrol Draft. ${needs}`;
+  return `Camox's agent fixed ${total - left} in the Patrol Draft. ${needs}`;
+};
+
+/** The patrollers who found something, as a sentence starts with them: "The Link checker". */
+const finders = (found: readonly LiveFinding[]) => {
+  const roles = byPatroller(found).map(({ patroller }) => `the ${patroller.role}`);
+  const named =
+    roles.length > 1 ? `${roles.slice(0, -1).join(", ")} and ${roles.at(-1)}` : roles[0]!;
+  return `${named[0]!.toUpperCase()}${named.slice(1)}`;
 };
 
 /**
- * Emails every member of the project, but those who unsubscribed, about the findings a
- * patroller's Live run raised that are new, and the Patrol Draft fixing them. A send that fails
- * is logged, not retried: the findings are in the Patrol Draft all the same.
+ * Emails every member of the project, but those who unsubscribed, once about the findings a Live
+ * run handed to the Patrol Draft, whichever patrollers found them, and how many the agent left
+ * for a person (`left`, null when not known yet). A send that fails is logged, not retried: the
+ * findings are in the Patrol Draft all the same.
  */
 export const emailNewFindings = Effect.fn("patrol.emailNewFindings")(function* (
   db: Database,
   env: Bindings,
   params: {
-    patroller: Patroller;
     projectId: number;
     draftId: string;
-    found: readonly FindingView[];
+    found: readonly LiveFinding[];
+    left: number | null;
   },
 ) {
-  const { patroller, projectId, draftId, found } = params;
+  const { projectId, draftId, found, left: leftCount } = params;
   const project = yield* Effect.promise(() =>
     db
       .select({
@@ -147,11 +162,11 @@ export const emailNewFindings = Effect.fn("patrol.emailNewFindings")(function* (
 
   const studioLink = new URL("/", projectWebsiteUrl(project));
   studioLink.searchParams.set(DRAFT_SEARCH_PARAM, draftId);
-  const problems = found.length === 1 ? "a new problem" : `${found.length} new problems`;
-  const subject = `The ${patroller.role} found ${problems} on ${project.name}`;
-  const intro = `The ${patroller.role} found ${problems} on ${project.name}'s website:`;
-  const lines = found.map((finding) => `${findingLine(finding)}.`);
-  const left = whatsLeft(found);
+  const problems = newProblems(found.length);
+  const subject = `${finders(found)} found ${problems} on ${project.name}`;
+  const intro = `${finders(found)} found ${problems} on ${project.name}'s website:`;
+  const lines = found.map((finding) => `${findingSentence(finding)}.`);
+  const left = whatsLeft(leftCount, found.length);
   const action = { label: "Open the Patrol Draft", url: studioLink.href };
 
   yield* Effect.forEach(

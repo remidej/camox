@@ -23,6 +23,7 @@ const PHRASES: Record<ReportVerb, Phrase> = {
     failed: "Couldn't publish the caught-up translations",
   },
   removedLink: { done: "Removed a link in", failed: "Couldn't remove a link in", locale: "in" },
+  fixedLink: { done: "Fixed a link in", failed: "Couldn't fix a link in", locale: "in" },
   fixedMistake: { done: "Fixed a typo in", failed: "Couldn't fix a typo in", locale: "in" },
 };
 

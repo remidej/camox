@@ -1,12 +1,13 @@
 import { DRAFT_SEARCH_PARAM } from "@camox/api-contract/drafts";
 import { localizedPath } from "@camox/api-contract/locales";
+import { findingSentence } from "@camox/api-contract/patrol";
 import { projectWebsiteUrl } from "@camox/api-contract/projects";
 import type { CallToolResult } from "@modelcontextprotocol/server";
 import { Effect } from "effect";
 
 import { runService } from "../../lib/run-service";
 import type { ServiceContext } from "../_shared/service-context";
-import { computePreview, findingLine, requireDraft } from "../drafts/publish";
+import { computePreview, requireDraft } from "../drafts/publish";
 import { findEndedDraft } from "../drafts/service";
 import type { TurnOutcome, TurnPage } from "../threads/turn-end";
 import type { MemberProject } from "./member";
@@ -115,7 +116,7 @@ export async function holdsOf(ctx: ServiceContext, projectId: number) {
       problem: message,
       ...(owner?.kind === "page" && { page: owner.path }),
     })),
-    findings: findings.map((finding) => ({ finding: findingLine(finding) })),
+    findings: findings.map((finding) => ({ finding: findingSentence(finding) })),
     checking: checking.map(({ role }) => role),
   };
 }

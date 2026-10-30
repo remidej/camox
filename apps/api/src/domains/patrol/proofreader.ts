@@ -1,25 +1,26 @@
 import type { FindingAbout } from "@camox/api-contract/patrol";
-import { and, eq, inArray, isNotNull, isNull, lte, or, sql } from "drizzle-orm";
+import { and, eq, inArray, isNotNull, isNull, lte, or } from "drizzle-orm";
 import { Effect } from "effect";
 
 import type { Database } from "../../db";
-import { AiJobQueue, jobName, type PatrolJob } from "../../lib/ai-job-queue";
+import type { PatrolJob } from "../../lib/ai-job-queue";
 import { AiModel, type ProofreadText } from "../../lib/ai-model";
 import { attributedToCamox } from "../../lib/ai-usage";
-import { Background } from "../../lib/background";
 import { Journal } from "../../lib/journal";
+import { scheduleInBackground } from "../../lib/schedule-in-background";
 import { camoxContext } from "../drafts/camox-context";
-import { type Holder, holdersOf, liveHoldersOf, liveLocaleTags } from "../drafts/content-checks";
+import type { Holder } from "../drafts/content-checks";
 import * as overlay from "../drafts/overlay";
 import { type Draft, draftOf, inLocale } from "../drafts/scope";
 import { defaultLocaleTag } from "../locales/default-locale";
 import { readBookkeeping, readStoredBookkeeping, valuesOf } from "../translations/bookkeeping";
 import { sameValue } from "../translations/merge";
 import { listedChanges } from "../translations/review";
-import { type MergeUnit, mergeUnitsOf, textsOf, type UnitTexts } from "../translations/texts";
+import { type MergeUnit, mergeUnitsOf, textsOf } from "../translations/texts";
+import { fieldOfKey, findSentence, holds, type TextAbout } from "./about";
+import { holdersOf, liveHoldersOf, liveLocaleTags } from "./content";
 import {
   type CheckedSubject,
-  type FindingScope,
   isCheckedEntity,
   type RaisedFinding,
   resolveFinding,
@@ -27,6 +28,7 @@ import {
 import type { CheckRequest, Checker, LivePatrol } from "./patrollers";
 import { writeInScope } from "./reports";
 import { findings, patrolChecks, proofreadingRequests } from "./schema";
+import { conflictInScope, inWorkScope, type WorkScope } from "./scopes";
 import type { PendingWorkOf } from "./working";
 
 // The Proofreader (ADR 0034): it reads the text people wrote in what a draft changed since its
@@ -58,7 +60,7 @@ export const requestProofreading = Effect.fn("proofreader.request")(function* (
  */
 const recordRequests = Effect.fn("proofreader.recordRequests")(function* (
   db: Database,
-  scope: FindingScope,
+  scope: WorkScope,
   asked: readonly CheckedSubject[],
 ) {
   // A unit of work writing a subject twice requests it once.
@@ -80,16 +82,7 @@ const recordRequests = Effect.fn("proofreader.recordRequests")(function* (
     proofreadingRequests.entityId,
     proofreadingRequests.locale,
   ];
-  const conflict =
-    scope.draftId === null
-      ? {
-          target: [proofreadingRequests.projectId, ...key],
-          targetWhere: sql`${proofreadingRequests.draftId} is null`,
-        }
-      : {
-          target: [proofreadingRequests.draftId, ...key],
-          targetWhere: sql`${proofreadingRequests.draftId} is not null`,
-        };
+  const conflict = conflictInScope(proofreadingRequests, scope.draftId, key);
   const write = async () => {
     for (let start = 0; start < rows.length; start += ROWS_PER_INSERT) {
       await db
@@ -102,15 +95,6 @@ const recordRequests = Effect.fn("proofreader.recordRequests")(function* (
     Effect.catch((error) => Effect.logWarning("[proofreader] request not recorded", error)),
   );
 });
-
-/** A scope's requests: a draft's, or Live's. */
-const requestsIn = ({ projectId, draftId }: FindingScope) =>
-  and(
-    eq(proofreadingRequests.projectId, projectId),
-    draftId === null
-      ? isNull(proofreadingRequests.draftId)
-      : eq(proofreadingRequests.draftId, draftId),
-  );
 
 /**
  * The subjects a draft changed since the Proofreader last checked it, or every one it changed if
@@ -153,19 +137,20 @@ const changedSinceLastCheck = Effect.fn("proofreader.changedSinceLastCheck")(fun
 export const settleProofreading = (db: Database, draft: Draft) =>
   settleRequests(db, { projectId: draft.projectId, draftId: draft.id });
 
-const settleRequests = Effect.fn("proofreader.settle")(function* (
-  db: Database,
-  scope: FindingScope,
-) {
-  yield* writeInScope(db, scope, () =>
-    db.delete(proofreadingRequests).where(
-      and(
-        requestsIn(scope),
-        // A request since its start reset it: it stays for the next check.
-        isNotNull(proofreadingRequests.startedAt),
-        lte(proofreadingRequests.requestedAt, proofreadingRequests.startedAt),
+const settleRequests = Effect.fn("proofreader.settle")(function* (db: Database, scope: WorkScope) {
+  yield* writeInScope(
+    db,
+    scope,
+    () =>
+      db.delete(proofreadingRequests).where(
+        and(
+          inWorkScope(proofreadingRequests, scope),
+          // A request since its start reset it: it stays for the next check.
+          isNotNull(proofreadingRequests.startedAt),
+          lte(proofreadingRequests.requestedAt, proofreadingRequests.startedAt),
+        ),
       ),
-    ),
+    "report",
   );
 });
 
@@ -199,24 +184,29 @@ export const pendingProofreading: PendingWorkOf = (db, projectId, scopes) => {
 /** Starts reading a scope's requests: the subjects its check reads. */
 const startRequests = Effect.fn("proofreader.startRequests")(function* (
   db: Database,
-  scope: FindingScope,
+  scope: WorkScope,
 ) {
   const startedAt = Date.now();
   let started: CheckedSubject[] = [];
-  yield* writeInScope(db, scope, async () => {
-    const rows = await db
-      .update(proofreadingRequests)
-      .set({ startedAt })
-      .where(requestsIn(scope))
-      .returning({
-        entity: proofreadingRequests.entity,
-        id: proofreadingRequests.entityId,
-        locale: proofreadingRequests.locale,
-      });
-    started = rows.flatMap(({ entity, ...rest }) =>
-      isCheckedEntity(entity) ? [{ entity, ...rest }] : [],
-    );
-  });
+  yield* writeInScope(
+    db,
+    scope,
+    async () => {
+      const rows = await db
+        .update(proofreadingRequests)
+        .set({ startedAt })
+        .where(inWorkScope(proofreadingRequests, scope))
+        .returning({
+          entity: proofreadingRequests.entity,
+          id: proofreadingRequests.entityId,
+          locale: proofreadingRequests.locale,
+        });
+      started = rows.flatMap(({ entity, ...rest }) =>
+        isCheckedEntity(entity) ? [{ entity, ...rest }] : [],
+      );
+    },
+    "report",
+  );
   return started;
 });
 
@@ -268,9 +258,6 @@ const writtenTexts = Effect.fn("proofreader.writtenTexts")(function* (
 /** A unit's texts people read: not artifacts' HTML sources, nor URL path segments. */
 const plainTexts = (unit: MergeUnit, value: unknown) =>
   (textsOf(unit, value)?.texts ?? []).filter((text) => text.format === "plain");
-
-/** A text key's field: keys are the field's name, then its part, such as a text node's place. */
-const fieldOfKey = (key: string) => key.split("/")[0]!;
 
 /** The sentence of `text` that the words at `index` are in. */
 function sentenceAt(text: string, index: number, length: number, locale: string) {
@@ -328,7 +315,7 @@ const sameSubject = (a: CheckedSubject, b: CheckedSubject) =>
  */
 const proofreadRequested = Effect.fn("proofreader.proofreadRequested")(function* (
   db: Database,
-  scope: FindingScope,
+  scope: WorkScope,
   requested: readonly CheckedSubject[],
 ) {
   const ctx = camoxContext(db);
@@ -429,15 +416,10 @@ const closeFixedOnLive = Effect.fn("proofreader.closeFixedOnLive")(function* (
   for (const locale of new Set(open.map((finding) => finding.locale))) {
     const holders = yield* liveHoldersOf(ctx, projectId, locale);
     for (const finding of open.filter((candidate) => candidate.locale === locale)) {
-      const { about } = finding;
       const holder = holders.find(
         (candidate) => candidate.entity === finding.entity && candidate.id === finding.entityId,
       );
-      const holds =
-        holder !== undefined &&
-        "sentence" in about &&
-        withReplacement(holder, finding.field, about, about.text) !== undefined;
-      if (!holds) yield* resolveFinding(db, finding);
+      if (!holder || !holds(holder, finding)) yield* resolveFinding(db, finding);
     }
   }
 });
@@ -485,28 +467,18 @@ export const proofreadReleaseWrites = Effect.fn("proofreader.proofreadReleaseWri
       { entity, id, locale },
     ]);
   }
-  const scheduler = yield* AiJobQueue;
-  const background = yield* Background;
   for (const [projectId, subjects] of byProject) {
     yield* recordRequests(db, { projectId, draftId: null }, subjects);
-    const job: PatrolJob = { kind: "patrol", patroller: "proofreader", projectId };
+    const job: PatrolJob = { kind: "patrol", patrollers: ["proofreader"], projectId };
     // One that can't be scheduled stays requested: the next patrol of Live reads it.
-    yield* background.run(
-      scheduler
-        .schedule(job, RELEASE_IDLE_MS)
-        .pipe(
-          Effect.catchTag("ScheduleError", (error) =>
-            Effect.logError(`[proofreader] ${jobName(job)} could not be scheduled`, error.cause),
-          ),
-        ),
-    );
+    yield* scheduleInBackground(job, RELEASE_IDLE_MS);
   }
 });
 
 /** Leaves subjects requested, not started, for the next check: its model call failed. */
 const requestAgain = Effect.fn("proofreader.requestAgain")(function* (
   db: Database,
-  scope: FindingScope,
+  scope: WorkScope,
   subjects: readonly CheckedSubject[],
 ) {
   for (const { entity, id, locale } of subjects) {
@@ -516,7 +488,7 @@ const requestAgain = Effect.fn("proofreader.requestAgain")(function* (
         .set({ startedAt: null })
         .where(
           and(
-            requestsIn(scope),
+            inWorkScope(proofreadingRequests, scope),
             eq(proofreadingRequests.entity, entity),
             eq(proofreadingRequests.entityId, id),
             eq(proofreadingRequests.locale, locale),
@@ -533,7 +505,7 @@ const requestAgain = Effect.fn("proofreader.requestAgain")(function* (
 export function withReplacement(
   holder: Pick<Holder, "schema" | "content">,
   field: string,
-  about: { text: string; sentence: string },
+  about: TextAbout,
   replacement: string,
 ): unknown {
   const values = { content: { ...(holder.content as Content) } };
@@ -548,18 +520,3 @@ export function withReplacement(
   }
   return undefined;
 }
-
-/** The text of a unit in `field` holding the sentence, with the flagged text still in it. */
-const findSentence = (
-  texts: UnitTexts,
-  field: string,
-  about: { text: string; sentence: string },
-) =>
-  about.sentence.includes(about.text)
-    ? texts.texts.find(
-        (text) =>
-          text.format === "plain" &&
-          fieldOfKey(text.key) === field &&
-          text.text.includes(about.sentence),
-      )
-    : undefined;

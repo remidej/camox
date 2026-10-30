@@ -43,9 +43,10 @@ import { cn } from "@/lib/utils";
 import { reads, useReadQuery, useStudioCache } from "../../../lib/studio-reads";
 import { previewStore } from "../../preview/previewStore";
 import { draftLabel, plural, timeAgo } from "../draftLabel";
-import { findingSentence, fixLabel } from "../findingSentence";
+import { askAgentMessage, findingSentence, fixLabel } from "../findingSentence";
 import { localeLabel } from "../localeOptions";
 import { type CanvasTarget, useShowInCanvas } from "../showInCanvas";
+import { studioStore } from "../studioStore";
 
 type Subject = PublishPreview["changes"][number];
 type Problem = PublishPreview["blockers"][number];
@@ -327,6 +328,17 @@ function FindingCards({
                 {fixLabel(finding.fix)}
               </Button>
             )}
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() =>
+                studioStore.trigger.askAgent({
+                  text: askAgentMessage(finding, finding.patroller.role),
+                })
+              }
+            >
+              Ask the agent
+            </Button>
             <Button
               variant="ghost"
               size="sm"

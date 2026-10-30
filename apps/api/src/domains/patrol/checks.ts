@@ -2,16 +2,16 @@ import { eq } from "drizzle-orm";
 import { Effect } from "effect";
 
 import type { Database } from "../../db";
-import { AiJobQueue, type CheckJob, jobName } from "../../lib/ai-job-queue";
-import { Background } from "../../lib/background";
+import type { CheckJob } from "../../lib/ai-job-queue";
 import { Journal } from "../../lib/journal";
+import { scheduleInBackground } from "../../lib/schedule-in-background";
 import * as overlay from "../drafts/overlay";
 import { fingerprintOfChanges } from "../drafts/overview";
 import { drafts } from "../drafts/schema";
 import { type Draft, draftOf } from "../drafts/scope";
 import { listedChanges } from "../translations/review";
 import { type CheckedSubject, isCheckedEntity, writeFindings } from "./findings";
-import { type CheckRequest, PATROLLERS, type Patroller } from "./patrollers";
+import { type CheckRequest, PATROLLERS, type Patroller, patrollerById } from "./patrollers";
 import { writeCheck } from "./reports";
 import { patrolChecks } from "./schema";
 
@@ -36,18 +36,8 @@ export const requestCheck = Effect.fn("patrol.requestCheck")(function* (
   const delayMs =
     typeof immediately === "object" ? immediately.delayMs : immediately ? 0 : CHECK_IDLE_MS;
   const job: CheckJob = { kind: "check", patroller: patroller.id, draftId };
-  const scheduler = yield* AiJobQueue;
-  const background = yield* Background;
   // A check that can't be scheduled leaves the last one stale: the review requests it again.
-  yield* background.run(
-    scheduler
-      .schedule(job, delayMs)
-      .pipe(
-        Effect.catchTag("ScheduleError", (error) =>
-          Effect.logError(`[check] ${jobName(job)} could not be scheduled`, error.cause),
-        ),
-      ),
-  );
+  yield* scheduleInBackground(job, delayMs);
 });
 
 /**
@@ -169,9 +159,9 @@ const draftById = Effect.fn("patrol.draftById")(function* (db: Database, draftId
  * finds, then keeps when it checked, and the changes it read. Does nothing once the draft ended.
  */
 export const runCheckJob = Effect.fn("patrol.runCheckJob")(function* (db: Database, job: CheckJob) {
-  const patroller = PATROLLERS.find((candidate) => candidate.id === job.patroller);
-  const check = patroller?.check;
-  if (!patroller || !check) return;
+  const patroller = patrollerById(job.patroller);
+  const { check } = patroller;
+  if (!check) return;
   const draft = yield* draftById(db, job.draftId);
   if (!draft) return;
   const run = Effect.gen(function* () {

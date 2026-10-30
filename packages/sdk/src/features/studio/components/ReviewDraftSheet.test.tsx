@@ -34,6 +34,7 @@ const { AuthContext } = await import("@/lib/auth");
 const { NavigationProvider } = await import("@/features/navigation/navigation");
 const { ViewLocaleContext } = await import("@/lib/view-locale-context");
 const { previewStore } = await import("@/features/preview/previewStore");
+const { studioStore } = await import("../studioStore");
 /** The draft scope the open review runs in. */
 let draftScope: import("@/lib/draft-scope").DraftScope;
 
@@ -46,7 +47,7 @@ const home = {
   nickname: "Home",
 };
 
-type Finding = import("@camox/api-contract/patrol").FindingView;
+type Finding = import("@camox/api-contract/router").PublishPreview["findings"][number];
 
 const emptyPreview = {
   blockers: [],
@@ -592,6 +593,7 @@ const aboutLink: Finding = {
   raisedAt: Date.UTC(2026, 9, 13),
   live: false,
   place: { kind: "page", pageId: home.id, blockId, itemId: null },
+  patroller: { id: "linkChecker", role: "Link checker" },
 };
 
 void test("lists the draft's open findings with their actions, and disables Publish", async (t) => {
@@ -605,10 +607,32 @@ void test("lists the draft's open findings with their actions, and disables Publ
     ]);
     assert.ok(buttonNamed(/^Show$/));
     assert.ok(buttonNamed(/^Remove the link$/));
+    assert.ok(buttonNamed(/^Ask the agent$/));
     assert.ok(buttonNamed(/^Dismiss$/));
     assert.equal(publishButton()?.disabled, true);
     assert.equal(buttonNamed(/anyway/i), undefined);
   } finally {
+    await close();
+  }
+});
+
+void test("asks the agent about a finding in the draft's chat, leaving the review", async (t) => {
+  mockApi(t, (path) =>
+    path === "drafts/previewPublish" ? json({ ...emptyPreview, findings: [aboutLink] }) : json({}),
+  );
+  const close = await openReview();
+  try {
+    await click(buttonNamed(/^Ask the agent$/));
+
+    const { agentAsk, reviewDraftSheet } = studioStore.getSnapshot().context;
+    assert.equal(
+      agentAsk?.text,
+      "Link checker finding: “About us” in Footer links to About, a page that no longer exists " +
+        "(in English, field “link”). Suggested fix: Remove the link.",
+    );
+    assert.equal(reviewDraftSheet.open, false);
+  } finally {
+    studioStore.trigger.takeAgentAsk();
     await close();
   }
 });

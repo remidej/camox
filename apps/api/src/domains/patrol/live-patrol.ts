@@ -3,21 +3,22 @@ import { and, eq } from "drizzle-orm";
 import { Effect } from "effect";
 
 import type { Database } from "../../db";
-import { AiJobQueue, jobName, type PatrolJob } from "../../lib/ai-job-queue";
+import type { PatrolJob } from "../../lib/ai-job-queue";
+import { scheduleInBackground } from "../../lib/schedule-in-background";
 import type { Bindings } from "../../types";
 import { projects } from "../projects/schema";
 import { writeFindings } from "./findings";
-import { toPatrolDraft } from "./patrol-draft";
+import { leftByAgent, toPatrolDraft } from "./patrol-draft";
 import { emailNewFindings } from "./patrol-email";
 import { PATROLLERS } from "./patrollers";
 import { writeCheck } from "./reports";
 
 // Patrollers' patrols of Live (ADR 0034): Live changes without an edit when other websites move
 // or close, so patrollers that check what can go wrong that way patrol every project's Live every
-// 6 hours. The cron trigger requests one job per project and patroller, so each project's patrol
-// runs on its own. The Proofreader's patrol reads Live only when it has something to read there
-// (ADR 0034): what a release no draft published wrote, which also requests its job, or all of
-// Live on arrival.
+// 6 hours. The cron trigger requests one run per project, of every patroller, so each project's
+// patrol runs on its own, and tells members of what's new once. The Proofreader's patrol reads
+// Live only when it has something to read there (ADR 0034): what a release no draft published
+// wrote, which also requests a run of it, or all of Live on arrival.
 
 /** The cron trigger of Live's patrols (wrangler.jsonc): every 6 hours. */
 export const LIVE_PATROL_CRON = "0 */6 * * *";
@@ -25,39 +26,28 @@ export const LIVE_PATROL_CRON = "0 */6 * * *";
 /** The patrollers that patrol Live. */
 const patrolling = PATROLLERS.filter((patroller) => patroller.patrol !== undefined);
 
-/** Requests a patrol of every live project's Live, by each patroller that patrols it. */
+/** Requests a run of every patroller's patrol of each live project's Live. */
 export const requestLivePatrols = Effect.fn("patrol.requestLivePatrols")(function* (db: Database) {
   const rows = yield* Effect.promise(() =>
     db.select({ id: projects.id }).from(projects).where(eq(projects.status, "live")),
   );
-  const scheduler = yield* AiJobQueue;
+  const patrollers = patrolling.map((patroller) => patroller.id);
   for (const { id } of rows) {
-    for (const patroller of patrolling) {
-      const job: PatrolJob = { kind: "patrol", patroller: patroller.id, projectId: id };
-      // A patrol that can't be scheduled waits for the next run.
-      yield* scheduler
-        .schedule(job, 0)
-        .pipe(
-          Effect.catchTag("ScheduleError", (error) =>
-            Effect.logError(`[patrol] ${jobName(job)} could not be scheduled`, error.cause),
-          ),
-        );
-    }
+    // A patrol that can't be scheduled waits for the next run.
+    yield* scheduleInBackground({ kind: "patrol", patrollers, projectId: id }, 0);
   }
 });
 
 /**
- * Runs a patroller's patrol of a project's Live: raises what it found on Live and resolves Live's
- * findings it no longer finds, then keeps when it checked. Returns the findings it raised that
- * weren't open on Live already: what's new this run.
+ * Runs the patrols of a project's Live a job asks for, in the registry's order: each raises what
+ * it found on Live and resolves Live's findings it no longer finds, then keeps when it checked.
+ * What's new then goes to the Patrol Draft, where Camox's agent fixes it, and members hear of it
+ * once its turn on them ended: one email for the whole run.
  */
 export const runPatrolJob = Effect.fn("patrol.runPatrolJob")(function* (
   db: Database,
   job: PatrolJob,
 ) {
-  const patroller = PATROLLERS.find((candidate) => candidate.id === job.patroller);
-  const patrol = patroller?.patrol;
-  if (!patroller || !patrol) return [];
   const project = yield* Effect.promise(() =>
     db
       .select({ id: projects.id })
@@ -66,22 +56,22 @@ export const runPatrolJob = Effect.fn("patrol.runPatrolJob")(function* (
       .get(),
   );
   // The project was deleted since.
-  if (!project) return [];
+  if (!project) return;
   const scope = { projectId: job.projectId, draftId: null };
-  const patrolled = yield* patrol(db, job.projectId);
-  // Nothing to read on Live this time: it stays asleep.
-  if (!patrolled) return [];
-  const { found, checked } = patrolled;
-  const opened = yield* writeFindings(db, patroller, scope, found, checked);
-  yield* writeCheck(db, patroller, scope);
-  // What's new goes to the Patrol Draft, where Camox's agent fixes it, and members hear of it.
-  const handed = yield* toPatrolDraft(db, patroller, job.projectId, opened);
-  if (handed) {
-    yield* emailNewFindings(db, env as Bindings, {
-      patroller,
-      projectId: job.projectId,
-      ...handed,
-    });
+  for (const patroller of patrolling.filter(({ id }) => job.patrollers.includes(id))) {
+    const patrolled = yield* patroller.patrol!(db, job.projectId);
+    // Nothing to read on Live this time: it stays asleep.
+    if (!patrolled) continue;
+    yield* writeFindings(db, patroller, scope, patrolled.found, patrolled.checked);
+    yield* writeCheck(db, patroller, scope);
   }
-  return opened;
+  const handed = yield* toPatrolDraft(db, job.projectId);
+  if (!handed) return;
+  const left = yield* leftByAgent(db, handed);
+  yield* emailNewFindings(db, env as Bindings, {
+    projectId: job.projectId,
+    draftId: handed.draft.id,
+    found: handed.found,
+    left,
+  });
 });

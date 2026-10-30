@@ -1,14 +1,21 @@
-import type { FindingAbout, FindingFix, ReportEntity } from "@camox/api-contract/patrol";
-import { and, eq, inArray, isNull, sql } from "drizzle-orm";
+import type {
+  FindingAbout,
+  FindingFix,
+  PatrollerId,
+  ReportEntity,
+} from "@camox/api-contract/patrol";
+import { and, eq, inArray } from "drizzle-orm";
 import type { BatchItem } from "drizzle-orm/batch";
 import { Effect } from "effect";
 
 import type { Database } from "../../db";
 import { record } from "../../lib/journal";
+import { chunksOf } from "../content/chunks";
 import type * as overlay from "../drafts/overlay";
 import type { Patroller } from "./patrollers";
 import { subjectKey, writeInScope } from "./reports";
 import { findingDismissals, findings, proofreadingRequests } from "./schema";
+import { conflictInScope, inWorkScope, type WorkScope } from "./scopes";
 
 // The one write of findings (ADR 0034), beside reports': every patroller raises and resolves its
 // findings through `writeFindings` when a check settles, and dismissals go through `dismiss`.
@@ -29,9 +36,6 @@ export type RaisedFinding = {
   about: FindingAbout;
   fix: FindingFix | null;
 };
-
-/** A scope findings are in: a draft, or Live (`draftId` null). */
-export type FindingScope = { projectId: number; draftId: string | null };
 
 /** One subject in one locale a check read. */
 export type CheckedSubject = {
@@ -59,17 +63,11 @@ export type FindingRow = typeof findings.$inferSelect;
 const keyOf = (finding: RaisedFinding) =>
   `${subjectKey(finding.entity, finding.id, finding.locale)}:${finding.field}:${finding.identity}`;
 
-const inScope = ({ projectId, draftId }: FindingScope) =>
-  and(
-    eq(findings.projectId, projectId),
-    draftId === null ? isNull(findings.draftId) : eq(findings.draftId, draftId),
-  );
-
-/** The identities of a patroller's findings the project dismissed. */
+/** The identities of a patroller's findings the project dismissed, by the patroller's id. */
 export const dismissedIdentities = Effect.fn("patrol.dismissedIdentities")(function* (
   db: Database,
   projectId: number,
-  patroller: Pick<Patroller, "id">,
+  patrollerId: PatrollerId,
 ) {
   const rows = yield* Effect.promise(() =>
     db
@@ -78,15 +76,12 @@ export const dismissedIdentities = Effect.fn("patrol.dismissedIdentities")(funct
       .where(
         and(
           eq(findingDismissals.projectId, projectId),
-          eq(findingDismissals.patroller, patroller.id),
+          eq(findingDismissals.patroller, patrollerId),
         ),
       ),
   );
   return new Set(rows.map((row) => row.identity));
 });
-
-// D1 binds at most 100 parameters per statement.
-const CHUNK = 90;
 
 /**
  * Settles a patroller's check in a scope: raises what it `found`, except dismissed identities,
@@ -97,11 +92,11 @@ const CHUNK = 90;
 export const writeFindings = Effect.fn("patrol.writeFindings")(function* (
   db: Database,
   patroller: Patroller,
-  scope: FindingScope,
+  scope: WorkScope,
   found: readonly RaisedFinding[],
   checked: Checked = "everything",
 ) {
-  const dismissed = yield* dismissedIdentities(db, scope.projectId, patroller);
+  const dismissed = yield* dismissedIdentities(db, scope.projectId, patroller.id);
   const raised = new Map(
     found
       .filter((finding) => !dismissed.has(finding.identity))
@@ -131,14 +126,13 @@ export const writeFindings = Effect.fn("patrol.writeFindings")(function* (
           locale: findings.locale,
         })
         .from(findings)
-        .where(and(inScope(scope), eq(findings.patroller, patroller.id)));
+        .where(and(inWorkScope(findings, scope), eq(findings.patroller, patroller.id)));
       const resolved = open.filter((row) => covers(row) && !raised.has(row.key));
       const openKeys = new Set(open.map((row) => row.key));
       opened = [...raised].flatMap(([key, finding]) => (openKeys.has(key) ? [] : [finding]));
       const statements: BatchItem<"sqlite">[] = [];
-      for (let start = 0; start < resolved.length; start += CHUNK) {
-        const rowIds = resolved.slice(start, start + CHUNK).map((row) => row.rowId);
-        statements.push(db.delete(findings).where(inArray(findings.rowId, rowIds)));
+      for (const chunk of chunksOf(resolved.map((row) => row.rowId))) {
+        statements.push(db.delete(findings).where(inArray(findings.rowId, chunk)));
       }
       for (const [key, finding] of raised) {
         const { entity, id, locale, field, identity, about, fix } = finding;
@@ -159,15 +153,7 @@ export const writeFindings = Effect.fn("patrol.writeFindings")(function* (
               raisedAt,
             })
             .onConflictDoUpdate({
-              ...(scope.draftId === null
-                ? {
-                    target: [findings.projectId, findings.patroller, findings.key],
-                    targetWhere: sql`${findings.draftId} is null`,
-                  }
-                : {
-                    target: [findings.draftId, findings.patroller, findings.key],
-                    targetWhere: sql`${findings.draftId} is not null`,
-                  }),
+              ...conflictInScope(findings, scope.draftId, [findings.patroller, findings.key]),
               set: { about, fix },
             }),
         );

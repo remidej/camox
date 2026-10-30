@@ -60,10 +60,12 @@ export type OverviewJob = { kind: "overview"; draftId: string };
 export type CheckJob = { kind: "check"; patroller: PatrollerId; draftId: string };
 
 /**
- * A patroller's patrol of a project's Live content (ADR 0034), keyed by patroller and project:
- * the cron trigger requests one for every project every 6 hours.
+ * A run of patrollers' patrols of a project's Live content (ADR 0034), keyed by project: the cron
+ * trigger requests one of every patroller patrolling Live for every project every 6 hours, and a
+ * release no draft published requests the Proofreader's. Requesting one while another is pending
+ * joins it: one run patrols for both, so its new findings are told of once.
  */
-export type PatrolJob = { kind: "patrol"; patroller: PatrollerId; projectId: number };
+export type PatrolJob = { kind: "patrol"; patrollers: readonly PatrollerId[]; projectId: number };
 
 /** A job the AI job scheduler runs. */
 export type AiJob = GenerationJob | TranslationJob | OverviewJob | CheckJob | PatrolJob;
@@ -105,7 +107,7 @@ const NAME_PARTS = {
 export const jobName = (job: AiJob) => {
   if (isOverviewJob(job)) return `overview:${job.draftId}`;
   if (isCheckJob(job)) return `check:${job.patroller}:${job.draftId}`;
-  if (isPatrolJob(job)) return `patrol:${job.patroller}:${job.projectId}`;
+  if (isPatrolJob(job)) return `patrol:${job.projectId}`;
   if (isTranslationJob(job)) {
     const name = `translation:${job.entity}:${job.entityId}:${job.locale}:${job.draftId}`;
     return job.source === undefined ? name : `${name}:${job.source}`;

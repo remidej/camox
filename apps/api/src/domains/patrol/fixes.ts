@@ -1,4 +1,4 @@
-import type { ApplyResult, FindingFix } from "@camox/api-contract/patrol";
+import type { ApplyResult, FindingFix, FindingView } from "@camox/api-contract/patrol";
 import { and, eq } from "drizzle-orm";
 import { Effect } from "effect";
 import { z } from "zod";
@@ -12,14 +12,16 @@ import { updateBlockContent } from "../blocks/service";
 import { sharedPlacementId } from "../blocks/shared-content";
 import { editRecord } from "../collections/service";
 import { accessTo } from "../drafts/access";
-import { type Holder, holderOf } from "../drafts/content-checks";
+import type { Holder } from "../drafts/content-checks";
 import * as overlay from "../drafts/overlay";
 import { draftIn, draftOf, type Draft } from "../drafts/scope";
 import { defaultLocaleTag } from "../locales/default-locale";
 import { updateRepeatableItemContent } from "../repeatable-items/service";
+import { holds, isAboutLink, isAboutText } from "./about";
 import { requestRecheck } from "./checks";
+import { holderOf } from "./content";
 import { dismiss, type FindingRow, isCheckedEntity, resolveFinding } from "./findings";
-import { PATROLLERS } from "./patrollers";
+import { patrollerById } from "./patrollers";
 import { withReplacement } from "./proofreader";
 import { subjectKey, writeReport } from "./reports";
 import { findings } from "./schema";
@@ -46,9 +48,6 @@ const findingOf = Effect.fn("patrol.findingOf")(function* (
   if (!row) return yield* new NotFoundError({ message: "This finding is no longer open" });
   return row;
 });
-
-const patrollerOf = (finding: FindingRow) =>
-  PATROLLERS.find((patroller) => patroller.id === finding.patroller)!;
 
 /**
  * Writes a field of a finding's content, as the member in the request: in the finding's locale,
@@ -113,10 +112,10 @@ function fixedValue(
   switch (fix.kind) {
     case "removeLink": {
       const field = fieldOf(holder.schema, finding.field);
-      return field && "url" in about ? withoutLink(field, value, about.url) : undefined;
+      return field && isAboutLink(about) ? withoutLink(field, value, about.url) : undefined;
     }
     case "replaceText":
-      return "sentence" in about
+      return isAboutText(about)
         ? withReplacement(holder, finding.field, about, fix.replacement)
         : undefined;
   }
@@ -135,12 +134,24 @@ export const holdsIn = Effect.fn("patrol.holdsIn")(function* (
     entity: finding.entity,
     id: finding.entityId,
   });
-  const { about } = finding;
-  // Fixing it changes the content only while the content holds it.
-  const fix: FindingFix =
-    "url" in about ? { kind: "removeLink" } : { kind: "replaceText", replacement: about.text };
-  return holder !== undefined && fixedValue(holder, finding, fix) !== undefined;
+  return holder !== undefined && holds(holder, finding);
 });
+
+/** The findings among `found` that a draft's content still holds: those not fixed there. */
+export const heldIn = <F extends FindingView>(
+  ctx: ServiceContext,
+  draft: Draft,
+  found: readonly F[],
+) =>
+  Effect.filter(found, (finding) =>
+    holdsIn(ctx, draft, {
+      entity: finding.subject.entity,
+      entityId: finding.subject.id,
+      locale: finding.locale,
+      field: finding.field,
+      about: finding.about,
+    }),
+  );
 
 /**
  * Applies a finding's suggested fix in the request's draft, as the member: only while its
@@ -166,7 +177,7 @@ export const applyFix = Effect.fn("patrol.applyFix")(function* (
   if (!finding.fix) {
     return yield* new InvalidInputError({ message: "This finding suggests no fix" });
   }
-  const patroller = patrollerOf(finding);
+  const patroller = patrollerById(finding.patroller);
   const scoped = draftOf(draft);
   const holder = yield* holderOf(ctx, scoped, finding.locale, {
     entity: finding.entity,

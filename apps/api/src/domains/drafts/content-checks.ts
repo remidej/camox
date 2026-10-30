@@ -1,4 +1,3 @@
-import { PAGE_TEXT_LINK_PREFIX } from "@camox/api-contract/ids";
 import { and, eq } from "drizzle-orm";
 import { Effect } from "effect";
 
@@ -27,7 +26,6 @@ import {
   pointersIn,
   pointersOf,
 } from "../_shared/fields";
-import { type ContentLink, linksIn } from "../_shared/links";
 import type { ServiceContext } from "../_shared/service-context";
 import {
   pageValue,
@@ -105,7 +103,7 @@ type Findings = { blockers: Finding[]; warnings: Finding[] };
 const storedBy = (scope: Scope, row: { draftId: string | null }) => row.draftId === scope.id;
 
 /** A content table's rows in the project, as a scope reads them. */
-const rowsIn = <T extends overlay.ContentTable>(
+export const rowsIn = <T extends overlay.ContentTable>(
   ctx: ServiceContext,
   scope: ReadScope,
   projectId: number,
@@ -254,7 +252,7 @@ export type Holder = {
  * whose definition is gone reads as nothing (ADR 0007), and content the scope drops with its
  * page isn't read: neither is checked. Synced placements hold their content elsewhere.
  */
-const holdersIn = Effect.fn("drafts.holdersIn")(function* (
+export const holdersIn = Effect.fn("drafts.holdersIn")(function* (
   ctx: ServiceContext,
   scope: Scope | LiveInLocale,
   projectId: number,
@@ -631,181 +629,4 @@ export const checkContentProblems = Effect.fn("drafts.checkContentProblems")(fun
     holders.push(...found.holders);
   }
   return { blockers, warnings, records, holders };
-});
-
-/** A link, in content a draft reads, to a page missing from the draft. */
-export type MissingPageLink = {
-  holder: Holder;
-  /** The tag of the locale the content is in. */
-  locale: string;
-  field: Field;
-  link: ContentLink;
-  /** The missing page's name on Live, if Live has it. */
-  page: string | null;
-};
-
-/**
- * Links to pages missing from the draft, in each locale it reads: in content the draft changed,
- * and in untouched Live content linking to a page the draft deletes, since deleting it is the
- * draft's change. Links Live already left leading nowhere aren't the draft's. A link to a page
- * missing from its locale leads to the default locale's page, so it isn't missing.
- */
-export const missingPageLinks = Effect.fn("drafts.missingPageLinks")(function* (
-  ctx: ServiceContext,
-  draft: Scope,
-) {
-  const scope = draftOf(draft);
-  const { projectId } = scope;
-  const tags = new Set((yield* rowsIn(ctx, scope, projectId, locales)).map((locale) => locale.tag));
-  const defaults = {
-    draft: yield* rowsIn(ctx, scope, projectId, pages),
-    live: yield* rowsIn(ctx, null, projectId, pages),
-  };
-  const missing: MissingPageLink[] = [];
-  for (const tag of tags) {
-    const inTag = inLocale(scope, tag);
-    const draftPages = yield* rowsIn(ctx, inTag, projectId, pages);
-    const livePages = yield* rowsIn(ctx, inLocale(null, tag), projectId, pages);
-    const inDraft = new Set([...draftPages, ...defaults.draft].map((page) => page.id));
-    const onLive = new Map([...defaults.live, ...livePages].map((page) => [page.id, page]));
-    const records = yield* rowsIn(ctx, inTag, projectId, collectionRecords);
-    const holders = yield* holdersIn(
-      ctx,
-      inTag,
-      projectId,
-      new Set(draftPages.map((page) => page.id)),
-      records,
-    );
-    for (const holder of holders) {
-      for (const { field, link } of linksIn(holder.schema, holder.content)) {
-        if (!link.url.startsWith(PAGE_TEXT_LINK_PREFIX)) continue;
-        const pageId = link.url.slice(PAGE_TEXT_LINK_PREFIX.length);
-        if (inDraft.has(pageId)) continue;
-        const live = onLive.get(pageId);
-        if (!holder.changed && !live) continue;
-        missing.push({ holder, locale: tag, field, link, page: live?.nickname ?? null });
-      }
-    }
-  }
-  return missing;
-});
-
-/** A link in content a draft reads, in a locale. */
-export type LinkInContent = { holder: Holder; locale: string; field: Field; link: ContentLink };
-
-/** The links in content the draft changed, in each locale it reads. */
-export const changedLinks = Effect.fn("drafts.changedLinks")(function* (
-  ctx: ServiceContext,
-  draft: Scope,
-) {
-  const scope = draftOf(draft);
-  const { projectId } = scope;
-  const tags = new Set((yield* rowsIn(ctx, scope, projectId, locales)).map((locale) => locale.tag));
-  const found: LinkInContent[] = [];
-  for (const tag of tags) {
-    const inTag = inLocale(scope, tag);
-    const draftPages = yield* rowsIn(ctx, inTag, projectId, pages);
-    const records = yield* rowsIn(ctx, inTag, projectId, collectionRecords);
-    const holders = yield* holdersIn(
-      ctx,
-      inTag,
-      projectId,
-      new Set(draftPages.map((page) => page.id)),
-      records,
-    );
-    for (const holder of holders.filter((candidate) => candidate.changed)) {
-      for (const { field, link } of linksIn(holder.schema, holder.content)) {
-        found.push({ holder, locale: tag, field, link });
-      }
-    }
-  }
-  return found;
-});
-
-/** A link in Live's content, in a locale, and whether it links to a page Live doesn't have. */
-export type LiveLink = LinkInContent & { pageMissing: boolean };
-
-/**
- * Every link in Live's content, in each of its locales: what the Link checker patrols (ADR 0034).
- * A link to a page missing from its locale leads to the default locale's page, so it isn't missing.
- */
-export const liveLinks = Effect.fn("drafts.liveLinks")(function* (
-  ctx: ServiceContext,
-  projectId: number,
-) {
-  const defaults = yield* rowsIn(ctx, null, projectId, pages);
-  const found: LiveLink[] = [];
-  for (const tag of yield* liveLocaleTags(ctx, projectId)) {
-    const livePages = yield* rowsIn(ctx, inLocale(null, tag), projectId, pages);
-    const onLive = new Set([...defaults, ...livePages].map((page) => page.id));
-    for (const holder of yield* liveHoldersOf(ctx, projectId, tag)) {
-      for (const { field, link } of linksIn(holder.schema, holder.content)) {
-        const pageMissing =
-          link.url.startsWith(PAGE_TEXT_LINK_PREFIX) &&
-          !onLive.has(link.url.slice(PAGE_TEXT_LINK_PREFIX.length));
-        found.push({ holder, locale: tag, field, link, pageMissing });
-      }
-    }
-  }
-  return found;
-});
-
-/** The tags of Live's locales. */
-export const liveLocaleTags = Effect.fn("drafts.liveLocaleTags")(function* (
-  ctx: ServiceContext,
-  projectId: number,
-) {
-  return new Set((yield* rowsIn(ctx, null, projectId, locales)).map((locale) => locale.tag));
-});
-
-/**
- * Every block, shared content, repeatable item and record Live reads in a locale, with the
- * definition it's read by: what a patroller's patrol of Live reads.
- */
-export const liveHoldersOf = Effect.fn("drafts.liveHoldersOf")(function* (
-  ctx: ServiceContext,
-  projectId: number,
-  tag: string,
-) {
-  const inTag = inLocale(null, tag);
-  const livePages = yield* rowsIn(ctx, inTag, projectId, pages);
-  const records = yield* rowsIn(ctx, inTag, projectId, collectionRecords);
-  return yield* holdersIn(
-    ctx,
-    inTag,
-    projectId,
-    new Set(livePages.map((page) => page.id)),
-    records,
-  );
-});
-
-/**
- * The content of one block, shared content, repeatable item or record as a draft reads it in a
- * locale, with the definition it's read by: what a patroller's fix edits. Undefined once it's
- * gone, or read as nothing.
- */
-export const holderOf = Effect.fn("drafts.holderOf")(function* (
-  ctx: ServiceContext,
-  draft: Scope,
-  tag: string,
-  subject: { entity: string; id: string },
-) {
-  const holders = yield* holdersOf(ctx, draft, tag);
-  return holders.find((holder) => holder.entity === subject.entity && holder.id === subject.id);
-});
-
-/**
- * Every block, shared content, repeatable item and record a draft reads in a locale, with the
- * definition it's read by: what a patroller's check reads.
- */
-export const holdersOf = Effect.fn("drafts.holdersOf")(function* (
-  ctx: ServiceContext,
-  draft: Scope,
-  tag: string,
-) {
-  const scope = inLocale(draftOf(draft), tag);
-  const { projectId } = scope;
-  const visible = (yield* rowsIn(ctx, scope, projectId, pages)).map((page) => page.id);
-  const records = yield* rowsIn(ctx, scope, projectId, collectionRecords);
-  return yield* holdersIn(ctx, scope, projectId, new Set(visible), records);
 });

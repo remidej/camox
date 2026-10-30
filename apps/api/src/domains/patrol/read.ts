@@ -36,8 +36,8 @@ import { files } from "../files/schema";
 import { defaultLocaleTag } from "../locales/default-locale";
 import { pages } from "../pages/schema";
 import type { FindingRow } from "./findings";
-import { holdsIn } from "./fixes";
-import { dutyOnLive, PATROLLERS } from "./patrollers";
+import { heldIn } from "./fixes";
+import { dutyOnLive, PATROLLERS, patrollerById } from "./patrollers";
 import { findingDismissals, findings, patrolChecks, reports } from "./schema";
 import { liveWorkScopes, patrolDraftOf } from "./scopes";
 import type { PendingWork, WorkScopes } from "./working";
@@ -405,26 +405,22 @@ export const listFindings = Effect.fn("patrol.listFindings")(function* (
     draftsNamed(viewed, catchUp),
   );
   if (!viewed || (yield* patrolDraftOf(ctx.db, projectId))?.id !== viewed.id) return own;
-  const live = yield* liveFindings(ctx.db, projectId);
-  const left = yield* Effect.filter(live, (finding) =>
-    holdsIn(ctx, viewed, {
-      entity: finding.subject.entity,
-      entityId: finding.subject.id,
-      locale: finding.locale,
-      field: finding.field,
-      about: finding.about,
-    }),
-  );
-  return [...own, ...left];
+  return [...own, ...(yield* heldIn(ctx, viewed, yield* liveFindings(ctx.db, projectId)))];
 }, Effect.scoped);
 
-/** A draft's open findings, the oldest first: those that hold its publish (ADR 0033). */
+/**
+ * A draft's open findings, the oldest first, each with its patroller's id and role: those that
+ * hold its publish (ADR 0033).
+ */
 export const draftFindings = Effect.fn("patrol.draftFindings")(function* (
   db: Database,
   draft: Draft,
 ) {
   const found = yield* openFindingsIn(db, draft.projectId, draft, [], new Map([[draft.id, draft]]));
-  return found.map(({ patroller: _patroller, ...finding }): FindingView => finding);
+  return found.map(({ patroller: id, ...finding }) => {
+    const { role } = patrollerById(id);
+    return { ...finding, patroller: { id, role } };
+  });
 });
 
 /** Newest first; a report written later wins a tie. */

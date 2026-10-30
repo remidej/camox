@@ -1,5 +1,5 @@
 import { CAMOX_ACTOR, type EndedDraft } from "@camox/api-contract/drafts";
-import type { FindingView, PatrollerId } from "@camox/api-contract/patrol";
+import { type FindingView, findingSentence, type PatrollerId } from "@camox/api-contract/patrol";
 import { and, eq, inArray, isNull, sql } from "drizzle-orm";
 import type { SQLiteTable } from "drizzle-orm/sqlite-core";
 import { Effect } from "effect";
@@ -163,10 +163,10 @@ export type PublishPreview = {
    */
   translating: string[];
   /**
-   * The draft's open findings, the oldest first. Publishing waits for each to be fixed or
-   * dismissed (ADR 0033).
+   * The draft's open findings, the oldest first, each with the patroller that raised it.
+   * Publishing waits for each to be fixed or dismissed (ADR 0033).
    */
-  findings: FindingView[];
+  findings: (FindingView & { patroller: { id: PatrollerId; role: string } })[];
   /**
    * The patrollers whose check at publish hasn't read the draft's latest changes yet, in the
    * registry's order. Publishing waits for them (ADR 0033).
@@ -859,21 +859,6 @@ const translationsPending = (translating: readonly string[]) =>
     translating,
   });
 
-/** What an open finding is, in a publish refusal: "“About” in Footer links to a missing page". */
-export const findingLine = ({ about, subject }: FindingView) => {
-  const what = `“${about.text}” in ${subject.name}`;
-  switch (about.kind) {
-    case "missingPage":
-      return `${what} links to ${about.page ?? "a page"}, which no longer exists`;
-    case "brokenLink":
-      return `${what} links to ${about.url}, which doesn't work`;
-    case "misspelling":
-      return `${what} may be misspelled`;
-    case "grammar":
-      return `${what} may be a grammar mistake`;
-  }
-};
-
 /**
  * Why the patrollers hold publishing, if they do (ADR 0033): the draft's open findings, each to
  * fix or for a member to dismiss, or their checks still to read its latest changes.
@@ -884,7 +869,7 @@ export const heldByPatrol = (preview: Pick<PublishPreview, "findings" | "checkin
     return new FindingsOpenError({
       message:
         `The draft has ${findings.length} open finding(s) to fix, or for a member to dismiss, ` +
-        `before publishing: ${findings.map(findingLine).join("; ")}`,
+        `before publishing: ${findings.map(findingSentence).join("; ")}`,
     });
   }
   if (checking.length > 0) {

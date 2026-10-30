@@ -1,3 +1,4 @@
+import { PATROLLER_IDS, type PatrollerId } from "@camox/api-contract/patrol";
 import { Context, Effect } from "effect";
 
 import {
@@ -169,10 +170,23 @@ export const forgetScheduledChecks = (draftId: string) => {
   checkJobs.splice(0, checkJobs.length, ...kept);
 };
 
-/** The patrols of Live scheduled, each once: a newer one replaced it, as the Durable Object does. */
-export const scheduledPatrols = () => [
-  ...new Map(patrolJobs.map((job) => [`${job.patroller}:${job.projectId}`, job])).values(),
-];
+/**
+ * The patrols of Live scheduled, one per project: a newer one joined the one pending, as the
+ * Durable Object does.
+ */
+export const scheduledPatrols = (): PatrolJob[] => {
+  const byProject = new Map<number, Set<PatrollerId>>();
+  for (const job of patrolJobs) {
+    const patrollers = byProject.get(job.projectId) ?? new Set();
+    for (const id of job.patrollers) patrollers.add(id);
+    byProject.set(job.projectId, patrollers);
+  }
+  return [...byProject].map(([projectId, patrollers]) => ({
+    kind: "patrol",
+    projectId,
+    patrollers: PATROLLER_IDS.filter((id) => patrollers.has(id)),
+  }));
+};
 
 /** Forgets the patrols of Live scheduled, once a test ran them. */
 export const forgetScheduledPatrols = () => {

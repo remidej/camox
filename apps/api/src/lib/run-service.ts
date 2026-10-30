@@ -16,6 +16,7 @@ import { PUSH_REFUSED_ERROR } from "../domains/code-pushes/refusal";
 import { catchUpReleaseWrites } from "../domains/drafts/catch-up";
 import { requestOverviewsOfWrites } from "../domains/drafts/overview";
 import { requestChecksOfWrites } from "../domains/patrol/checks";
+import { reportFixedLinks } from "../domains/patrol/fixed-links";
 import { proofreadReleaseWrites } from "../domains/patrol/proofreader";
 import { translateWrites } from "../domains/translations/service";
 import { aiServices, type AiServices } from "./ai-adapters";
@@ -103,6 +104,7 @@ export async function runService<A>(
       Effect.andThen(proofreadReleaseWrites()),
       Effect.andThen(requestOverviewsOfWrites()),
       Effect.andThen(requestChecksOfWrites()),
+      Effect.andThen(reportFixedLinks()),
     ),
   );
   const exit = await Effect.runPromiseExit(

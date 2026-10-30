@@ -21,7 +21,7 @@ import {
  */
 export const runAiJob = (db: Database, job: AiJob) => {
   if (isOverviewJob(job)) return runOverviewJob(db, job);
-  if (isPatrolJob(job)) return runPatrolJob(db, job).pipe(Effect.asVoid);
+  if (isPatrolJob(job)) return runPatrolJob(db, job);
   // A catch-up draft Camox publishes once its checks settled too (ADR 0033).
   if (isCheckJob(job)) {
     return runCheckJob(db, job).pipe(Effect.andThen(publishWhenTranslated(db, job.draftId)));

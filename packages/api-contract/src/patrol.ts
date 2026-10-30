@@ -21,6 +21,7 @@ export type ReportVerb =
   | "describedFile"
   | "publishedCatchUp"
   | "removedLink"
+  | "fixedLink"
   | "fixedMistake";
 
 /** What a report can be about. */
@@ -134,6 +135,38 @@ export type FindingView = {
   /** Where its content shows, as for reports. */
   place: ReportPlace | null;
 };
+
+/** What a finding is about, after where it is: "links to About, a page that no longer exists". */
+function aboutSentence(about: FindingAbout): string {
+  switch (about.kind) {
+    case "missingPage":
+      return about.page === null
+        ? "links to a page that no longer exists"
+        : `links to ${about.page}, a page that no longer exists`;
+    case "brokenLink": {
+      const { failure } = about;
+      const how =
+        failure.kind === "status"
+          ? `answers with an error (${failure.status})`
+          : failure.kind === "timeout"
+            ? "doesn't answer in time"
+            : "can't be reached";
+      return `links to ${about.url}, which ${how}`;
+    }
+    case "misspelling":
+      return "may be misspelled";
+    case "grammar":
+      return "may be a grammar mistake";
+  }
+}
+
+/**
+ * A finding as one sentence, as the studio, emails, Briefs and refusals word it: "“About us” in
+ * Footer links to About, a page that no longer exists".
+ */
+export function findingSentence(finding: Pick<FindingView, "about" | "subject">): string {
+  return `“${finding.about.text}” in ${finding.subject.name} ${aboutSentence(finding.about)}`;
+}
 
 /** A member's dismissal of what a finding was about: no finding like it is raised again. */
 export type DismissalView = {

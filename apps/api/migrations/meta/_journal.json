@@ -379,6 +379,13 @@
       "when": 1793332279872,
       "tag": "0053_live_proofreading_requests",
       "breakpoints": true
+    },
+    {
+      "idx": 54,
+      "version": "6",
+      "when": 1793333829889,
+      "tag": "0054_live_findings_handed",
+      "breakpoints": true
     }
   ]
 }

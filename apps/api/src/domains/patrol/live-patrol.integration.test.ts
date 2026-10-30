@@ -17,6 +17,7 @@ import {
   seedLive,
 } from "../../../test/fixtures";
 import {
+  answerEvery,
   forgetScheduledChecks,
   forgetScheduledPatrols,
   scheduledChecks,
@@ -30,7 +31,7 @@ import {
   forgetThreadModel,
   threadModelCalls,
 } from "../../../test/thread-model";
-import { connectDraftThread, said as saidIn, signIn } from "../../../test/threads";
+import { connectDraftThread, said as saidIn, signIn, threadIdOf } from "../../../test/threads";
 import app from "../../index";
 import { runAiJob } from "../../lib/ai-jobs";
 import { runService } from "../../lib/run-service";
@@ -399,7 +400,7 @@ describe("the Patrol Draft", () => {
     expect(brief).toEqual({
       from: "camox",
       text: expect.stringContaining(
-        `“About us” in ${subject.name} links to a page, which no longer exists`,
+        `“About us” in ${subject.name} links to a page that no longer exists`,
       ),
     });
     expect(answer).toEqual({ from: "agent", text: "I'll look into it." });
@@ -424,7 +425,7 @@ describe("the Patrol Draft", () => {
       {
         from: "camox",
         text: expect.stringContaining(
-          `“Our team” in ${subject.name} links to a page, which no longer exists`,
+          `“Our team” in ${subject.name} links to a page that no longer exists`,
         ),
       },
       { from: "agent", text: "On that one too." },
@@ -482,6 +483,29 @@ describe("the Patrol Draft", () => {
     expect(await f.findings()).toHaveLength(1);
   });
 
+  it("has the Link checker report a broken Live link its agent leads elsewhere as fixed there", async () => {
+    const f = await fixture();
+    const url = outsideUrl("moved");
+    await answerLink(url, { status: 404 });
+    const footer = await f.liveFooter({ link: external(url, "Partners") });
+    // The link's first failure raises nothing yet.
+    await patrolLive(f.db);
+    const link = external(outsideUrl("new-home"), "Partners");
+    answerWithScript(
+      `await tools.editBlock({ id: ${JSON.stringify(footer.id)}, content: { link: ${JSON.stringify(link)} } });`,
+    );
+    answerNext("Partners moved: I pointed the link to its new address.");
+
+    await patrolLive(f.db);
+
+    const [draft] = await f.drafts();
+    await (await f.threadOf(draft!.id, 2)).close();
+    const { reports } = await f.linkChecker(inDraft(draft!.id));
+    expect(reports.map(({ summary }) => summary.kind === "structured" && summary.verb)).toEqual([
+      "fixedLink",
+    ]);
+  });
+
   it("is never published by Camox, even once its checks settle with nothing to hold it", async () => {
     const f = await fixture();
     await f.goneLink("about", "About us");
@@ -525,7 +549,14 @@ describe("the email about Live's new findings", () => {
 
     await f.goneLink("about", "About us");
     await f.goneLink("team", "Our team");
-    answerNext("On it.");
+    // The agent applies the fixes it's handed: the broken link has none, so it's left for a person.
+    answerWithScript(`
+      const { findings } = await tools.listFindings({});
+      for (const finding of findings) {
+        if (finding.fix) await tools.applyFindingFix({ findingId: finding.id });
+      }
+    `);
+    answerNext("I removed the links to missing pages. Where does Partners lead now?");
     await patrolLive(f.db);
 
     const [draft] = await f.drafts();
@@ -535,14 +566,82 @@ describe("the email about Live's new findings", () => {
       expect(emails).toHaveLength(1);
       const [{ subject, text, html }] = emails as [(typeof emails)[number]];
       expect(subject).toBe("The Link checker found 3 new problems on Test project");
-      expect(text).toContain("“About us” in footer links to a page, which no longer exists");
-      expect(text).toContain(`“Partners” in footer links to ${url}, which doesn't work`);
-      // Links to missing pages have a fix the agent applies; the broken link is left for a person.
-      expect(text).toContain("1 needs you");
+      expect(text).toContain("“About us” in footer links to a page that no longer exists");
+      expect(text).toContain(
+        `“Partners” in footer links to ${url}, which answers with an error (404)`,
+      );
+      expect(text).toContain("Camox's agent fixed 2 in the Patrol Draft. 1 needs you");
       expect(text).toContain(studioLink);
       expect(html).toContain(studioLink);
     }
     expect(await emailsTo(f.outsiderUser.email)).toEqual([]);
+  });
+
+  it("says each finding needs a person when the agent's turn fixed none", async () => {
+    const f = await fixture();
+    await f.goneLink("about", "About us");
+    await f.goneLink("team", "Our team");
+    answerNext("Which pages should these lead to now?");
+
+    await patrolLive(f.db);
+
+    const [email] = await emailsTo(f.memberUser.email);
+    expect(email!.text).toContain(
+      "Camox's agent couldn't fix them in the Patrol Draft. 2 need you",
+    );
+  });
+
+  it("is one per run, whichever patrollers found something new", async () => {
+    const f = await fixture();
+    answerEvery("proofread", ({ texts }) =>
+      texts.flatMap(({ key, text }) =>
+        text.includes("recieve")
+          ? [{ key, kind: "misspelling" as const, original: "recieve", replacement: "receive" }]
+          : [],
+      ),
+    );
+    await f.liveFooter({ body: "We recieve every letter." });
+    await f.goneLink("about", "About us");
+    answerNext("On it.");
+
+    // The Proofreader arrives in the project on its first run, beside the Link checker.
+    await patrolLive(f.db);
+
+    const emails = await emailsTo(f.memberUser.email);
+    expect(emails.map((email) => email.subject)).toEqual([
+      "The Link checker and the Proofreader found 2 new problems on Test project",
+    ]);
+    expect(emails[0]!.text).toContain("“About us” in footer links to a page that no longer exists");
+    expect(emails[0]!.text).toContain("“recieve” in footer may be misspelled");
+  });
+
+  it("waits for the findings the Patrol Draft's thread didn't take, until a run hands them", async () => {
+    const f = await fixture();
+    await f.goneLink("about", "About us");
+    answerNext("On it.");
+    await patrolLive(f.db);
+    const [first] = await f.drafts();
+    // The draft's thread stops taking messages, as one failing would.
+    await env.THREAD.getByName((await threadIdOf(f.db, first!.id))!).end();
+
+    await f.goneLink("team", "Our team");
+    await patrolLive(f.db);
+    const about = (text: string) =>
+      emailsTo(f.memberUser.email).then((emails) =>
+        emails.filter((sent) => sent.text.includes(text)),
+      );
+    expect(await about("Our team")).toEqual([]);
+
+    // Once a member deleted that draft, the next run opens another and hands it what's left.
+    await call(router.drafts.delete, { projectId: f.projectId }, f.member(inDraft(first!.id)));
+    answerNext("On it.");
+    await patrolLive(f.db);
+    const [second] = await f.drafts();
+    const [brief] = saidIn((await f.threadOf(second!.id, 2)).view());
+    expect(brief!.text).toContain("“Our team”");
+    expect(brief!.text).not.toContain("“About us”");
+    expect(await about("Our team")).toHaveLength(1);
+    expect(await about("About us")).toHaveLength(1);
   });
 
   it("isn't sent again for findings members were told about", async () => {

@@ -171,6 +171,10 @@ export const proofreader: Patroller = {
 /** Every patroller, in the order the Patrol lists those that never worked. */
 export const PATROLLERS: readonly Patroller[] = [translator, seoManager, linkChecker, proofreader];
 
+/** The patroller of an id: the registry has every one. */
+export const patrollerById = (id: PatrollerId): Patroller =>
+  PATROLLERS.find((patroller) => patroller.id === id)!;
+
 /**
  * A patroller's duty on Live. While a catch-up draft is open, its work is Live's (ADR 0017), so a
  * patroller writing content, off on Live, is on duty there as it is in drafts. One checking at
