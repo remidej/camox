@@ -1,3 +1,4 @@
+import { listDurableObjectIds, runInDurableObject } from "cloudflare:test";
 import { env } from "cloudflare:workers";
 
 import { pushToMain } from "./pushes";
@@ -143,3 +144,14 @@ export const lintRuns = async (draftId: string) =>
   (await revisionFakes.revisionCommands(draftId)).filter(({ command }) =>
     command.includes("vp lint"),
   ).length;
+
+/**
+ * Cancels the build retries Camox scheduled for the drafts (`DraftCode.oweBuild`). Left alone, one
+ * fires in a later test, and runs alongside it.
+ */
+export async function cancelOwedBuilds() {
+  const drafts = env.DRAFT_CODE;
+  for (const id of await listDurableObjectIds(drafts)) {
+    await runInDurableObject(drafts.get(id), (_draft, state) => state.storage.deleteAlarm());
+  }
+}

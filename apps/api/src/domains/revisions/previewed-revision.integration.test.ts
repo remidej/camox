@@ -8,6 +8,7 @@ import { afterEach, describe, expect, it, onTestFinished, vi } from "vite-plus/t
 import { createRpcContext, createSessionFixture, startDraft } from "../../../test/fixtures";
 import { sentTo } from "../../../test/project-rooms";
 import { pushToMain } from "../../../test/pushes";
+import { cancelOwedBuilds } from "../../../test/revision-builds";
 import { answerFrom, answerWithToolCall, forgetThreadModel } from "../../../test/thread-model";
 import {
   ask,
@@ -57,6 +58,7 @@ const previews = (
 const builds = (env as unknown as { REVISION_BUILDS: R2Bucket }).REVISION_BUILDS;
 
 afterEach(async () => {
+  await cancelOwedBuilds();
   vi.restoreAllMocks();
   await abortAllDurableObjects();
   forgetThreadModel();
