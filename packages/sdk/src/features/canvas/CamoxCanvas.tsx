@@ -14,7 +14,7 @@ import { useViewLocale } from "../../lib/view-locale-context";
 import { NavigationProvider, useLocation, useNavigate } from "../navigation/navigation";
 import { CuratedBlockShortcuts } from "../preview/components/PreviewPanel";
 import type { ReleaseEditingFrame } from "../preview/editingFrame";
-import { getPageRecord, PageRecordContext } from "../preview/pageRecord";
+import { PageRecordContext } from "../preview/pageRecord";
 import { CMS_SIDEBAR_WIDTH } from "../preview/previewConstants";
 import {
   CANVAS_CHROME_Z_INDEX,
@@ -878,7 +878,6 @@ export function CamoxCanvas({ runtimeBasePath }: { runtimeBasePath: string }) {
   const recordResult = derivedLayoutIdOf(intendedPage)
     ? intendedFrameInput?.derived?.result
     : undefined;
-  const pageRecord = getPageRecord(recordResult);
   usePreparationFailure(
     (!project.isFetching ? project.error : null) ?? (!pages.isFetching ? pages.error : null),
   );
@@ -944,7 +943,6 @@ export function CamoxCanvas({ runtimeBasePath }: { runtimeBasePath: string }) {
             }}
             onShowWholeCanvas={() => workspace.current?.showWholeCanvas()}
             owner={editingOwner}
-            pageRecord={pageRecord}
             runtimeBasePath={runtimeBasePath}
           />
         </PageRecordContext>

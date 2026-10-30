@@ -175,7 +175,7 @@ async function setup({ motion = false } = {}) {
       url: string,
       page: CanvasPage | undefined,
       navigator: Partial<CanvasNavigator> = {},
-      { owner, pageRecord }: Pick<ContentSidebarProps, "owner" | "pageRecord"> = {},
+      { owner }: Pick<ContentSidebarProps, "owner"> = {},
     ) {
       const { pathname, search, hash } = new URL(url, "https://camox.test");
       await React.act(async () => {
@@ -193,7 +193,6 @@ async function setup({ motion = false } = {}) {
                   navigator={{ pages: [], onShowPage: () => {}, ...navigator }}
                   onShowWholeCanvas={() => canvasShown++}
                   owner={owner}
-                  pageRecord={pageRecord}
                   runtimeBasePath=""
                 />
                 <main>Canvas stays visible</main>
@@ -296,10 +295,10 @@ void test("singleton and derived layout sidebars load shared layouts, seed their
   const dom = await setup();
   dom.store.send({ type: "showCanvas" });
   try {
-    for (const [path, page, notice] of [
-      ["/about", singleton, /Fixed page structure.*Edit this page’s blocks here/],
-      ["/articles/hello%20world", derivedPage, /Shared layout blocks.*generated page content/],
-      ["/articles/another", derivedPage, /Shared layout blocks.*generated page content/],
+    for (const [path, page] of [
+      ["/about", singleton],
+      ["/articles/hello%20world", derivedPage],
+      ["/articles/another", derivedPage],
     ] as const) {
       await dom.render(path, page);
       await dom.settle();
@@ -311,7 +310,6 @@ void test("singleton and derived layout sidebars load shared layouts, seed their
         ],
         "a layout page shows its layout's blocks, then its SEO and Markdown",
       );
-      assert.match(dom.mount.textContent, notice);
       const sidebar = dom.mount.querySelector('[data-panel="LayoutPageBlocks"]')!;
       assert.equal(sidebar.getAttribute("data-id"), page.layoutId);
       assert.equal(sidebar.getAttribute("data-path"), path);
@@ -341,7 +339,6 @@ void test("singleton and derived layout sidebars load shared layouts, seed their
 void test("loading and failed sidebar requests leave the canvas visible; another URL recovers", async () => {
   const dom = await setup();
   let reject!: (reason: Error) => void;
-  // A layout page's notice is an alert too.
   const failure = () =>
     [...dom.mount.querySelectorAll('[role="alert"]')]
       .map((alert) => alert.textContent)
@@ -424,12 +421,11 @@ void test("a view that goes stays out of reach while it moves away, then leaves 
   }
 });
 
-void test("a record page's selected record opens the editor, and its notice says where the record is edited", async () => {
+void test("a record page's selected record opens the editor, and clearing it shows the overview", async () => {
   const dom = await setup();
   dom.store.send({ type: "showCanvas" });
   const owner: EditingOwner = { kind: "layout", layoutId: "articles.$slug" };
-  const pageRecord = { collectionId: "articles", id: "article" };
-  const render = () => dom.render("/articles/hello", derivedPage, {}, { owner, pageRecord });
+  const render = () => dom.render("/articles/hello", derivedPage, {}, { owner });
   try {
     // No block places a record page's record.
     dom.store.send({
@@ -447,10 +443,6 @@ void test("a record page's selected record opens the editor, and its notice says
       ["LayoutPageBlocks", "articles.$slug"],
       ["LayoutPageSeo", "articles.$slug"],
     ]);
-    assert.match(
-      dom.mount.textContent,
-      /Select this page’s content in the preview to edit its record/,
-    );
   } finally {
     await dom.close();
   }
