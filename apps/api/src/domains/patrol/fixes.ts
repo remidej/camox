@@ -1,4 +1,4 @@
-import type { ApplyResult } from "@camox/api-contract/patrol";
+import type { ApplyResult, FindingFix } from "@camox/api-contract/patrol";
 import { and, eq } from "drizzle-orm";
 import { Effect } from "effect";
 import { z } from "zod";
@@ -12,14 +12,15 @@ import { updateBlockContent } from "../blocks/service";
 import { sharedPlacementId } from "../blocks/shared-content";
 import { editRecord } from "../collections/service";
 import { accessTo } from "../drafts/access";
-import { holderOf } from "../drafts/content-checks";
+import { type Holder, holderOf } from "../drafts/content-checks";
 import * as overlay from "../drafts/overlay";
 import { draftIn, draftOf, type Draft } from "../drafts/scope";
 import { defaultLocaleTag } from "../locales/default-locale";
 import { updateRepeatableItemContent } from "../repeatable-items/service";
-import { requestCheck } from "./checks";
-import { dismiss, type FindingRow, resolveFinding } from "./findings";
+import { requestRecheck } from "./checks";
+import { dismiss, type FindingRow, isCheckedEntity, resolveFinding } from "./findings";
 import { PATROLLERS } from "./patrollers";
+import { withReplacement } from "./proofreader";
 import { subjectKey, writeReport } from "./reports";
 import { findings } from "./schema";
 
@@ -98,6 +99,25 @@ const writeField = Effect.fn("patrol.writeField")(function* (
 });
 
 /**
+ * The value of a finding's field once its fix is made, or undefined when the content no longer
+ * holds what the finding is about.
+ */
+function fixedValue(holder: Holder, finding: FindingRow, fix: FindingFix): unknown {
+  const value = (holder.content as Record<string, unknown> | null)?.[finding.field];
+  const { about } = finding;
+  switch (fix.kind) {
+    case "removeLink": {
+      const field = fieldOf(holder.schema, finding.field);
+      return field && "url" in about ? withoutLink(field, value, about.url) : undefined;
+    }
+    case "replaceText":
+      return "sentence" in about
+        ? withReplacement(holder, finding.field, about, fix.replacement)
+        : undefined;
+  }
+}
+
+/**
  * Applies a finding's suggested fix in the request's draft, as the member: only while its
  * content still holds what the finding is about. The finding is then resolved, and its patroller
  * reports the fix. Content that changed since is checked again instead: `applied` is false.
@@ -124,12 +144,12 @@ export const applyFix = Effect.fn("patrol.applyFix")(function* (
     entity: finding.entity,
     id: finding.entityId,
   });
-  const field = holder && fieldOf(holder.schema, finding.field);
-  const content = (holder?.content ?? {}) as Record<string, unknown>;
-  const url = "url" in finding.about ? finding.about.url : null;
-  const fixed = field && url !== null ? withoutLink(field, content[finding.field], url) : undefined;
+  const fixed = holder && fixedValue(holder, finding, finding.fix);
   if (fixed === undefined) {
-    yield* requestCheck(patroller, draft.id, 0);
+    if (isCheckedEntity(finding.entity)) {
+      const { entity, entityId: id, locale } = finding;
+      yield* requestRecheck(ctx.db, patroller, scoped, { entity, id, locale });
+    }
     return { applied: false } satisfies ApplyResult;
   }
   yield* writeField(ctx, scoped, finding, fixed, project.uuid);
@@ -140,7 +160,7 @@ export const applyFix = Effect.fn("patrol.applyFix")(function* (
     key: subjectKey(finding.entity, finding.entityId, finding.locale),
     summary: {
       kind: "structured",
-      verb: "removedLink",
+      verb: finding.fix.kind === "removeLink" ? "removedLink" : "fixedMistake",
       subject: { entity: finding.entity, id: finding.entityId },
       locale: finding.locale,
     },

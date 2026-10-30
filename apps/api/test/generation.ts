@@ -62,6 +62,7 @@ const scriptedModel = AiModel.of({
   translate: (request) => answer("translate", request),
   merge: (request) => answer("merge", request),
   draftOverview: (request) => answer("draftOverview", request),
+  proofread: (request) => answer("proofread", request),
 });
 
 /**

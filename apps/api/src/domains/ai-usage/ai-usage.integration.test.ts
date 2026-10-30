@@ -11,7 +11,13 @@ import {
   createRpcContext,
   syncDefinitionSet,
 } from "../../../test/fixtures";
-import { answerNext, modelAttributions } from "../../../test/generation";
+import {
+  answerNext,
+  forgetScheduledChecks,
+  modelAttributions,
+  scheduledChecks,
+} from "../../../test/generation";
+import { runAiJob } from "../../lib/ai-jobs";
 import { writeUsageRecord } from "../../lib/ai-usage";
 import { runService } from "../../lib/run-service";
 import { router } from "../../router";
@@ -98,6 +104,20 @@ describe("an AI call's attribution", () => {
     await runService(runGenerationJob(db, { entity: "block", entityId: block.id, draftId: null }));
 
     expect(attributed("summarize")).toEqual([{ ...camox, draftId: null, patroller: null }]);
+  });
+
+  it("names the Proofreader proofreading a draft", async () => {
+    const { db, startDraft, attributed, camox } = await fixture();
+    const draft = await startDraft();
+
+    answerNext("proofread", []);
+    const checks = scheduledChecks(draft);
+    forgetScheduledChecks(draft);
+    for (const job of checks) await runService(runAiJob(db, job));
+
+    expect(attributed("proofread")).toEqual([
+      { ...camox, draftId: draft, patroller: "proofreader" },
+    ]);
   });
 
   it("names Camox alone writing a draft's overview", async () => {

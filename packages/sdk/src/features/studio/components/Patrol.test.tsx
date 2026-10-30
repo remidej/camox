@@ -711,3 +711,67 @@ void test("the popover shows the history of dismissals: what, who, and when", ()
   assert.deepEqual(shown.sections, ["reports", "dismissals"]);
   assert.deepEqual(shown.dismissals("linkChecker"), ["Links to Team: dismissed by Ada 1h"]);
 });
+
+const welcome = { entity: "block" as const, id: "block-2", name: "Welcome" };
+
+const proofreader = (overrides: Partial<PatrollerView> = {}): PatrollerView => ({
+  id: "proofreader",
+  role: "Proofreader",
+  duty: "atPublish",
+  working: null,
+  lastCheckedAt: minutes(1),
+  lastActivityAt: minutes(1),
+  reports: [
+    report("r1", {
+      at: minutes(10),
+      summary: { kind: "structured", verb: "fixedMistake", subject: welcome, locale: "en" },
+    }),
+  ],
+  more: [],
+  findings: [],
+  dismissals: [],
+  ...overrides,
+});
+
+void test("the Proofreader says what it's proofreading, and offers to replace what it flagged", () => {
+  const working = render({
+    patrollers: [
+      proofreader({ working: { subject: welcome, locales: [{ locale: "en", count: 1 }] } }),
+    ],
+  });
+  assert.deepEqual(working.subtitles, ["Proofreading Welcome in English"]);
+
+  const shown = render(
+    {
+      patrollers: [
+        proofreader({
+          findings: [
+            finding(1, {
+              subject: welcome,
+              about: { kind: "misspelling", text: "recieve", sentence: "Guests recieve a gift." },
+              fix: { kind: "replaceText", replacement: "receive" },
+            }),
+            finding(2, {
+              subject: welcome,
+              about: { kind: "grammar", text: "They was", sentence: "They was here." },
+              fix: { kind: "replaceText", replacement: "They were" },
+            }),
+          ],
+        }),
+      ],
+    },
+    { open: "proofreader" },
+  );
+
+  assert.deepEqual(shown.findings("proofreader"), [
+    {
+      says: "“recieve” in Welcome may be misspelled",
+      actions: ["Show", "Replace with “receive”", "Dismiss"],
+    },
+    {
+      says: "“They was” in Welcome may be a grammar mistake",
+      actions: ["Show", "Replace with “They were”", "Dismiss"],
+    },
+  ]);
+  assert.deepEqual(shown.reports("proofreader"), ["Fixed a typo in Welcome in English 10m"]);
+});

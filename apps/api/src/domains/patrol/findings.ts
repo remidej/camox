@@ -8,7 +8,7 @@ import { record } from "../../lib/journal";
 import type * as overlay from "../drafts/overlay";
 import type { Patroller } from "./patrollers";
 import { subjectKey, writeInScope } from "./reports";
-import { findingDismissals, findings } from "./schema";
+import { findingDismissals, findings, proofreadingRequests } from "./schema";
 
 // The one write of findings (ADR 0034), beside reports': every patroller raises and resolves its
 // findings through `writeFindings` when a check settles, and dismissals go through `dismiss`.
@@ -34,7 +34,18 @@ export type RaisedFinding = {
 export type FindingScope = { projectId: number; draftId: string | null };
 
 /** One subject in one locale a check read. */
-export type CheckedSubject = { entity: ReportEntity; id: string; locale: string };
+export type CheckedSubject = {
+  entity: "block" | "sharedContent" | "repeatableItem" | "record";
+  id: string;
+  locale: string;
+};
+
+/** Whether an entity is one checks read: content with fields. */
+export const isCheckedEntity = (entity: string): entity is CheckedSubject["entity"] =>
+  entity === "block" ||
+  entity === "sharedContent" ||
+  entity === "repeatableItem" ||
+  entity === "record";
 
 /**
  * What a check read: everything its patroller checks in the scope, or only some subjects. Its
@@ -209,7 +220,13 @@ export const dismiss = Effect.fn("patrol.dismiss")(function* (
   yield* record(db, { kind: "findings", projectId, draftId: null });
 });
 
-/** Publishing or deleting a draft ends its findings. Dismissals made in it stay. */
+/**
+ * Publishing or deleting a draft ends its findings, and what its checks had left to read.
+ * Dismissals made in it stay.
+ */
 export function endStatements(db: Database, draftId: string): overlay.BatchItem[] {
-  return [db.delete(findings).where(eq(findings.draftId, draftId))];
+  return [
+    db.delete(findings).where(eq(findings.draftId, draftId)),
+    db.delete(proofreadingRequests).where(eq(proofreadingRequests.draftId, draftId)),
+  ];
 }

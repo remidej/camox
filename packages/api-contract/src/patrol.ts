@@ -5,7 +5,7 @@
  */
 
 /** Every patroller's stable id. The registry in the API lists them all. */
-export const PATROLLER_IDS = ["translator", "seoManager", "linkChecker"] as const;
+export const PATROLLER_IDS = ["translator", "seoManager", "linkChecker", "proofreader"] as const;
 
 /** A patroller's stable id. */
 export type PatrollerId = (typeof PATROLLER_IDS)[number];
@@ -20,7 +20,8 @@ export type ReportVerb =
   | "wroteSeo"
   | "describedFile"
   | "publishedCatchUp"
-  | "removedLink";
+  | "removedLink"
+  | "fixedMistake";
 
 /** What a report can be about. */
 export type ReportEntity =
@@ -107,8 +108,11 @@ export type LinkFailure =
 
 export type FindingKind = FindingAbout["kind"];
 
-/** The fix a finding suggests, which applying makes: removing the link, keeping its text. */
-export type FindingFix = { kind: "removeLink" };
+/**
+ * The fix a finding suggests, which applying makes: removing the link, keeping its text, or
+ * replacing the flagged text with `replacement` in its sentence, keeping its formatting.
+ */
+export type FindingFix = { kind: "removeLink" } | { kind: "replaceText"; replacement: string };
 
 /** A finding, open, in the scope viewed. */
 export type FindingView = {

@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "462aff86-75e6-4ae5-9840-88b6f3f4cee8",
+  "id": "9dc6b899-b40b-4ffa-b102-9c57088286e7",
   "prevId": "fe8c783f-d5cb-4724-a676-20bbf6d565ca",
   "tables": {
     "account": {
@@ -4825,74 +4825,6 @@
       "uniqueConstraints": {},
       "checkConstraints": {}
     },
-    "link_checks": {
-      "name": "link_checks",
-      "columns": {
-        "row_id": {
-          "name": "row_id",
-          "type": "integer",
-          "primaryKey": true,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "project_id": {
-          "name": "project_id",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "url": {
-          "name": "url",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "failure": {
-          "name": "failure",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "failures": {
-          "name": "failures",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "checked_at": {
-          "name": "checked_at",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        }
-      },
-      "indexes": {
-        "link_checks_url_idx": {
-          "name": "link_checks_url_idx",
-          "columns": ["project_id", "url"],
-          "isUnique": true
-        }
-      },
-      "foreignKeys": {
-        "link_checks_project_id_projects_id_fk": {
-          "name": "link_checks_project_id_projects_id_fk",
-          "tableFrom": "link_checks",
-          "tableTo": "projects",
-          "columnsFrom": ["project_id"],
-          "columnsTo": ["id"],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "checkConstraints": {}
-    },
     "patrol_checks": {
       "name": "patrol_checks",
       "columns": {
@@ -4966,6 +4898,102 @@
         "patrol_checks_draft_id_drafts_id_fk": {
           "name": "patrol_checks_draft_id_drafts_id_fk",
           "tableFrom": "patrol_checks",
+          "tableTo": "drafts",
+          "columnsFrom": ["draft_id"],
+          "columnsTo": ["id"],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
+    "proofreading_requests": {
+      "name": "proofreading_requests",
+      "columns": {
+        "row_id": {
+          "name": "row_id",
+          "type": "integer",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "project_id": {
+          "name": "project_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "draft_id": {
+          "name": "draft_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "entity": {
+          "name": "entity",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "entity_id": {
+          "name": "entity_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "locale": {
+          "name": "locale",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "requested_at": {
+          "name": "requested_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "started_at": {
+          "name": "started_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "proofreading_requests_key_idx": {
+          "name": "proofreading_requests_key_idx",
+          "columns": ["draft_id", "entity", "entity_id", "locale"],
+          "isUnique": true
+        },
+        "proofreading_requests_project_idx": {
+          "name": "proofreading_requests_project_idx",
+          "columns": ["project_id"],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {
+        "proofreading_requests_project_id_projects_id_fk": {
+          "name": "proofreading_requests_project_id_projects_id_fk",
+          "tableFrom": "proofreading_requests",
+          "tableTo": "projects",
+          "columnsFrom": ["project_id"],
+          "columnsTo": ["id"],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "proofreading_requests_draft_id_drafts_id_fk": {
+          "name": "proofreading_requests_draft_id_drafts_id_fk",
+          "tableFrom": "proofreading_requests",
           "tableTo": "drafts",
           "columnsFrom": ["draft_id"],
           "columnsTo": ["id"],

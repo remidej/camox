@@ -59,5 +59,7 @@ export function fixLabel(fix: FindingFix): string {
   switch (fix.kind) {
     case "removeLink":
       return "Remove the link";
+    case "replaceText":
+      return `Replace with ${quoted(fix.replacement)}`;
   }
 }
