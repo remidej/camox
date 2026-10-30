@@ -30,8 +30,8 @@ import { CANVAS_HEADER_HEIGHT, CANVAS_PAGE_FIT_PADDING } from "./canvasCamera";
 import { canvasBlockOverlap } from "./canvasFrameDocument";
 import { useCanvasFrameMode, type CanvasFrameMode } from "./canvasFrameMode";
 import {
-  CANVAS_ITEM_GAP,
   CANVAS_SLOT_WIDTH,
+  canvasItemGap,
   canvasSnapTargets,
   positionCanvasPages,
 } from "./canvasItems";
@@ -81,6 +81,25 @@ const CANVAS_INSETS: CanvasInsets = {
   bottom: 8,
   left: CMS_SIDEBAR_WIDTH,
 };
+
+function subscribeToWindowWidth(onChange: () => void) {
+  window.addEventListener("resize", onChange);
+  return () => window.removeEventListener("resize", onChange);
+}
+
+/**
+ * The gap between Pages in the Canvas row. The Canvas spans the window, so the gap follows the
+ * window's width. It reads the window from the first render, before the camera measures the Canvas.
+ */
+function useCanvasItemGap() {
+  const windowWidth = React.useSyncExternalStore(
+    subscribeToWindowWidth,
+    () => window.innerWidth,
+    () => 0,
+  );
+  const width = Math.max(0, windowWidth - CANVAS_INSETS.left - CANVAS_INSETS.right);
+  return canvasItemGap({ width, height: 0 }, CANVAS_INSETS.right);
+}
 
 function usePreparationFailure(error: Error | null, selected = true) {
   const preparation = React.useContext(PreviewPreparationContext);
@@ -626,7 +645,8 @@ function CanvasWorkspace({
   const [previewPathnames, setPreviewPathnames] = React.useState<Partial<Record<string, string>>>(
     {},
   );
-  const { items, width } = positionCanvasPages(pages);
+  const gap = useCanvasItemGap();
+  const { items, width } = positionCanvasPages(pages, gap);
   // Each Page, keyed like its item, with the pathname its frame previews and its place in the row.
   const pageSlots = new Map(
     items.map(({ key, page, left }) => [
@@ -724,7 +744,7 @@ function CanvasWorkspace({
               // The camera decides when the row is promoted; see PROMOTED_ZOOM_RANGE.
               className="absolute top-0 left-0 flex w-max items-start in-data-[canvas-promoted]:will-change-transform"
               style={{
-                gap: CANVAS_ITEM_GAP,
+                gap,
                 transform: CANVAS_WORLD_TRANSFORM,
                 transformOrigin: "0 0",
               }}
