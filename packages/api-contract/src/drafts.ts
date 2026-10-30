@@ -59,6 +59,21 @@ export const LOOK_CONTENT_PARAM = "content";
 export const LOOK_SETTINGS_PARAM = "settings";
 
 /**
+ * The look document's Layout Definition mode: instead of a page, the curated Layout
+ * `LOOK_LAYOUT_DEFINITION_PARAM` names, alone in the site's shell, its blocks with their default
+ * content and Block Settings and the overrides `LOOK_BLOCKS_PARAM` gives as JSON, by Block
+ * Definition name (`{ navbar: { content, settings } }`), around a labelled placeholder where a
+ * page's content goes, as tall as `LOOK_PLACEHOLDER_PARAM` says: one of `LOOK_PLACEHOLDER_HEIGHTS`,
+ * the first without.
+ */
+export const LOOK_LAYOUT_DEFINITION_PARAM = "layoutDefinition";
+export const LOOK_BLOCKS_PARAM = "blocks";
+export const LOOK_PLACEHOLDER_PARAM = "placeholder";
+/** A short placeholder shows whether the footer rises up the screen; a tall one, scrolling. */
+export const LOOK_PLACEHOLDER_HEIGHTS = ["short", "tall"] as const;
+export type LookPlaceholderHeight = (typeof LOOK_PLACEHOLDER_HEIGHTS)[number];
+
+/**
  * The id of a block shown without being placed, as the look document's Block Definition mode
  * shows it: never a stored block's, which are UUIDs. Its element is
  * `[data-camox-viewport-block="unplaced"]`.

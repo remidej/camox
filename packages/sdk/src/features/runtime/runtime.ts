@@ -3,10 +3,15 @@ import {
   DRAFT_SEARCH_PARAM,
   LOCALE_HEADER,
   LOOK_BLOCK_DEFINITION_PARAM,
+  LOOK_BLOCKS_PARAM,
   LOOK_CONTENT_PARAM,
+  LOOK_LAYOUT_DEFINITION_PARAM,
   LOOK_LOCALE_PARAM,
   LOOK_PATH_PARAM,
+  LOOK_PLACEHOLDER_HEIGHTS,
+  LOOK_PLACEHOLDER_PARAM,
   LOOK_SETTINGS_PARAM,
+  type LookPlaceholderHeight,
   UNPLACED_BLOCK_ID,
 } from "@camox/api-contract/drafts";
 import { QueryClient, dehydrate } from "@tanstack/react-query";
@@ -163,6 +168,20 @@ export interface PageRenderInput extends DraftRead {
    * instead of a page. Its block bundle is in the dehydrated state.
    */
   lookBlock?: string;
+  /**
+   * The look document's Layout Definition mode: the curated Layout it shows around no page, its
+   * blocks' bundles in the dehydrated state, with a placeholder `placeholder` tall where a page's
+   * content goes.
+   */
+  lookLayout?: {
+    layoutId: string;
+    layout: Awaited<
+      ReturnType<ReturnType<typeof createServerApiClient>["layouts"]["getUnplaced"]>
+    >["layout"];
+    placeholder: LookPlaceholderHeight;
+    path: string;
+    projectName: string;
+  };
   /**
    * Whether this is the look document (ADR 0032), whose client only shows the draft: it asks
    * nothing about a session and offers no sign-in, which would add requests to its captures.
@@ -847,7 +866,14 @@ function lookRefused(message: string): Response {
  */
 type LookShown = Pick<
   PageRenderInput,
-  "head" | "href" | "layoutIdentity" | "loaderData" | "pathname" | "lookBlock" | "derived"
+  | "head"
+  | "href"
+  | "layoutIdentity"
+  | "loaderData"
+  | "pathname"
+  | "lookBlock"
+  | "lookLayout"
+  | "derived"
 >;
 
 /** A JSON override of the look document's URL: absent, the value it holds, or why it's refused. */
@@ -885,6 +911,7 @@ async function createLookDocumentResponse(
     return lookNotFound();
   const tag = searchParams.get(LOOK_LOCALE_PARAM)?.toLowerCase();
   const blockDefinition = searchParams.get(LOOK_BLOCK_DEFINITION_PARAM);
+  const layoutDefinition = searchParams.get(LOOK_LAYOUT_DEFINITION_PARAM);
 
   const queryClient = new QueryClient();
   let locales: LocaleView[];
@@ -897,9 +924,11 @@ async function createLookDocumentResponse(
     locale = locales.find((each) => (tag ? each.tag.toLowerCase() === tag : each.isDefault));
     if (!locale) return lookNotFound();
     const reading = { apiUrl, lookToken, draftId, locale, projectUuid, queryClient };
-    shown = blockDefinition
-      ? await lookAtBlockDefinition(request, options, reading, blockDefinition)
-      : await lookAtPage(request, options, reading);
+    shown = layoutDefinition
+      ? await lookAtLayoutDefinition(request, options, reading, layoutDefinition)
+      : blockDefinition
+        ? await lookAtBlockDefinition(request, options, reading, blockDefinition)
+        : await lookAtPage(request, options, reading);
   } catch (error) {
     if (isAuthSessionError(error) || isNotFoundError(error)) return lookNotFound();
     throw error;
@@ -1135,6 +1164,65 @@ async function lookAtBlockDefinition(
     loaderData: null,
     pathname,
     lookBlock: UNPLACED_BLOCK_ID,
+  };
+}
+
+/**
+ * The look document's Layout Definition mode: the curated Layout `layoutId` around no page, its
+ * blocks with their default content and Block Settings and the overrides the URL gives merged on,
+ * by the API, which checks them against their schemas and refuses a Singleton or Derived Layout,
+ * answering its message. Where a page's content goes, a labelled placeholder as tall as the URL
+ * says. Its path is the Locale's home, which links resolve against.
+ */
+async function lookAtLayoutDefinition(
+  request: Request,
+  options: RuntimeOptions,
+  reading: LookReading,
+  layoutId: string,
+): Promise<LookShown | Response> {
+  const { apiUrl, lookToken, draftId, locale, projectUuid, queryClient } = reading;
+  const { searchParams } = new URL(request.url);
+  const blocks = overrideParam(searchParams, LOOK_BLOCKS_PARAM);
+  if (!blocks.ok) return lookRefused(blocks.error);
+  const placeholder = (searchParams.get(LOOK_PLACEHOLDER_PARAM) ??
+    LOOK_PLACEHOLDER_HEIGHTS[0]) as LookPlaceholderHeight;
+  if (!LOOK_PLACEHOLDER_HEIGHTS.includes(placeholder))
+    return lookRefused(`The placeholder is ${LOOK_PLACEHOLDER_HEIGHTS.join(" or ")}.`);
+  const studioCache = createServerStudioCache(queryClient, { apiUrl, lookToken, locale });
+  const inDraft = { in: draftId };
+  let shared: Awaited<
+    ReturnType<ReturnType<typeof createServerApiClient>["layouts"]["getUnplaced"]>
+  >;
+  try {
+    [shared] = await Promise.all([
+      createServerApiClient(apiUrl, { lookToken, draftId, locale }).layouts.getUnplaced({
+        projectUuid,
+        layoutId,
+        blocks: blocks.value as Record<string, { content?: unknown; settings?: unknown }>,
+      }),
+      // Links resolve against the site's pages, which a render can do without.
+      studioCache.ensure(reads.pageList({ projectUuid }), inDraft).catch(() => null),
+    ]);
+  } catch (error) {
+    if (isBadRequestError(error)) return lookRefused((error as Error).message);
+    throw error;
+  }
+  // Its blocks land as a Layout's do, each under its own id.
+  studioCache.land(reads.layoutStructure({ projectUuid, layoutId }), shared, inDraft);
+  const pathname = localizedPath("/", locale);
+  return {
+    head: {},
+    href: lookHref(request, options, pathname, draftId).href,
+    layoutIdentity: null,
+    loaderData: null,
+    pathname,
+    lookLayout: {
+      layoutId,
+      layout: shared.layout,
+      placeholder,
+      path: pathname,
+      projectName: shared.projectName,
+    },
   };
 }
 

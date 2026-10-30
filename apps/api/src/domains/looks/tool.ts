@@ -1,3 +1,4 @@
+import { LOOK_PLACEHOLDER_HEIGHTS } from "@camox/api-contract/drafts";
 import { LOOK_TOOL } from "@camox/api-contract/threads";
 import { Type } from "@earendil-works/pi-ai";
 import { defineTool, type ToolRegistration } from "@earendil-works/pi-durable";
@@ -80,6 +81,46 @@ const BLOCK_DEFINITION_TARGET = Type.Object({
 });
 
 /**
+ * A curated Layout Definition, around no page, captured alone in the site's shell at its first
+ * screen, with a placeholder where a page's content goes.
+ */
+const LAYOUT_DEFINITION_TARGET = Type.Object({
+  layoutDefinition: Type.String({
+    description:
+      "The curated Layout's id. Its blocks show their default content and Block Settings, " +
+      "with the overrides below merged on, around a labelled, hatched placeholder where a " +
+      "page's content goes. Nothing editors see changes. A Singleton or Derived Layout is " +
+      "looked at by its pages' paths instead.",
+  }),
+  placeholder: Type.Optional(
+    Type.Union(
+      LOOK_PLACEHOLDER_HEIGHTS.map((height) => Type.Literal(height)),
+      {
+        description:
+          "How tall the placeholder is: `short` by default, to see whether the footer rises " +
+          "up the screen; `tall`, to see the Layout with more than a screen of content.",
+      },
+    ),
+  ),
+  blocks: Type.Optional(
+    Type.Record(
+      Type.String(),
+      Type.Object({
+        content: Type.Optional(Type.Unknown({ description: "Content overrides, as above." })),
+        settings: Type.Optional(Type.Unknown({ description: "Block Setting overrides." })),
+      }),
+      {
+        description:
+          "Overrides for the Layout's blocks, by Block Definition name, such as " +
+          "`{ navbar: { content: { links: [...] } } }`, in the shape a Block Definition " +
+          "target takes them.",
+      },
+    ),
+  ),
+  ...CAPTURE_OPTIONS,
+});
+
+/**
  * What one result says beside its image, as a line of JSON: the target it captured, at which
  * size, and whether its image was cut, or why it failed.
  */
@@ -120,8 +161,9 @@ export const lookTool = (
     description:
       "See the draft as visitors will, in a real browser, at each target's sizes. A target is " +
       "a page, curated or of a Singleton or Derived Layout, captured at its first screen; one block on a page, captured with the page " +
-      "around it; or a Block Definition, captured alone, with overrides to try its variants " +
-      "and edge cases. Look at all you need in one call: its targets render in parallel, at " +
+      "around it; a Block Definition, captured alone, with overrides to try its variants " +
+      "and edge cases; or a curated Layout Definition, captured alone at its first screen " +
+      "around a placeholder for page content, with overrides for its blocks. Look at all you need in one call: its targets render in parallel, at " +
       `most ${LOOK_IMAGE_CAP} images per call. Content shows as the draft has it now; code ` +
       "shows as the draft's preview has it, so after code changes call `build` first. " +
       "Returns, for each target and size, a line of JSON naming it, then either what the page " +
@@ -129,7 +171,10 @@ export const lookTool = (
       "failed requests) and the image, or the `error` that target alone hit. `cut` says a " +
       "block was taller than two screens: its image shows the top only.",
     parameters: Type.Object({
-      targets: Type.Array(Type.Union([PAGE_TARGET, BLOCK_DEFINITION_TARGET]), { minItems: 1 }),
+      targets: Type.Array(
+        Type.Union([PAGE_TARGET, BLOCK_DEFINITION_TARGET, LAYOUT_DEFINITION_TARGET]),
+        { minItems: 1 },
+      ),
     }),
     async execute({ targets }, api, context) {
       const looked = await look(targets as LookTarget[], { api, context });

@@ -132,10 +132,25 @@ const article = createLayout("articles.$slug")({
   toTitle: ({ page }) => page.title,
   toDescription: () => undefined,
 });
+/** A curated Layout placing an offer before its pages' content. */
+const site = createLayout("site")({
+  title: "Site",
+  description: "",
+  kind: "curated",
+  blocks: { before: [offer], after: [] },
+  toReact: ({ children }: { children: React.ReactNode }): React.ReactElement => (
+    <>
+      <site.BeforeBlocks />
+      <div className="site-content">{children}</div>
+    </>
+  ),
+  toTitle: () => "Site",
+  toDescription: () => undefined,
+});
 const camoxApp = createApp({
   blocks: [hero as unknown as Block, banner as unknown as Block, offer as unknown as Block],
   collections: [articles],
-  layouts: [offers, article],
+  layouts: [offers, article, site],
 });
 const layoutBannerId = "0199f0a0-0000-7000-8000-000000000003";
 const articleId = "0199f0a0-0000-7000-8000-000000000004";
@@ -230,6 +245,48 @@ function mockApi(t: { mock: { method: typeof test.mock.method } }) {
           { status: 400 },
         );
       return Response.json({ json: unplacedBanner });
+    }
+    if (url.pathname.endsWith("/layouts/getUnplaced")) {
+      const { json } = (await request.clone().json()) as {
+        json: { layoutId: string; blocks?: { offer?: { content?: { title?: string } } } };
+      };
+      if (json.layoutId === "offers")
+        return Response.json(
+          {
+            json: {
+              defined: true,
+              code: "BAD_REQUEST",
+              status: 400,
+              message: '"offers" is a Singleton Layout: look at its page, by its path, instead.',
+            },
+          },
+          { status: 400 },
+        );
+      if (json.layoutId !== "site")
+        return Response.json(
+          { json: { defined: true, code: "NOT_FOUND", status: 404, message: "No such Layout" } },
+          { status: 404 },
+        );
+      const id = "unplaced-before-offer";
+      return Response.json({
+        json: {
+          projectName: project.name,
+          project,
+          layout: { layoutId: "site", beforeBlockIds: [id], afterBlockIds: [] },
+          blocks: [
+            {
+              id,
+              type: "offer",
+              content: { title: json.blocks?.offer?.content?.title ?? "", visual: ARTIFACT },
+              settings: {},
+              slot: "before",
+              position: "a0",
+            },
+          ],
+          files: [],
+          repeatableItems: [],
+        },
+      });
     }
     if (url.pathname.endsWith("/listBySlug"))
       return pageListResponse([
@@ -613,4 +670,82 @@ void test("answers why when a Derived Layout's loader finds nothing at the path"
 
 void test("hydrates a Singleton Layout's page, then marks itself ready once its Artifacts loaded", async (t) => {
   await assertHydratesThenReady(t, "path=/offers");
+});
+
+// The Layout Definition mode: a curated Layout, around no page, alone in the site's shell, its
+// blocks with their default content and overrides merged on, around a placeholder where a page's
+// content goes.
+
+const SITE_TARGET = query({
+  layoutDefinition: "site",
+  placeholder: "short",
+  blocks: { offer: { content: { title: "Spring offer" } } },
+});
+
+/** The look document's placeholder for a page's content, in `html`. */
+const placeholderIn = (html: string) =>
+  /<div[^>]*data-camox-look-placeholder[^>]*>.*?<\/div>/s.exec(html)?.[0];
+
+void test("renders a curated Layout alone in the site's shell, its blocks with the overrides, around a labelled placeholder for page content", async (t) => {
+  const received = mockApi(t);
+  const { response, html } = await look({ target: SITE_TARGET });
+
+  assert.equal(response.status, 200);
+  assert.match(html, /<aside><h2><span>Spring offer<\/span><\/h2>/);
+  // The placeholder stands where the Layout puts a page's content, after its blocks.
+  assert.match(html, /<div class="site-content"><div[^>]*data-camox-look-placeholder/);
+  assert.match(placeholderIn(html) ?? "", /Page content/);
+  assert.doesNotMatch(html, /Draft title|Live title/, "no page's content");
+  assert.match(html, /<link rel="stylesheet" href="\/site.css">/);
+  assert.match(response.headers.get("Cache-Control") ?? "", /no-store/);
+
+  const [asked, ...others] = received.filter((request) =>
+    new URL(request.url).pathname.endsWith("/layouts/getUnplaced"),
+  );
+  assert.equal(others.length, 0);
+  assert.equal(asked!.headers.get(DRAFT_HEADER), DRAFT);
+  assert.equal(asked!.headers.get(LOOK_TOKEN_HEADER), TOKEN);
+  const { json } = (await asked!.json()) as { json: Record<string, unknown> };
+  assert.deepEqual(json, {
+    projectUuid: "test",
+    layoutId: "site",
+    blocks: { offer: { content: { title: "Spring offer" } } },
+  });
+});
+
+void test("renders a short or a tall placeholder, a short one without any", async (t) => {
+  mockApi(t);
+  /** How tall the look document's placeholder stands. */
+  const heightOf = async (placeholder?: string) => {
+    const target = query({ layoutDefinition: "site", ...(placeholder && { placeholder }) });
+    const shown = placeholderIn((await look({ target })).html) ?? "";
+    return /min-height:\s*([^;"]+)/.exec(shown)?.[1];
+  };
+  const [short, tall, unsaid] = [await heightOf("short"), await heightOf("tall"), await heightOf()];
+  assert.ok(short && tall);
+  assert.notEqual(short, tall);
+  assert.equal(unsaid, short);
+});
+
+void test("answers a Layout the API refuses with its message, an unknown one with nothing, and a placeholder of no height with why", async (t) => {
+  mockApi(t);
+  const refused = await look({ target: query({ layoutDefinition: "offers" }) });
+  assert.equal(refused.response.status, 422);
+  assert.match(refused.html, /Singleton Layout/);
+
+  const unknown = await look({ target: query({ layoutDefinition: "landing" }) });
+  assert.equal(unknown.response.status, 404);
+
+  const heightless = await look({
+    target: query({ layoutDefinition: "site", placeholder: "huge" }),
+  });
+  assert.equal(heightless.response.status, 422);
+  assert.match(heightless.html, /short|tall/);
+
+  const malformed = await look({ target: "layoutDefinition=site&blocks=%7Bnope" });
+  assert.equal(malformed.response.status, 422);
+});
+
+void test("hydrates a curated Layout around its placeholder, then marks itself ready once its Artifacts loaded", async (t) => {
+  await assertHydratesThenReady(t, SITE_TARGET);
 });
