@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 
 import { createRpcContext, startDraft } from "../../../test/fixtures";
 import { pushToMain } from "../../../test/pushes";
+import { cancelOwedBuilds } from "../../../test/revision-builds";
 import { answerFrom, answerWithToolCall, forgetThreadModel } from "../../../test/thread-model";
 import {
   ask,
@@ -44,6 +45,7 @@ type Fakes = {
 const fakes = (env as unknown as { RELEASE_FAKES: Fakes }).RELEASE_FAKES;
 
 afterEach(async () => {
+  await cancelOwedBuilds();
   await abortAllDurableObjects();
   forgetThreadModel();
 });
