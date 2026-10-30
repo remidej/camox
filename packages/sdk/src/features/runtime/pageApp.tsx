@@ -12,6 +12,7 @@ import { type DraftScope, DraftScopeContext } from "../../lib/draft-scope";
 import { CuratedPageContent } from "../page/CuratedPageContent";
 import { DerivedPageContent } from "../page/DerivedPageContent";
 import { UnplacedBlockContent } from "../page/UnplacedBlockContent";
+import { UnplacedLayoutContent } from "../page/UnplacedLayoutContent";
 import { Frame } from "../preview/components/Frame";
 import { PreviewActivation } from "../preview/components/PreviewActivation";
 import { CoreCamoxProvider } from "../provider/CoreCamoxProvider";
@@ -167,9 +168,11 @@ function PageExperience({
   return readOnlyPage;
 }
 
-/** The page's blocks, read-only, or the look document's one unplaced block. */
+/** The page's blocks, read-only, or the look document's unplaced block or Layout. */
 function PageContent({ camoxApp, input }: { camoxApp: CamoxApp; input: PageRenderInput }) {
   if (input.lookBlock) return <UnplacedBlockContent blockId={input.lookBlock} />;
+  if (input.lookLayout)
+    return <UnplacedLayoutContent camoxApp={camoxApp} lookLayout={input.lookLayout} />;
   if (input.derived) return <DerivedPageContent camoxApp={camoxApp} derived={input.derived} />;
   return <CuratedPageContent />;
 }

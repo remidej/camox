@@ -643,7 +643,44 @@ export const getUnplacedBlock = Effect.fn("blocks.getUnplacedBlock")(function* (
 ) {
   const { type, content, settings, ...named } = yield* decodeInput(getUnplacedBlockInput, rawInput);
   const { scope, project } = yield* accessTo(ctx, projectRefOf(named), "public");
-  const def = yield* findDefinition(ctx.db, { projectId: project.id, type }, scope);
+  const at = { projectId: project.id, draft: scope };
+  const rows = yield* unplacedBlockRows(ctx, at, {
+    id: UNPLACED_BLOCK_ID,
+    type,
+    content,
+    settings,
+  });
+  const bundle = yield* contentReader(ctx, at).blocks([rows]);
+  return { block: bundle.blocks[0]!, repeatableItems: bundle.repeatableItems, files: bundle.files };
+}, Effect.scoped);
+
+/**
+ * The rows a block of the Block Definition `type` would have if it were placed, unstored, with
+ * the id `id`: its default content and Block Settings with `content` and `settings` merged on,
+ * checked as creating the block checks them, and its Repeatable Items, whose ids start with the
+ * block's so that several unplaced blocks read together never share one. `slot` and `position`
+ * place it in a Layout.
+ */
+export const unplacedBlockRows = Effect.fn("blocks.unplacedBlockRows")(function* (
+  ctx: ServiceContext,
+  at: { projectId: number; draft: ReadScope },
+  {
+    id,
+    type,
+    content,
+    settings,
+    slot = null,
+    position = "a0",
+  }: {
+    id: string;
+    type: string;
+    content?: unknown;
+    settings?: unknown;
+    slot?: (typeof blocks.$inferSelect)["slot"];
+    position?: string;
+  },
+) {
+  const def = yield* findDefinition(ctx.db, { projectId: at.projectId, type }, at.draft);
   if (!def) {
     return yield* new NotFoundError({ message: `There's no Block Definition named "${type}".` });
   }
@@ -654,7 +691,6 @@ export const getUnplacedBlock = Effect.fn("blocks.getUnplacedBlock")(function* (
     def.contentSchema,
     def.settingsSchema,
   );
-  const at = { projectId: project.id, draft: scope };
   yield* validateReferenceValues(ctx, at, def.contentSchema, prepared.bundle);
   const now = Date.now();
   const unstored = { draftId: null, version: 1, baseVersion: null, deleted: false, locale: "" };
@@ -663,27 +699,28 @@ export const getUnplacedBlock = Effect.fn("blocks.getUnplacedBlock")(function* (
     ...unstored,
     ...published,
     rowId: 0,
-    id: UNPLACED_BLOCK_ID,
-    projectId: project.id,
+    id,
+    projectId: at.projectId,
     pageId: null,
     layoutId: null,
     type,
     content: prepared.content,
     settings: prepared.settings,
-    slot: null,
-    position: "a0",
+    slot,
+    position,
     createdAt: now,
     updatedAt: now,
   };
+  const itemId = (tempId: string) => (id === UNPLACED_BLOCK_ID ? tempId : `${id}:${tempId}`);
   const items = prepared.seeds.map((seed): typeof repeatableItems.$inferSelect => ({
     ...unstored,
     ...published,
     rowId: 0,
-    id: seed.tempId,
-    blockId: UNPLACED_BLOCK_ID,
+    id: itemId(seed.tempId),
+    blockId: id,
     projectId: null,
     sharedContentType: null,
-    parentItemId: seed.parentTempId,
+    parentItemId: seed.parentTempId === null ? null : itemId(seed.parentTempId),
     fieldName: seed.fieldName,
     content: seed.content,
     settings: seed.settings ?? null,
@@ -691,9 +728,8 @@ export const getUnplacedBlock = Effect.fn("blocks.getUnplacedBlock")(function* (
     createdAt: now,
     updatedAt: now,
   }));
-  const bundle = yield* contentReader(ctx, at).blocks([{ unstored: block, items }]);
-  return { block: bundle.blocks[0]!, repeatableItems: bundle.repeatableItems, files: bundle.files };
-}, Effect.scoped);
+  return { unstored: block, items };
+});
 
 export const getPageMarkdown = Effect.fn("blocks.getPageMarkdown")(function* (
   ctx: ServiceContext,

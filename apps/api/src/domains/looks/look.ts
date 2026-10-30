@@ -1,11 +1,16 @@
 import {
   DRAFT_SEARCH_PARAM,
   LOOK_BLOCK_DEFINITION_PARAM,
+  LOOK_BLOCKS_PARAM,
   LOOK_CONTENT_PARAM,
   LOOK_DOCUMENT_PATH,
+  LOOK_LAYOUT_DEFINITION_PARAM,
   LOOK_LOCALE_PARAM,
   LOOK_PATH_PARAM,
+  LOOK_PLACEHOLDER_HEIGHTS,
+  LOOK_PLACEHOLDER_PARAM,
   LOOK_SETTINGS_PARAM,
+  type LookPlaceholderHeight,
   LOOK_TOKEN_COOKIE,
   UNPLACED_BLOCK_ID,
 } from "@camox/api-contract/drafts";
@@ -21,7 +26,7 @@ import type { Bindings } from "../../types";
 import { agentServiceContext } from "../_shared/service-context";
 import { getUnplacedBlock } from "../blocks/service";
 import { signLookToken } from "../drafts/look-token";
-import { getLayout, listLayouts } from "../layouts/service";
+import { getLayout, getUnplacedLayout, listLayouts } from "../layouts/service";
 import { getPageStructure } from "../pages/service";
 import { projects } from "../projects/schema";
 import { previewsWorkingCopy } from "../revisions/end-of-turn";
@@ -65,6 +70,17 @@ export type BlockDefinitionTarget = {
   settings?: unknown;
 };
 
+/**
+ * A curated Layout Definition around no page: its blocks with their default content and Block
+ * Settings and overrides by Block Definition name merged on, around a labelled placeholder where
+ * a page's content goes, short (the first height) or tall.
+ */
+export type LayoutDefinitionTarget = {
+  layoutDefinition: string;
+  placeholder?: LookPlaceholderHeight;
+  blocks?: Record<string, { content?: unknown; settings?: unknown }>;
+};
+
 /** One Placement on a page of the draft, by the page's path and the block's ID. */
 export type PlacementTarget = PageTarget & { block: string };
 
@@ -72,7 +88,12 @@ export type PlacementTarget = PageTarget & { block: string };
  * What the agent asks `look` to capture, with the sizes it wants and how long to wait before
  * capturing, in milliseconds.
  */
-export type LookTarget = (PageTarget | PlacementTarget | BlockDefinitionTarget) & {
+export type LookTarget = (
+  | PageTarget
+  | PlacementTarget
+  | BlockDefinitionTarget
+  | LayoutDefinitionTarget
+) & {
   sizes?: LookSize[];
   delay?: number;
 };
@@ -187,21 +208,22 @@ async function resolve(
 ): Promise<Resolved> {
   const url = new URL(LOOK_DOCUMENT_PATH, origin);
   url.searchParams.set(DRAFT_SEARCH_PARAM, where.draftId);
+  if ("layoutDefinition" in target) {
+    url.searchParams.set(LOOK_LAYOUT_DEFINITION_PARAM, target.layoutDefinition);
+    url.searchParams.set(LOOK_PLACEHOLDER_PARAM, target.placeholder ?? LOOK_PLACEHOLDER_HEIGHTS[0]);
+    if (target.blocks !== undefined)
+      url.searchParams.set(LOOK_BLOCKS_PARAM, JSON.stringify(target.blocks));
+    const refused = overridesTooLong(url) ?? (await layoutRefused(env, where, projectUuid, target));
+    if (refused) return { error: refused };
+    return { url: url.href };
+  }
   if ("blockDefinition" in target) {
     url.searchParams.set(LOOK_BLOCK_DEFINITION_PARAM, target.blockDefinition);
     if (target.content !== undefined)
       url.searchParams.set(LOOK_CONTENT_PARAM, JSON.stringify(target.content));
     if (target.settings !== undefined)
       url.searchParams.set(LOOK_SETTINGS_PARAM, JSON.stringify(target.settings));
-    if (url.href.length > LOOK_MAX_URL_LENGTH) {
-      return {
-        error:
-          `The overrides are too long to look at: they travel in the page's address, at most ` +
-          `${LOOK_MAX_URL_LENGTH} characters, and this one is ${url.href.length}. Shorten the ` +
-          "overrides, such as long text, and look again.",
-      };
-    }
-    const refused = await blockRefused(env, where, projectUuid, target);
+    const refused = overridesTooLong(url) ?? (await blockRefused(env, where, projectUuid, target));
     if (refused) return { error: refused };
     return { url: url.href, element: `[data-camox-viewport-block="${UNPLACED_BLOCK_ID}"]` };
   }
@@ -215,6 +237,16 @@ async function resolve(
   }
   // The site's block render marks each block's element with its Placement ID, Layout blocks too.
   return { url: url.href, element: `[data-camox-viewport-block="${target.block}"]` };
+}
+
+/** Why the overrides `url` carries are refused for their length, or undefined when they fit. */
+function overridesTooLong(url: URL) {
+  if (url.href.length <= LOOK_MAX_URL_LENGTH) return undefined;
+  return (
+    `The overrides are too long to look at: they travel in the page's address, at most ` +
+    `${LOOK_MAX_URL_LENGTH} characters, and this one is ${url.href.length}. Shorten the ` +
+    "overrides, such as long text, and look again."
+  );
 }
 
 /** A service context reading the draft as the browser will, with the draft's look token. */
@@ -300,6 +332,31 @@ async function blockRefused(
         type: blockDefinition,
         content,
         settings,
+      }),
+    );
+    return undefined;
+  } catch (error) {
+    return messageOf(error);
+  }
+}
+
+/**
+ * Why the Layout Definition `target` names can't be looked at with its overrides, or undefined
+ * when it can: the draft has no such Layout, it's a Singleton or Derived Layout, whose pages are
+ * looked at instead, or a block's schemas refuse an override. Read as the browser will.
+ */
+async function layoutRefused(
+  env: Bindings,
+  where: LookIn,
+  projectUuid: string,
+  { layoutDefinition, blocks }: LayoutDefinitionTarget,
+) {
+  try {
+    await runService(
+      getUnplacedLayout(lookContext(env, where), {
+        projectUuid,
+        layoutId: layoutDefinition,
+        blocks,
       }),
     );
     return undefined;

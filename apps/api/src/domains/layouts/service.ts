@@ -4,13 +4,14 @@ import { generateKeyBetween } from "fractional-indexing";
 import { z } from "zod";
 
 import type { SyncTarget } from "../../authorization";
-import { decodeInput, NotFoundError } from "../../lib/errors";
+import { decodeInput, InvalidInputError, NotFoundError } from "../../lib/errors";
 import { blockDefinitions, blocks, layouts, repeatableItems } from "../../schema";
 import { definitionsDraftOf, definitionsIn } from "../_shared/definitions";
 import { layoutSchemaHash } from "../_shared/schema-hash";
 import type { ServiceContext } from "../_shared/service-context";
 import type { SyncedDefinitions } from "../block-definitions/service";
 import { prepareBlockContent } from "../blocks/prepare-content";
+import { unplacedBlockRows } from "../blocks/service";
 import { planDeclaredPlacement } from "../blocks/shared-content";
 import { validateReferenceValues } from "../collections/references";
 import { contentReader } from "../content/reader";
@@ -27,6 +28,16 @@ import { LAYOUT_KINDS, type RecordPages } from "./schema";
 // Services .parse() them on entry — service is the trust boundary.
 
 export const getLayoutInput = namingProject(z.object({ layoutId: z.string() }));
+
+/** Overrides of a Layout's blocks, by Block Definition name, in the shape the content tools take. */
+const blockOverridesInput = z.record(
+  z.string(),
+  z.object({ content: z.unknown().optional(), settings: z.unknown().optional() }),
+);
+
+export const getUnplacedLayoutInput = namingProject(
+  z.object({ layoutId: z.string(), blocks: blockOverridesInput.optional() }),
+);
 
 export const listLayoutsInput = z.object({ projectId: z.number() });
 
@@ -129,6 +140,102 @@ export const getLayout = Effect.fn("layouts.getLayout")(function* (
     /** Each block's Structured Data nodes, by block id, for the graph of the layout's pages. */
     structuredData: structuredData.blocks,
     /** The nodes of the records the blocks reference, and of those these records link. */
+    recordStructuredData: structuredData.records,
+  };
+}, Effect.scoped);
+
+/** What a Singleton or Derived Layout is looked at by instead of its definition: its pages. */
+const LAYOUT_PAGES_INSTEAD = {
+  singleton: "a Singleton Layout, whose one page is all its own: look at that page, by its path",
+  derived: "a Derived Layout, whose pages are all its own: look at one of them, by its path",
+} as const;
+
+/**
+ * The curated Layout `layoutId` as its pages would show it around their content, without any
+ * page: the blocks it places, each with its Block Definition's default content and Block
+ * Settings and the overrides `blocks` gives for it merged on, as `getUnplacedBlock` merges them.
+ * Each block's id is `unplaced-<slot>-<type>`. Read as `getLayout` reads a Layout. A Singleton or
+ * Derived Layout is refused, pointing to its pages, and so is an override for a block the Layout
+ * doesn't place. Nothing is written.
+ */
+export const getUnplacedLayout = Effect.fn("layouts.getUnplacedLayout")(function* (
+  ctx: ServiceContext,
+  rawInput: z.input<typeof getUnplacedLayoutInput>,
+) {
+  const {
+    layoutId,
+    blocks: overrides = {},
+    ...named
+  } = yield* decodeInput(getUnplacedLayoutInput, rawInput);
+  const { scope, project } = yield* accessTo(ctx, projectRefOf(named), "public");
+  const layout = yield* Effect.promise(() =>
+    ctx.db
+      .select()
+      .from(layouts)
+      .where(
+        and(
+          eq(layouts.projectId, project.id),
+          eq(layouts.layoutId, layoutId),
+          definitionsIn(layouts, scope),
+        ),
+      )
+      .get(),
+  );
+  if (!layout) {
+    return yield* new NotFoundError({ message: `There's no Layout named "${layoutId}".` });
+  }
+  if (layout.kind !== "curated") {
+    return yield* new InvalidInputError({
+      message: `"${layoutId}" is ${LAYOUT_PAGES_INSTEAD[layout.kind]} instead.`,
+    });
+  }
+  const at = { projectId: project.id, draft: scope };
+  const reader = contentReader(ctx, at);
+  // The blocks the Layout places, and where: their content is the definitions' defaults.
+  const placed = (yield* reader.blocks([{ layoutId: layout.layoutId }])).blocks;
+  const unknown = Object.keys(overrides).filter((type) => !placed.some((b) => b.type === type));
+  if (unknown.length) {
+    return yield* new InvalidInputError({
+      message:
+        `The ${layoutId} Layout places no ${unknown.map((type) => `"${type}"`).join(", ")} ` +
+        `block to override: it places ${placed.map((b) => `"${b.type}"`).join(", ") || "none"}.`,
+    });
+  }
+  const rows = yield* Effect.forEach(placed, (block) =>
+    Effect.mapError(
+      unplacedBlockRows(ctx, at, {
+        id: `unplaced-${block.slot}-${block.type}`,
+        type: block.type,
+        ...overrides[block.type],
+        slot: block.slot,
+        position: String(block.position),
+      }),
+      (error) =>
+        error instanceof InvalidInputError
+          ? new InvalidInputError({
+              message: `${block.type}: ${error.message}`,
+              data: error.data,
+            })
+          : error,
+    ),
+  );
+  const content = yield* reader.blocks(rows);
+  const structuredData = yield* reader.structuredData(content);
+  const idsIn = (slot: string) => content.blocks.filter((b) => b.slot === slot).map((b) => b.id);
+  return {
+    projectName: project.name,
+    project: publicProjectSummary(project),
+    layout: {
+      layoutId: layout.layoutId,
+      contentUpdatedAt: layout.contentUpdatedAt,
+      updatedAt: layout.updatedAt,
+      beforeBlockIds: idsIn("before"),
+      afterBlockIds: idsIn("after"),
+    },
+    blocks: content.blocks,
+    repeatableItems: content.repeatableItems,
+    files: content.files,
+    structuredData: structuredData.blocks,
     recordStructuredData: structuredData.records,
   };
 }, Effect.scoped);
