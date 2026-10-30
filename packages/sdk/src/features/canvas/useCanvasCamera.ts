@@ -34,7 +34,7 @@ import {
   type CanvasVerticalRail,
 } from "./canvasCamera";
 import { createCanvasFlight, createCanvasPan } from "./canvasFlight";
-import { canvasBlockOverlap } from "./canvasFrameDocument";
+import { canvasSeamCover } from "./canvasFrameDocument";
 import { canvasStore } from "./canvasStore";
 
 const GESTURE_IDLE_MS = 180;
@@ -151,7 +151,7 @@ export function useCanvasCamera(
       for (const name of CAMERA_PROPERTIES) element.style.removeProperty(name);
       delete element.dataset.canvasPan;
       delete element.dataset.canvasPromoted;
-      delete element.dataset.canvasBlockOverlap;
+      delete element.dataset.canvasSeamCover;
     };
   }, []);
   /**
@@ -457,15 +457,15 @@ export function useCanvasCamera(
         else delete element.dataset.canvasPromoted;
       }
     };
-    // What depends on the zoom but isn't scaled with the camera changes only at rest: the
-    // blocks' overlap reflows their frames, and sizes like a device pixel repaint the items.
+    // What depends on the zoom but isn't scaled with the camera changes only at rest: sizes
+    // like a device pixel repaint the frames' seam covers and the items' edges.
     const paintAtRest = () => {
       if (settle) return;
-      const overlap = String(canvasBlockOverlap(camera.scale, ownerWindow.devicePixelRatio));
+      const seamCover = String(canvasSeamCover(camera.scale, ownerWindow.devicePixelRatio));
       const zoom = String(camera.scale);
       for (const element of [viewport, ...mirrors.current]) {
-        if (element.dataset.canvasBlockOverlap !== overlap)
-          element.dataset.canvasBlockOverlap = overlap;
+        if (element.dataset.canvasSeamCover !== seamCover)
+          element.dataset.canvasSeamCover = seamCover;
         if (element.style.getPropertyValue("--canvas-rest-zoom") !== zoom)
           element.style.setProperty("--canvas-rest-zoom", zoom);
       }
@@ -1049,7 +1049,7 @@ export function useCanvasCamera(
       ownerWindow.removeEventListener("blur", releaseSpace);
       delete viewport.dataset.canvasPan;
       delete viewport.dataset.canvasPromoted;
-      delete viewport.dataset.canvasBlockOverlap;
+      delete viewport.dataset.canvasSeamCover;
       paintMirror.current = null;
     };
   }, [workspaceKey, continuity]);

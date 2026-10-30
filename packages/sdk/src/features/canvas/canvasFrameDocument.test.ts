@@ -6,7 +6,6 @@ import { Window } from "happy-dom";
 import {
   adaptCanvasStyleSheets,
   adoptCanvasDocument,
-  canvasBlockOverlap,
   canvasPageHref,
   createCanvasDocument,
   logicalViewportValue,
@@ -388,29 +387,55 @@ void test("a frame ends exactly where its content does, unless content overflows
   assert.equal(iframe.style.height, "800px", "a page is still at least as tall as the viewport");
 });
 
-void test("zoomed out, blocks overlap by at least a device pixel; from 100%, not at all", () => {
-  for (const pixelRatio of [1, 1.5, 2, 3])
-    for (let scale = 0.1; scale < 1; scale += 0.01) {
-      const devicePixels = canvasBlockOverlap(scale, pixelRatio) * scale * pixelRatio;
-      assert.ok(devicePixels >= 1, `covers a seam at ${scale} on ${pixelRatio}x`);
-      // Hides at most one more device pixel of a block, or a single CSS pixel.
-      assert.ok(devicePixels < 2 || canvasBlockOverlap(scale, pixelRatio) === 1);
-    }
-  for (const scale of [1, 1.5, 2]) assert.equal(canvasBlockOverlap(scale, 2), 0);
-});
-
-void test("a frame's blocks overlap as much as the frame's Canvas says, until it stops", (t) => {
+void test("a frame covers seams as far as its Canvas says, under blocks that paint both sides", (t) => {
   const window = new Window();
   const doc = window.document;
   const root = doc.createElement("div");
   doc.body.appendChild(root);
   const host = new Window().document;
   const holder = host.createElement("div");
-  holder.setAttribute("data-canvas-block-overlap", "4");
+  holder.setAttribute("data-canvas-seam-cover", "4");
   const iframe = host.createElement("iframe");
   holder.appendChild(iframe);
   host.body.appendChild(holder);
-  const observers: { callback: MutationCallback; target: unknown; options: unknown }[] = [];
+  // Blocks stacked 100px tall, each a section painted as `paints` says at its top and bottom.
+  const sections: { block: typeof root; paints: { top: string; bottom: string } }[] = [];
+  const addBlock = (paints: { top: string; bottom: string }, top = sections.length * 100) => {
+    const block = doc.createElement("div");
+    block.setAttribute("data-camox-viewport-block", String(sections.length));
+    const section = doc.createElement("section");
+    block.appendChild(section);
+    root.appendChild(block);
+    Object.defineProperty(block, "getBoundingClientRect", {
+      value: () => ({ top, bottom: top + 100, left: 0, right: 1280, width: 1280, height: 100 }),
+    });
+    sections.push({ block, paints });
+    return block;
+  };
+  const dark = "rgb(20, 20, 20)";
+  const light = "rgb(240, 240, 240)";
+  const meeting = addBlock({ top: dark, bottom: dark });
+  const intoClear = addBlock({ top: light, bottom: light });
+  const clear = addBlock({ top: "transparent", bottom: light });
+  const photo = addBlock({ top: light, bottom: "image" });
+  const apart = addBlock({ top: dark, bottom: dark });
+  addBlock({ top: dark, bottom: dark }, 600);
+  const observers: { callback: MutationCallback; target: unknown }[] = [];
+  Object.defineProperty(doc, "elementsFromPoint", {
+    value: (_x: number, y: number) => {
+      const hit = sections.find(({ block }) => {
+        const rect = block.getBoundingClientRect();
+        return y >= rect.top && y < rect.bottom;
+      });
+      if (!hit) return [doc.body, doc.documentElement];
+      const paint =
+        y - hit.block.getBoundingClientRect().top < 50 ? hit.paints.top : hit.paints.bottom;
+      const section = hit.block.firstElementChild as typeof root;
+      section.style.backgroundColor = paint === "image" ? "" : paint;
+      section.style.backgroundImage = paint === "image" ? "url(photo.jpg)" : "";
+      return [section, hit.block, root, doc.body, doc.documentElement];
+    },
+  });
   for (const [key, value] of [
     ["requestAnimationFrame", () => 1],
     ["cancelAnimationFrame", () => {}],
@@ -426,8 +451,8 @@ void test("a frame's blocks overlap as much as the frame's Canvas says, until it
       "MutationObserver",
       class {
         constructor(private callback: MutationCallback) {}
-        observe(target: unknown, options: unknown) {
-          observers.push({ callback: this.callback, target, options });
+        observe(target: unknown) {
+          observers.push({ callback: this.callback, target });
         }
         disconnect() {}
       },
@@ -440,7 +465,8 @@ void test("a frame's blocks overlap as much as the frame's Canvas says, until it
       else Reflect.deleteProperty(globalThis, key);
     });
   }
-  const overlap = () => doc.documentElement.style.getPropertyValue("--camox-block-overlap");
+  const cover = () => doc.documentElement.style.getPropertyValue("--camox-seam-cover");
+  const seam = (block: typeof root) => block.style.getPropertyValue("--camox-seam-color");
   const styles = () => doc.head.querySelectorAll("style").length;
   const before = styles();
   const stop = observeCanvasDocument(
@@ -448,14 +474,23 @@ void test("a frame's blocks overlap as much as the frame's Canvas says, until it
     root as unknown as HTMLElement,
     800,
   );
-  assert.equal(overlap(), "4px");
+  assert.equal(cover(), "4px");
+  assert.equal(seam(meeting), dark, "blocks that meet are covered in the color above the seam");
+  assert.equal(seam(intoClear), "", "nothing shows through a seam into a see-through block");
+  assert.equal(seam(clear), light, "a see-through top doesn't stop the block's own bottom");
+  assert.equal(seam(photo), dark, "under an image, the seam takes the color below it");
+  assert.equal(seam(apart), "", "blocks that don't meet have no seam");
   const watcher = observers.find(({ target }) => target === host.documentElement);
   assert.ok(watcher, "the frame watches its host document");
-  holder.setAttribute("data-canvas-block-overlap", "0");
+  holder.setAttribute("data-canvas-seam-cover", "1");
   watcher.callback([], {} as MutationObserver);
-  assert.equal(overlap(), "0px", "settling at 100% removes the overlap");
+  assert.equal(cover(), "1px", "the cover follows the Canvas");
   stop();
-  assert.equal(overlap(), "");
+  assert.equal(cover(), "");
+  assert.ok(
+    sections.every(({ block }) => !seam(block)),
+    "stopping clears every seam color",
+  );
   assert.equal(styles(), before);
   void window.happyDOM.close();
 });
@@ -507,7 +542,11 @@ void test("an adopted document fills the Canvas, then the Preview again exactly 
     assert.equal(element.style.getPropertyValue("overflow"), "hidden");
     assert.equal(element.style.getPropertyValue("overscroll-behavior"), "none");
   }
-  assert.equal(styles(), before + 2, "CSS animations can pause with the frame; blocks can overlap");
+  assert.equal(
+    styles(),
+    before + 2,
+    "CSS animations can pause with the frame; seams can be covered",
+  );
 
   undo();
   assert.equal(iframe.style.height, "");
