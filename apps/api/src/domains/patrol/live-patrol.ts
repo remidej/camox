@@ -12,7 +12,9 @@ import { writeCheck } from "./reports";
 // Patrollers' patrols of Live (ADR 0034): Live changes without an edit when other websites move
 // or close, so patrollers that check what can go wrong that way patrol every project's Live every
 // 6 hours. The cron trigger requests one job per project and patroller, so each project's patrol
-// runs on its own.
+// runs on its own. The Proofreader's patrol reads Live only when it has something to read there
+// (ADR 0034): what a release no draft published wrote, which also requests its job, or all of
+// Live on arrival.
 
 /** The cron trigger of Live's patrols (wrangler.jsonc): every 6 hours. */
 export const LIVE_PATROL_CRON = "0 */6 * * *";
@@ -63,8 +65,11 @@ export const runPatrolJob = Effect.fn("patrol.runPatrolJob")(function* (
   // The project was deleted since.
   if (!project) return [];
   const scope = { projectId: job.projectId, draftId: null };
-  const { found } = yield* patrol(db, job.projectId);
-  const opened = yield* writeFindings(db, patroller, scope, found);
+  const patrolled = yield* patrol(db, job.projectId);
+  // Nothing to read on Live this time: it stays asleep.
+  if (!patrolled) return [];
+  const { found, checked } = patrolled;
+  const opened = yield* writeFindings(db, patroller, scope, found, checked);
   yield* writeCheck(db, patroller, scope);
   // What's new goes to the Patrol Draft, where Camox's agent fixes it.
   yield* toPatrolDraft(db, patroller, job.projectId, opened);

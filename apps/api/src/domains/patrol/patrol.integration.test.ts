@@ -702,14 +702,18 @@ describe("a patroller at work", () => {
     expect((await translator(f, {})).working).toBeNull();
   });
 
-  it("puts the Translator and the SEO manager on duty on Live while the catch-up draft translates", async () => {
+  it("puts the Translator and the SEO manager on duty on Live while the catch-up draft translates, and leaves the Proofreader off", async () => {
     const f = await fixture();
     const onLive = async () =>
       Object.fromEntries((await f.patrol({})).map(({ id, duty }) => [id, duty]));
 
     await catchingUp(f);
 
-    expect(await onLive()).toMatchObject({ translator: "asYouGo", seoManager: "asYouGo" });
+    expect(await onLive()).toMatchObject({
+      translator: "asYouGo",
+      seoManager: "asYouGo",
+      proofreader: "off",
+    });
     // Once its translations settle and its checks ran, the catch-up draft is published, and
     // they're off again.
     await runTranslations(f);

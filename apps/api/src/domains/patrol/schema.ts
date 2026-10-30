@@ -167,9 +167,8 @@ export const proofreadingRequests = sqliteTable(
     projectId: int("project_id")
       .notNull()
       .references(() => projects.id, { onDelete: "cascade" }),
-    draftId: text("draft_id")
-      .notNull()
-      .references(() => drafts.id, { onDelete: "cascade" }),
+    // Null on Live: what a release no draft published wrote, or all of it on arrival.
+    draftId: text("draft_id").references(() => drafts.id, { onDelete: "cascade" }),
     entity: text().notNull().$type<ReportEntity>(),
     entityId: text("entity_id").notNull(),
     locale: text().notNull(),
@@ -178,12 +177,12 @@ export const proofreadingRequests = sqliteTable(
     startedAt: int("started_at"),
   },
   (table) => [
-    uniqueIndex("proofreading_requests_key_idx").on(
-      table.draftId,
-      table.entity,
-      table.entityId,
-      table.locale,
-    ),
+    uniqueIndex("proofreading_requests_key_idx")
+      .on(table.draftId, table.entity, table.entityId, table.locale)
+      .where(sql`${table.draftId} is not null`),
+    uniqueIndex("proofreading_requests_live_idx")
+      .on(table.projectId, table.entity, table.entityId, table.locale)
+      .where(sql`${table.draftId} is null`),
     index("proofreading_requests_project_idx").on(table.projectId),
   ],
 );

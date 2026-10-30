@@ -733,22 +733,12 @@ export const liveLinks = Effect.fn("drafts.liveLinks")(function* (
   ctx: ServiceContext,
   projectId: number,
 ) {
-  const tags = new Set((yield* rowsIn(ctx, null, projectId, locales)).map((locale) => locale.tag));
   const defaults = yield* rowsIn(ctx, null, projectId, pages);
   const found: LiveLink[] = [];
-  for (const tag of tags) {
-    const inTag = inLocale(null, tag);
-    const livePages = yield* rowsIn(ctx, inTag, projectId, pages);
+  for (const tag of yield* liveLocaleTags(ctx, projectId)) {
+    const livePages = yield* rowsIn(ctx, inLocale(null, tag), projectId, pages);
     const onLive = new Set([...defaults, ...livePages].map((page) => page.id));
-    const records = yield* rowsIn(ctx, inTag, projectId, collectionRecords);
-    const holders = yield* holdersIn(
-      ctx,
-      inTag,
-      projectId,
-      new Set(livePages.map((page) => page.id)),
-      records,
-    );
-    for (const holder of holders) {
+    for (const holder of yield* liveHoldersOf(ctx, projectId, tag)) {
       for (const { field, link } of linksIn(holder.schema, holder.content)) {
         const pageMissing =
           link.url.startsWith(PAGE_TEXT_LINK_PREFIX) &&
@@ -758,6 +748,35 @@ export const liveLinks = Effect.fn("drafts.liveLinks")(function* (
     }
   }
   return found;
+});
+
+/** The tags of Live's locales. */
+export const liveLocaleTags = Effect.fn("drafts.liveLocaleTags")(function* (
+  ctx: ServiceContext,
+  projectId: number,
+) {
+  return new Set((yield* rowsIn(ctx, null, projectId, locales)).map((locale) => locale.tag));
+});
+
+/**
+ * Every block, shared content, repeatable item and record Live reads in a locale, with the
+ * definition it's read by: what a patroller's patrol of Live reads.
+ */
+export const liveHoldersOf = Effect.fn("drafts.liveHoldersOf")(function* (
+  ctx: ServiceContext,
+  projectId: number,
+  tag: string,
+) {
+  const inTag = inLocale(null, tag);
+  const livePages = yield* rowsIn(ctx, inTag, projectId, pages);
+  const records = yield* rowsIn(ctx, inTag, projectId, collectionRecords);
+  return yield* holdersIn(
+    ctx,
+    inTag,
+    projectId,
+    new Set(livePages.map((page) => page.id)),
+    records,
+  );
 });
 
 /**

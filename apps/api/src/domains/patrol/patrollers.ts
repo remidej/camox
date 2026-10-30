@@ -11,6 +11,7 @@ import { checkLinks, patrolLinks } from "./link-checker";
 import {
   checkSpelling,
   pendingProofreading,
+  proofreadLive,
   requestProofreading,
   settleProofreading,
 } from "./proofreader";
@@ -58,14 +59,20 @@ export type Checker = (
   draft: Draft,
 ) => Effect.Effect<CheckResult, never, AiModel | Journal>;
 
-/** What a patrol of Live found: Live's open findings it didn't find again are resolved. */
-export type PatrolResult = { found: RaisedFinding[] };
+/**
+ * What a patrol of Live found, and what it read (everything, unless it says): Live's open findings
+ * in what it read that it didn't find again are resolved.
+ */
+export type PatrolResult = { found: RaisedFinding[]; checked?: Checked };
 
-/** A patroller's patrol of a project's Live content (ADR 0034), every 6 hours. */
+/**
+ * A patroller's patrol of a project's Live content (ADR 0034), every 6 hours. One with nothing to
+ * read there this time patrols nothing (`null`): it doesn't count as a check.
+ */
 export type LivePatrol = (
   db: Database,
   projectId: number,
-) => Effect.Effect<PatrolResult, never, AiModel | Journal>;
+) => Effect.Effect<PatrolResult | null, never, AiModel | Journal>;
 
 /**
  * What a check is requested for: the subjects a unit of work wrote in the draft, or `stale`, when
@@ -147,7 +154,9 @@ export const linkChecker: Patroller = {
 
 /**
  * Finds spelling and clear grammar mistakes in text people wrote, each with its fix. In drafts it
- * checks at publish, reading what changed since its last check; it's off on Live (ADR 0034).
+ * checks at publish, reading what changed since its last check. It's off on Live, even while a
+ * catch-up draft translates there, but for its one-off readings (ADR 0034): what a release no
+ * draft published wrote, and all of Live when it first arrives in a project.
  */
 export const proofreader: Patroller = {
   id: "proofreader",
@@ -155,6 +164,7 @@ export const proofreader: Patroller = {
   duty: { drafts: "atPublish", live: "off" },
   pending: pendingProofreading,
   check: checkSpelling,
+  patrol: proofreadLive,
   requests: { request: requestProofreading, settle: settleProofreading },
 };
 
@@ -163,7 +173,10 @@ export const PATROLLERS: readonly Patroller[] = [translator, seoManager, linkChe
 
 /**
  * A patroller's duty on Live. While a catch-up draft is open, its work is Live's (ADR 0017), so a
- * patroller off on Live is on duty there as it is in drafts.
+ * patroller writing content, off on Live, is on duty there as it is in drafts. One checking at
+ * publish stays off: the catch-up draft holds the Translator's text, which it doesn't read.
  */
 export const dutyOnLive = (patroller: Patroller, catchingUp: boolean): PatrollerDuty =>
-  catchingUp && patroller.duty.live === "off" ? patroller.duty.drafts : patroller.duty.live;
+  catchingUp && patroller.duty.live === "off" && patroller.duty.drafts === "asYouGo"
+    ? patroller.duty.drafts
+    : patroller.duty.live;
