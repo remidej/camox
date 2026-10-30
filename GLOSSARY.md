@@ -386,6 +386,10 @@ _Avoid_: Conversation, chat, session
 The part of Camox's agent that writes and changes one artifact's source, remembering every earlier request about it. Editors never see it apart: in a thread, its answers read as the agent's.
 _Avoid_: Subagent, artifact worker, artifact thread
 
+**Code Agent**:
+The part of Camox's agent that writes the website's code, blind to pages, remembering every earlier request in its draft. Editors never see it apart: in a thread, its answers read as the agent's.
+_Avoid_: Coder, subagent, coding agent
+
 **Brief**:
 What Camox's agent writes when it starts a draft from a Live thread: the context the editor's request depends on, opening the draft's thread ahead of the request itself. Camox writes one too when it opens the Patrol Draft, listing the findings its agent is there to fix, and starts the agent with it.
 _Avoid_: Summary, context note, handoff message
