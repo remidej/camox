@@ -1759,12 +1759,17 @@ const linkAnswers = new Map();
 /** @type {Map<string, string[]>} the methods each scripted URL was fetched with, in order */
 const linkFetches = new Map();
 
+/** Whether the Link checker sent a request: it names itself in its user agent. */
+const isLinkCheck = (/** @type {Request} */ request) =>
+  request.headers.get("user-agent")?.includes("Camox Link checker") ?? false;
+
 /**
- * The outside websites links lead to (test/link-fetches.ts): a scripted URL answers as scripted.
+ * The outside websites links lead to (test/link-fetches.ts): a scripted URL answers as scripted,
+ * and any other a page that works, so the Link checker never reaches the real network in tests.
  * @param {Request} request
  */
 function serveLink(request) {
-  const answers = linkAnswers.get(request.url);
+  const answers = linkAnswers.get(request.url) ?? [{ status: 200 }];
   linkFetches.set(request.url, [...(linkFetches.get(request.url) ?? []), request.method]);
   const answer = answers.length > 1 ? answers.shift() : answers[0];
   if (answer === "unreachable") throw new Error(`${request.url} can't be reached`);
@@ -1868,12 +1873,12 @@ export default {
   /**
    * The outbound fetches of the Workers under test: Git remotes reach the fake Git server, the
    * Cloudflare API its fake, the fake public website its pages, the Google Fonts Developer API
-   * its fake, a URL a test scripted its answers, and anything else goes out as it would without
-   * the fakes.
+   * its fake, the Link checker's fetches the outside websites links lead to, and anything else
+   * goes out as it would without the fakes.
    * @param {Request} request
    */
   fetch: (request) => {
-    if (linkAnswers.has(request.url)) return serveLink(request);
+    if (isLinkCheck(request)) return serveLink(request);
     const { hostname } = new URL(request.url);
     if (hostname === FAKE_GIT_HOST) return serveGit(request);
     if (hostname === "api.cloudflare.com") return serveCloudflareApi(request);

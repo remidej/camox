@@ -314,11 +314,13 @@ export async function runTranslations(db: ReturnType<typeof createDb>) {
  * the model calls they made: those its review requested, which publishing waits for (ADR 0033).
  */
 export async function runChecks(db: ReturnType<typeof createDb>, draftId: string) {
-  const jobs = scheduledChecks(draftId);
-  forgetScheduledChecks(draftId);
   // Setup the test doesn't look at: what the model was asked to check is forgotten.
   const mark = modelCallsMark();
-  for (const job of jobs) await runService(runAiJob(db, job));
+  // Until they settle: a check can request itself again, such as for a link that failed once.
+  for (let jobs = scheduledChecks(draftId); jobs.length > 0; jobs = scheduledChecks(draftId)) {
+    forgetScheduledChecks(draftId);
+    for (const job of jobs) await runService(runAiJob(db, job));
+  }
   forgetModelCallsSince(mark);
 }
 

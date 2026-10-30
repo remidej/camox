@@ -4,13 +4,18 @@ import type { FindingView, PatrollerView } from "@camox/api-contract/patrol";
 import { call } from "@orpc/server";
 import { describe, expect, it } from "vite-plus/test";
 
-import { callSeedingLive, createProjectFixture, createRpcContext } from "../../../test/fixtures";
+import {
+  callSeedingLive,
+  createProjectFixture,
+  createRpcContext,
+  seedLive,
+} from "../../../test/fixtures";
 import { forgetScheduledChecks, scheduledChecks } from "../../../test/generation";
 import { answerLink, linkFetches, outsideUrl } from "../../../test/link-fetches";
 import { runAiJob } from "../../lib/ai-jobs";
 import { runService } from "../../lib/run-service";
 import { router } from "../../router";
-import { blockDefinitions, pages } from "../../schema";
+import { blockDefinitions, blocks, pages } from "../../schema";
 import * as overlay from "../drafts/overlay";
 import { RELEASE } from "../drafts/scope";
 import { CHECK_IDLE_MS } from "./checks";
@@ -534,7 +539,16 @@ describe("the Link checker's checks of links outside the website, in a draft", (
     const home = await f.createPage("");
     const url = outsideUrl("old");
     await answerLink(url, { status: 404 });
-    await f.createFooter(home.id, { link: external(url) });
+    // Live links to it, as a release wrote it: publishing would wait for its finding.
+    await seedLive(f.db, blocks, {
+      projectId: f.projectId,
+      pageId: home.id,
+      type: "footer",
+      content: { link: external(url) },
+      position: "b0",
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    });
     const draft = generateUuidv7();
     await f.createPage("contact", startingDraft(draft));
 

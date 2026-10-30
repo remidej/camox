@@ -2,7 +2,8 @@ import { env } from "cloudflare:workers";
 
 // Stands in for the outside websites the Link checker fetches, in integration tests: the release
 // fakes Worker (test/release-fakes.js), which every outbound fetch reaches in tests, answers a
-// scripted URL as scripted. Scripted URLs should be unique to their test, as the fakes are shared.
+// scripted URL as scripted, and any other with a page that works. Scripted URLs should be unique
+// to their test, as the fakes are shared.
 
 /** How a URL answers: a status to a GET and `head` (or `status`) to a HEAD, or no connection. */
 export type LinkAnswer = { status: number; head?: number } | "unreachable";
