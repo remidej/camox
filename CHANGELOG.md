@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.65.1](https://github.com/remidej/camox/compare/camox-v0.65.0...camox-v0.65.1) (2026-10-30)
+
+
+### Changes
+
+* **api:** keep new patrollers away from studios that can't show them ([#759](https://github.com/remidej/camox/issues/759)) ([ef4ddbd](https://github.com/remidej/camox/commit/ef4ddbddcc05b99b7efa55a365b9489020d07375))
+
 ## [0.65.0](https://github.com/remidej/camox/compare/camox-v0.64.0...camox-v0.65.0) (2026-10-30)
 
 
