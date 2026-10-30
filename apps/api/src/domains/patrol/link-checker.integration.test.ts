@@ -72,6 +72,10 @@ const richText = (before: string, url: string, label: string) =>
     },
   });
 
+/** The Link checker's checks scheduled for a draft. */
+const linkChecks = (draftId: string) =>
+  scheduledChecks(draftId).filter((job) => job.patroller === "linkChecker");
+
 const pageUrl = (pageId: string) => `${PAGE_TEXT_LINK_PREFIX}${pageId}`;
 
 /** A project with a footer block holding a Link field and rich text, on Live's home page. */
@@ -258,16 +262,16 @@ describe("the Link checker when the review opens", () => {
     const draft = generateUuidv7();
     await f.deletePage(about.id, startingDraft(draft));
     // The draft's last edit is too recent for the check that waits for it to be idle.
-    expect(scheduledChecks(draft).map((job) => job.delayMs)).toEqual([CHECK_IDLE_MS]);
+    expect(linkChecks(draft).map((job) => job.delayMs)).toEqual([CHECK_IDLE_MS]);
     forgetScheduledChecks(draft);
 
     await f.preview(draft);
-    expect(scheduledChecks(draft).map((job) => job.delayMs)).toEqual([0]);
+    expect(linkChecks(draft).map((job) => job.delayMs)).toEqual([0]);
     await f.idle(draft);
     expect((await f.findings(inDraft(draft))).map((finding) => finding.field)).toEqual(["link"]);
 
     await f.preview(draft);
-    expect(scheduledChecks(draft)).toEqual([]);
+    expect(linkChecks(draft)).toEqual([]);
   });
 });
 
