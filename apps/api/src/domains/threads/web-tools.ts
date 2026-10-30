@@ -1,5 +1,9 @@
 import { type AssistantMessage, Type } from "@earendil-works/pi-ai";
-import { defineTool, type ToolRegistration } from "@earendil-works/pi-durable";
+import {
+  defineTool,
+  type ToolExecutionApi,
+  type ToolRegistration,
+} from "@earendil-works/pi-durable";
 import { MAX_WEB_FETCH_URL_LENGTH, type WebFetchToolOutput } from "agents/webfetch";
 import { webFetchTool } from "agents/webfetch/pi";
 import { webSearchTool } from "agents/websearch/pi";
@@ -8,19 +12,57 @@ import { outdent } from "outdent";
 import type { ThreadModel } from "../../lib/thread-model";
 import type { Bindings } from "../../types";
 
+/** One call of a web tool, as Pi hands it to the tool. */
+export type WebToolCall = {
+  api: ToolExecutionApi;
+  context: Parameters<ToolRegistration["execute"]>[2];
+};
+
+/** What the web tools tell of what they spend, for its AI usage records. */
+export type WebUsage = {
+  /** `web_search` searched, or failed to. */
+  searched: (call: WebToolCall, ok: boolean) => void;
+  /** `web_fetch`'s page reader answered, or failed to: the model's message. */
+  read: (call: WebToolCall, answer: AssistantMessage) => void;
+};
+
 /**
  * The agent's tools for the web, both through the Workers AI binding: `web_search` searches with
  * Cloudflare's Web Search API through Exa (better results than the default Ceramic provider),
  * billed to the account's default AI Gateway, and `web_fetch` answers a question about a public
- * page, which a smaller model reads for the agent.
+ * page, which a smaller model reads for the agent. `usage` hears of each search and each read.
  *
  * Only the model calls them, not code mode scripts, whose tools are for content (ADR 0018): what
  * comes from a page reaches the model marked as untrusted, and never through a script's output.
  */
-export const webTools = (env: Bindings, threadModel: ThreadModel): ToolRegistration[] =>
-  [webSearchTool({ binding: env.AI, provider: "exa" }), webFetch(env, threadModel)].map(
-    (tool): ToolRegistration => ({ ...tool, callers: ["model"] }),
-  );
+export const webTools = (
+  env: Bindings,
+  threadModel: ThreadModel,
+  usage?: WebUsage,
+): ToolRegistration[] =>
+  [webSearch(env, usage), webFetch(env, threadModel, usage)].map((tool): ToolRegistration => ({
+    ...tool,
+    callers: ["model"],
+  }));
+
+/** `web_search`: Cloudflare's, from the Agents SDK, telling `usage` of each search. */
+const webSearch = (env: Bindings, usage: WebUsage | undefined) => {
+  const search = webSearchTool({ binding: env.AI, provider: "exa" });
+  return {
+    ...search,
+    async execute(...call: Parameters<typeof search.execute>) {
+      const [, api, context] = call;
+      let ok = false;
+      try {
+        const result = await search.execute(...call);
+        ok = !result.isError;
+        return result;
+      } finally {
+        usage?.searched({ api, context }, ok);
+      }
+    },
+  };
+};
 
 /**
  * How much of a page the reader reads, from its start: about 25,000 tokens, which costs the
@@ -59,7 +101,11 @@ type WebFetchDetails =
  * call cut off before that runs whole again. The reader's spend counts under `web_fetch` in Pi's
  * usage.
  */
-const webFetch = (env: Bindings, { models, pageReader }: ThreadModel) => {
+const webFetch = (
+  env: Bindings,
+  { models, pageReader }: ThreadModel,
+  usage: WebUsage | undefined,
+) => {
   const fetchPage = webFetchTool({ binding: env.AI, pageChars: READ_CHARS });
   return defineTool<ReturnType<typeof webFetchParameters>, WebFetchDetails>({
     name: fetchPage.name,
@@ -107,6 +153,7 @@ const webFetch = (env: Bindings, { models, pageReader }: ThreadModel) => {
         },
         { signal: context.abortSignal, maxTokens: ANSWER_TOKENS },
       );
+      usage?.read({ api, context }, answer);
       if (context.abortSignal?.aborted) throw context.abortSignal.reason;
       if (answer.stopReason === "error" || answer.stopReason === "aborted") {
         const message = `web_fetch read ${page.finalUrl} but couldn't answer from it (${answer.errorMessage ?? "the reader failed"}). You may retry once.`;
