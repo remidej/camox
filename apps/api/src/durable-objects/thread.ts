@@ -13,6 +13,7 @@ import {
   type ConnectedAgentClient,
   type ConnectedAgentMessageData,
   connectedAgentMessageDataSchema,
+  DRAFT_CARD_ENTRY,
   DRAFT_ENDED_ENTRY,
   EMPTY_THREAD_STATE,
   EMPTY_THREAD_VIEW,
@@ -186,12 +187,6 @@ type StartedDraftRecord = {
   opening?: ThreadOpening;
   opened?: boolean;
 };
-
-/**
- * The prefix of the request ids keeping, on Live, an editor's message handed off to a draft before
- * it joined the run, followed by its operation id.
- */
-const HANDED_OFF_PREFIX = "camox.handed-off:";
 
 /** Where a tool call, or a hook, runs: the conversation, as Pi reads it then. */
 type InConversation = {
@@ -530,9 +525,10 @@ the turn end on the answer with \`final\`.`
     : `This is the editor's own thread on Live, which you only read: you change nothing here. \
 Answer questions about the website yourself. For every request that would change anything, \
 content or code, call startDraft: it starts a draft where Camox's agent does the work, and ends \
-your turn, the editor seeing the draft's card. One request, one draft: when a draft you started \
-earlier is the place for a follow-up, you may point the editor to its card instead. You can't \
-publish or delete drafts: an editor reviews them and decides.`;
+your turn, the editor seeing the draft's card. This thread then starts afresh from that card: \
+everything before it is gone, so the Brief must carry whatever the draft needs. One request, one \
+draft: when the draft you last started is the place for a follow-up, you may point the editor to \
+its card instead. You can't publish or delete drafts: an editor reviews them and decides.`;
 
 const parseJson = (raw: string | null): unknown => {
   if (raw === null) return undefined;
@@ -1828,8 +1824,9 @@ export class Thread extends DurableObject<Bindings> {
    * message started the run, then opens its thread with the Brief from Camox and the run's
    * editor's messages, which starts the agent there, with no studio needed. Those include the
    * messages still waiting to join the run, which never reach the agent on Live: its turn ends on
-   * the card. The studio that sent one of the run's messages hears it, to enter the draft. A call
-   * that runs again starts nothing more.
+   * the card. The studio that sent one of the run's messages hears it, to enter the draft. Then
+   * the Live thread starts afresh from the draft's card, as the round of tool calls ends
+   * (ADR 0036). A call that runs again starts nothing more.
    */
   async #startDraft(invocation: ToolInvocation, { name, brief }: DraftHandOff) {
     const identity = await this.#knownIdentity();
@@ -1878,7 +1875,7 @@ export class Thread extends DurableObject<Bindings> {
     };
     const opening: ThreadOpening = {
       ...before,
-      messages: mergeMessages(before.messages, await this.#withdrawQueued(invocation, draftId)),
+      messages: mergeMessages(before.messages, await this.#withdrawQueued(invocation)),
     };
     await this.ctx.storage.put(key, { draftId, threadId, opening } satisfies StartedDraftRecord);
     await this.env.THREAD.getByName(threadId).open(opening);
@@ -1895,7 +1892,33 @@ export class Thread extends DurableObject<Bindings> {
     for (const connection of this.webSockets.getConnections()) {
       send(connection, { type: "started-draft", startedDraft });
     }
-    return { draftId, name } satisfies StartedDraftCard;
+    const card = { draftId, name } satisfies StartedDraftCard;
+    await this.#startAfreshFrom(invocation, card);
+    return card;
+  }
+
+  /**
+   * Starts the Live thread afresh from the card of the draft it just started (ADR 0036): one
+   * entry heading a new context, which Pi places as the round of tool calls ends. Editors then
+   * see the card alone, and the model a note naming the draft, with nothing before either. A
+   * call that runs again adds nothing.
+   */
+  async #startAfreshFrom({ api, context }: ToolInvocation, card: StartedDraftCard) {
+    const pi = await this.harness.pi();
+    const conversation = await pi.conversation(api.conversationId, context);
+    if (!conversation) throw new Error("The Live thread has no conversation to start afresh");
+    const note =
+      `Note from Camox: you handed the editor's last request off to the draft "${card.name}", ` +
+      "where Camox's agent works on it. This thread started afresh from there: earlier " +
+      "messages are gone.";
+    await conversation.submit(
+      {
+        type: "write",
+        requestId: `${DRAFT_CARD_ENTRY}:${api.callId}`,
+        entry: { kind: DRAFT_CARD_ENTRY, head: "self", data: card, model: [userMessage(note)] },
+      },
+      context,
+    );
   }
 
   /**
@@ -1912,7 +1935,7 @@ export class Thread extends DurableObject<Bindings> {
       const started = await this.ctx.storage.get<StartedDraftRecord>(key);
       // The call failed before the draft's thread opened: the run goes on, messages and all.
       if (!started?.opening || !started.opened) continue;
-      const late = await this.#withdrawQueued(invocation, started.draftId);
+      const late = await this.#withdrawQueued(invocation);
       if (late.length === 0) continue;
       const opening = {
         ...started.opening,
@@ -1925,15 +1948,12 @@ export class Thread extends DurableObject<Bindings> {
 
   /**
    * Withdraws the editors' messages waiting to join the run in the conversation `invocation` is
-   * part of, oldest first, as they go to the draft `draftId` the run hands its request off to:
-   * they start no run there. The Live thread keeps each, under its sender, as a message the model
-   * reads, which Pi places at the end of the conversation once the round of tool calls ends, and
-   * which studios show in the turn ending on the draft's card.
+   * part of, oldest first, as they go to the draft the run hands its request off to: they start
+   * no run on Live, which starts afresh from the draft's card (ADR 0036).
    */
-  async #withdrawQueued({ api, context }: InConversation, draftId: string) {
+  async #withdrawQueued({ api, context }: InConversation) {
     const inbox = await api.snapshot(InboxDoc, api.conversationId, context);
     const pi = await this.harness.pi();
-    const conversation = await pi.conversation(api.conversationId, context);
     const withdrawn: ThreadOpening["messages"] = [];
     for (const item of inbox?.items ?? []) {
       if (item.mode === "write" || item.entry?.kind !== EDITOR_MESSAGE_ENTRY) continue;
@@ -1941,19 +1961,6 @@ export class Thread extends DurableObject<Bindings> {
       const text = editorTextOf(item.content as Parameters<typeof editorTextOf>[0]);
       if (!data?.operationId || !text) continue;
       if ((await pi.abortSubmission(item.id, context, api.conversationId)) !== "aborted") continue;
-      await conversation?.submit(
-        {
-          type: "write",
-          // The withdrawn input holds the operation id as its own request id.
-          requestId: `${HANDED_OFF_PREFIX}${data.operationId}`,
-          entry: {
-            kind: EDITOR_MESSAGE_ENTRY,
-            data: { ...data, handedOffTo: draftId },
-            model: [userMessage(text)],
-          },
-        },
-        context,
-      );
       withdrawn.push({ operationId: data.operationId, text, from: editorFrom(data) });
     }
     return withdrawn;

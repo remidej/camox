@@ -3,6 +3,7 @@ import {
   BUILD_STATUS_ENTRY,
   BUILD_TOOL,
   type BuildStatus,
+  DRAFT_CARD_ENTRY,
   DRAFT_ENDED_ENTRY,
   EDITOR_MESSAGE_ENTRY,
   EMPTY_THREAD_STATE,
@@ -451,24 +452,28 @@ describe("a thread's view", () => {
     expect(view.messages.at(-1)).toMatchObject({ from: "draft", ...card });
   });
 
-  it("shows a message handed off with the request in the turn ending on its card, as finished", () => {
+  it("starts a Live thread afresh from the card of the draft it handed off to, as Pi places it", () => {
     const card = { draftId: "draft-1", name: "New prices" };
+    const before = [editorMessage("What do plans cost?"), answer("$9."), editorMessage("Raise it")];
+    const handedOff = [...before, ...handOff(card)];
+    // Pi places the card heading a new context once the round of tool calls ends.
+    const fresh = {
+      kind: DRAFT_CARD_ENTRY,
+      data: card,
+      model: [{ role: "user" as const, content: "Note from Camox", timestamp: 0 }],
+      id: handedOff.length + 1,
+      head: handedOff.length + 1,
+      conversationId: "root",
+    } as unknown as EntryRecord;
+
     const view = threadViewOf(
       reduceThreadEvents(EMPTY_THREAD_STATE, [
-        snapshot([
-          editorMessage("Raise the price"),
-          ...handOff(card),
-          // Sent as the agent handed the request off, which took it to the draft too.
-          { ...editorMessage("And the annual plan"), data: { ...editor, handedOffTo: "draft-1" } },
-          editorMessage("Thanks"),
-          answer("You're welcome."),
-        ]),
+        snapshot(handedOff),
+        { type: "entry_appended", entry: fresh } as unknown as AgentEvent,
       ]),
     );
 
-    expect(
-      view.messages.map((message) => ("text" in message ? message.text : message.from)),
-    ).toEqual(["Raise the price", "And the annual plan", "draft", "Thanks", "You're welcome."]);
+    expect(view.messages).toEqual([{ id: String(fresh.id), from: "draft", ...card }]);
   });
 
   it("shows a startDraft call that failed as a turn Camox couldn't finish, with no card", () => {

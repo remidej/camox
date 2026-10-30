@@ -48,7 +48,7 @@ export type UseThreadOptions = {
  *
  * When the agent on Live hands a request off to a draft it started, the studio that sent a
  * message of that run hears it (`onEnterDraft`), to enter the draft. The editor's Live thread
- * stays as it is, ending that turn on the draft's card, which every studio on Live shows.
+ * then starts afresh from the draft's card, which every studio on Live shows alone.
  *
  * It reports what each writing script touched (`touched`), for runs one of its messages was part
  * of only, so that the studio follows the agent; teammates' runs leave it where it is.

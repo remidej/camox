@@ -40,7 +40,7 @@ import { draftProcedures } from "../drafts/routes";
 
 // The agent on Live changes nothing itself: it hands each request that would change the website
 // off to a draft it starts with `startDraft`, whose thread takes the request on from a Brief
-// (ADR 0025).
+// (ADR 0025). The Live thread then starts afresh from the draft's card (ADR 0036).
 
 // Threads run on pi-ai's fake provider, scripted per test, rather than reaching OpenRouter.
 vi.mock("../../lib/thread-model", async () => {
@@ -80,6 +80,11 @@ const CREATE_LAUNCH_PAGE = `
   text(created.createdBy);
 `;
 
+/** What the agent on Live reads once it handed a request off to the draft "New prices". */
+const HANDED_OFF_NOTE =
+  'Note from Camox: you handed the editor\'s last request off to the draft "New prices", where ' +
+  "Camox's agent works on it. This thread started afresh from there: earlier messages are gone.";
+
 /** Scripts the agent on Live handing the request off to a draft named `name`. */
 const handOff = (name: string, brief = BRIEF) => answerWithToolCall("startDraft", { name, brief });
 
@@ -115,7 +120,7 @@ describe("a Live thread handing a request off to a draft", () => {
     expect(await draftsOf(website)).toEqual([]);
   });
 
-  it("starts a draft named by the agent, created by the asking editor, and ends the turn on its card", async () => {
+  it("starts a draft named by the agent, created by the asking editor, leaving only its card on Live", async () => {
     const website = await websiteFixture({ pricing: "Plans start at $9." });
     const token = await signIn(website.db, website.memberUser.id);
     const live = await connectLiveThread(website.project.id, token);
@@ -129,16 +134,9 @@ describe("a Live thread handing a request off to a draft", () => {
     expect(others).toEqual([]);
     expect(draft?.name).toBe("Raise prices to $12");
     expect(draft?.createdBy.id).toBe(website.memberUser.id);
-    // The turn ends on the card, as an answer: no failed line, no more text.
-    expect(view.messages.at(-1)).toEqual({
-      id: expect.any(String),
-      from: "draft",
-      draftId: draft!.id,
-      name: "Raise prices to $12",
-    });
-    expect(said(view)).toEqual([
-      { from: "editor", text: "Raise the price to $12" },
-      { from: "draft", name: "Raise prices to $12" },
+    // The Live thread starts afresh from the card, as an answer: no failed line, no more text.
+    expect(view.messages).toEqual([
+      { id: expect.any(String), from: "draft", draftId: draft!.id, name: "Raise prices to $12" },
     ]);
     // Only the studio that sent the run's message is told to enter the draft.
     expect(live.frames).toContainEqual({
@@ -235,16 +233,12 @@ describe("a Live thread handing a request off to a draft", () => {
     inDraft.close();
     // The agent on Live said nothing after the card: only the draft's agent answered.
     expect(threadModelCalls()).toBe(calls + 1);
-    // The Live thread keeps both messages, in the turn that ended on the card.
-    const askedOnLive = [
-      { from: "editor", text: "Add a launch page" },
-      { from: "editor", text: "Link it from pricing" },
-      { from: "draft", name: "Launch page" },
-    ];
-    expect(said(live.view())).toEqual(askedOnLive);
+    // Both messages went to the draft: the Live thread keeps only its card.
+    const onLive = [{ from: "draft", name: "Launch page" }];
+    expect(said(live.view())).toEqual(onLive);
     live.close();
     const next = await connectLiveThread(project.id, token);
-    expect(said(next.view())).toEqual(askedOnLive);
+    expect(said(next.view())).toEqual(onLive);
     next.close();
   });
 
@@ -261,7 +255,7 @@ describe("a Live thread handing a request off to a draft", () => {
     expect(await pagesOf(website)).toEqual(LIVE_PRICING);
   });
 
-  it("keeps the Live thread and its messages, and starts another draft later", async () => {
+  it("keeps the same Live thread, showing only the last draft's card, and starts another draft later", async () => {
     const website = await websiteFixture({ pricing: "Plans start at $9." });
     const token = await signIn(website.db, website.memberUser.id);
     const threadId = await (async () => {
@@ -285,20 +279,13 @@ describe("a Live thread handing a request off to a draft", () => {
     const view = await ask(await connectLiveThread(website.project.id, token), "Add a launch page");
 
     expect(await liveThreadIdOf(website, token)).toBe(threadId);
-    expect(said(view)).toEqual([
-      { from: "editor", text: "What do plans cost?" },
-      { from: "agent", text: "Plans start at $9." },
-      { from: "editor", text: "Raise the price to $12" },
-      { from: "draft", name: "New prices" },
-      { from: "editor", text: "Add a launch page" },
-      { from: "draft", name: "Launch page" },
-    ]);
+    expect(said(view)).toEqual([{ from: "draft", name: "Launch page" }]);
     const names = (await draftsOf(website)).map(({ name }) => name);
     expect(names).toHaveLength(2);
     expect(names).toEqual(expect.arrayContaining(["Launch page", "New prices"]));
   });
 
-  it("keeps the Live thread's request and card once the draft ended, which deletes the draft's thread", async () => {
+  it("keeps the Live thread's card once the draft ended, which deletes the draft's thread", async () => {
     const website = await websiteFixture({ pricing: "Plans start at $9." });
     const token = await signIn(website.db, website.memberUser.id);
     handOff("New prices");
@@ -314,11 +301,28 @@ describe("a Live thread handing a request off to a draft", () => {
     await inDraft.until(() => inDraft.closedWith() !== undefined);
     expect(draftThreadId).not.toBeNull();
     const live = await connectLiveThread(website.project.id, token);
-    expect(said(live.view())).toEqual([
-      { from: "editor", text: "Raise the price to $12" },
-      { from: "draft", name: "New prices" },
-    ]);
+    expect(said(live.view())).toEqual([{ from: "draft", name: "New prices" }]);
     live.close();
+  });
+
+  it("starts the agent on Live afresh, reading only a note naming the draft before the next message", async () => {
+    const website = await websiteFixture({ pricing: "Plans start at $9." });
+    const token = await signIn(website.db, website.memberUser.id);
+    answerNext("Plans start at $9.");
+    await ask(await connectLiveThread(website.project.id, token), "What do plans cost?");
+    handOff("New prices");
+    answerNext("Raised the price.");
+    await ask(await connectLiveThread(website.project.id, token), "Raise the price to $12");
+
+    const seen = seenByNextAnswer("It's in the draft.");
+    const view = await ask(await connectLiveThread(website.project.id, token), "Is it done?");
+
+    expect(seen.request?.editorMessages).toEqual([HANDED_OFF_NOTE, "Is it done?"]);
+    expect(said(view)).toEqual([
+      { from: "draft", name: "New prices" },
+      { from: "editor", text: "Is it done?" },
+      { from: "agent", text: "It's in the draft." },
+    ]);
   });
 });
 
@@ -362,7 +366,7 @@ function seenByNextAnswer(text: string) {
 }
 
 describe("the agent on Live hearing that a draft it started ended", () => {
-  it("reads who published it and its Draft Overview after everything before, which shows no note", async () => {
+  it("reads who published it and its Draft Overview after the hand-off's note, which shows no note", async () => {
     const website = await websiteFixture({ pricing: "Plans start at $9." });
     const token = await signIn(website.db, website.memberUser.id);
     const teammate = await addMember(website.db, website.project.organizationId);
@@ -377,14 +381,9 @@ describe("the agent on Live hearing that a draft it started ended", () => {
 
     const seen = seenByNextAnswer("It's live.");
     const view = await ask(await connectLiveThread(website.project.id, token), "Is it live?");
-    expect(seen.request?.editorMessages).toEqual([
-      "Raise the price to $12",
-      PUBLISHED_NOTE,
-      "Is it live?",
-    ]);
+    expect(seen.request?.editorMessages).toEqual([HANDED_OFF_NOTE, PUBLISHED_NOTE, "Is it live?"]);
     expect(seen.request?.instructions).toBe(handingOff.instructions);
     expect(said(view)).toEqual([
-      { from: "editor", text: "Raise the price to $12" },
       { from: "draft", name: "New prices" },
       { from: "editor", text: "Is it live?" },
       { from: "agent", text: "It's live." },
@@ -408,7 +407,7 @@ describe("the agent on Live hearing that a draft it started ended", () => {
 
     await live.until(() => !live.view().running && lastAnswer(live.view()) !== undefined);
     expect(seen.request?.editorMessages).toEqual([
-      "Raise the price to $12",
+      HANDED_OFF_NOTE,
       "Do prices change?",
       DELETED_NOTE,
     ]);
