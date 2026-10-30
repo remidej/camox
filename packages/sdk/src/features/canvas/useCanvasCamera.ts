@@ -611,6 +611,8 @@ export function useCanvasCamera(
       flight = { page: page && { ...page }, pan, path };
       animation = requestAnimationFrame(animate);
     };
+    // The row as the camera last synced it, to tell how a new row moved the selection.
+    let syncedTargets = targets();
     flightControls.current = {
       flyTo: startFlight,
       reveal: (element, immediate) => {
@@ -638,6 +640,8 @@ export function useCanvasCamera(
       syncRow: () => {
         const key = rowRef.current?.selected ?? null;
         const destination = targetOf(key);
+        const previousTargets = syncedTargets;
+        syncedTargets = targets();
         if (key !== requested) {
           // Selected from anywhere but the camera, such as a header or the
           // Content Sidebar: fly there to snap to it.
@@ -653,6 +657,29 @@ export function useCanvasCamera(
           // Device presets and page reordering can change geometry without a new URL.
           else if (page.left !== flight.page.left || page.width !== flight.page.width)
             startFlight(page.key);
+          return;
+        }
+        // The row spaced its Pages anew, its gap following the window's width: the selection
+        // keeps its place in the row, and the camera stays snapped to it.
+        const previous =
+          previousTargets[syncedTargets.findIndex((candidate) => candidate.key === key)];
+        if (
+          destination &&
+          previous?.key === key &&
+          previous.left !== destination.left &&
+          previous.width === destination.width &&
+          selection === key &&
+          !flight &&
+          isCanvasCameraSnapped(rest(target), viewportSize, previous)
+        ) {
+          updateGeometry();
+          const fit = fitCanvasPage(viewportSize, destination);
+          const next = { ...fit, y: rescaleY(restoredCamera ?? target, fit.scale) };
+          // The initial fit framed the page where it was: keep the new framing through loading.
+          if (restoredCamera || fittingInitialPage) restoredCamera = next;
+          fittingInitialPage = false;
+          camera = constrain(camera, true);
+          applyCamera(next, true);
           return;
         }
         // Reordering pages can move the selection away from the camera.

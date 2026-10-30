@@ -1955,6 +1955,111 @@ void test("a snapped page stays snapped as the viewport resizes", async () => {
   }
 });
 
+void test("a snapped page stays put as the row spaces its pages for a new width, without a flight", async () => {
+  const dom = new Window({ url: "http://localhost/about" });
+  const callbacks = new Map<number, FrameRequestCallback>();
+  let resize = () => {};
+  let sequence = 0;
+  const globals = {
+    React,
+    window: dom,
+    document: dom.document,
+    Element: dom.Element,
+    IS_REACT_ACT_ENVIRONMENT: true,
+    ResizeObserver: class {
+      constructor(callback: () => void) {
+        resize = callback;
+      }
+      observe() {}
+      disconnect() {}
+    },
+    requestAnimationFrame: (callback: FrameRequestCallback) => {
+      callbacks.set(++sequence, callback);
+      return sequence;
+    },
+    cancelAnimationFrame: (id: number) => callbacks.delete(id),
+  };
+  const previous = new Map(
+    Object.keys(globals).map((key) => [key, Object.getOwnPropertyDescriptor(globalThis, key)]),
+  );
+  Object.assign(globalThis, globals);
+  // Flights animate, so one would show as a pending frame.
+  Object.defineProperty(dom, "matchMedia", { value: () => ({ matches: false }) });
+  const mount = dom.document.createElement("div");
+  dom.document.body.append(mount);
+  const root = createRoot(mount as unknown as HTMLElement);
+  const size = { width: 1600, height: 900 };
+  const row = (gap: number) =>
+    ["first", "middle", "last"].map((key, index) => ({
+      key,
+      left: index * (1366 + gap),
+      width: 1366,
+    }));
+  let pages = row(240);
+  const content = { width: 1366 * 3 + 480, height: 20000 };
+  let controls!: ReturnType<typeof useCanvasCamera>;
+  function Fixture() {
+    controls = useCanvasCamera("respaced-row", pages[1], {
+      targets: pages,
+      width: content.width,
+      selected: "middle",
+      onSelect: () => {},
+    });
+    return (
+      <div ref={controls.viewportRef}>
+        <div ref={controls.contentRef} />
+      </div>
+    );
+  }
+  try {
+    await act(async () => root.render(<Fixture />));
+    const viewport = mount.querySelector("div")!;
+    Object.defineProperties(viewport, {
+      clientWidth: { get: () => size.width },
+      clientHeight: { get: () => size.height },
+      getBoundingClientRect: { value: () => ({ left: 0, top: 0 }) },
+    });
+    Object.defineProperties(viewport.querySelector("div")!, {
+      offsetWidth: { get: () => content.width },
+      offsetHeight: { get: () => content.height },
+    });
+    resize();
+    const read = () => ({
+      x: parseFloat(viewport.style.getPropertyValue("--canvas-x")),
+      scale: Number(viewport.style.getPropertyValue("--canvas-zoom")),
+    });
+    const assertSnapped = (message: string) => {
+      const fit = fitCanvasPage(size, pages[1]!);
+      assert.ok(Math.abs(read().scale - fit.scale) < 1e-6, `${message}: zoom`);
+      assert.ok(Math.abs(read().x - fit.x) < 1e-6, `${message}: position`);
+      assert.equal(callbacks.size, 0, `${message}: without a flight`);
+    };
+    assertSnapped("the selected page starts snapped");
+
+    // The row spaces its pages anew before the camera hears of the resize.
+    size.width = 1100;
+    pages = row(320);
+    await act(async () => root.render(<Fixture />));
+    assertSnapped("re-spaced first");
+    resize();
+    assertSnapped("then resized");
+
+    // The camera hears of the resize before the row spaces its pages anew.
+    size.width = 1400;
+    resize();
+    pages = row(200);
+    await act(async () => root.render(<Fixture />));
+    assertSnapped("resized first, then re-spaced");
+  } finally {
+    await act(async () => root.unmount());
+    await dom.happyDOM.close();
+    for (const [key, descriptor] of previous) {
+      if (descriptor) Object.defineProperty(globalThis, key, descriptor);
+      else Reflect.deleteProperty(globalThis, key);
+    }
+  }
+});
+
 void test("the editor's own pans and zooms report themselves; flights and resizes don't", async () => {
   const dom = new Window({ url: "http://localhost/about" });
   const callbacks = new Map<number, FrameRequestCallback>();
