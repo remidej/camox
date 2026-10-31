@@ -103,7 +103,10 @@ import { type CodeCall, type CodeOutcome, codeTool } from "../domains/code-agent
 import { type CheckedLanding, type Landing, landPush } from "../domains/code-pushes/land";
 import { resolvePath } from "../domains/code/env";
 import { CODE_ROOT, lazyEnv, mainCopyFs, mainCopyFsEnv } from "../domains/code/main-copy";
-import { PLATFORM_SKILLS_SECTION } from "../domains/code/platform-skills";
+import {
+  CODE_AGENT_SKILLS_SECTION,
+  THREAD_AGENT_SKILLS_SECTION,
+} from "../domains/code/platform-skills";
 import { remoteEnv } from "../domains/code/remote-env";
 import { CODE_WRITES, codeReadingTools, codeWritingTools } from "../domains/code/tools";
 import { writeLine } from "../domains/code/write-line";
@@ -698,7 +701,12 @@ export class Thread extends DurableObject<Bindings> {
             render: async () => workplace(await this.#knownIdentity()),
             tag: false,
           },
-          ...(live ? [] : [{ key: "code", render: () => CODE_REQUESTS, tag: false }]),
+          ...(live
+            ? []
+            : [
+                { key: "code", render: () => CODE_REQUESTS, tag: false },
+                { key: "skills", render: () => THREAD_AGENT_SKILLS_SECTION, tag: false },
+              ]),
         ],
         tools,
         // Once a script ends, failed or not, the studios hear what its writes touched.
@@ -1088,7 +1096,7 @@ export class Thread extends DurableObject<Bindings> {
       name: "camox-code-agent",
       sections: [
         { key: "code-agent", render: () => CODE_AGENT_INSTRUCTIONS, tag: false },
-        { key: "skills", render: () => PLATFORM_SKILLS_SECTION, tag: false },
+        { key: "skills", render: () => CODE_AGENT_SKILLS_SECTION, tag: false },
       ],
       tools: [
         ...reading.map((tool): ToolRegistration => ({ ...tool, callers: ["model"] })),

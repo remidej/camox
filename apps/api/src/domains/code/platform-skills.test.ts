@@ -3,7 +3,11 @@ import path from "node:path";
 
 import { describe, expect, it } from "vite-plus/test";
 
-import { PLATFORM_SKILLS } from "./platform-skills";
+import {
+  CODE_AGENT_SKILLS_SECTION,
+  PLATFORM_SKILLS,
+  THREAD_AGENT_SKILLS_SECTION,
+} from "./platform-skills";
 
 const API_ROOT = path.join(import.meta.dirname, "../../..");
 
@@ -31,5 +35,14 @@ describe("the platform's skills", () => {
     for (const name of names) expect(PLATFORM_SKILLS).toHaveProperty([`${name}/SKILL.md`]);
     const sdk = skillNames(skillFiles(path.join(API_ROOT, "../../packages/sdk/skills")));
     expect(names.filter((name) => sdk.includes(name))).toEqual([]);
+  });
+
+  it("give the Code Agent the design skill, and the thread's agent the page composition skill", () => {
+    expect(CODE_AGENT_SKILLS_SECTION).toContain("<name>website-design</name>");
+    expect(CODE_AGENT_SKILLS_SECTION).not.toContain("page-composition");
+    expect(THREAD_AGENT_SKILLS_SECTION).toContain(
+      PLATFORM_SKILLS["page-composition/SKILL.md"].split("\n---\n")[1].trim(),
+    );
+    expect(THREAD_AGENT_SKILLS_SECTION).not.toContain("website-design");
   });
 });
