@@ -10,8 +10,8 @@ Camox will need limits on AI use and a price that covers it, and neither can be 
 
 ## Consequences
 
-- One record per call, keyed by OpenRouter's generation id (or another id the call has for good), so a call recorded again, as a Pi replay after an eviction does, counts once. Each retry of a call is its own record, marked `retried`, with what it cost.
-- The cost is frozen at call time, in integer millionths of a dollar: what OpenRouter billed, or an estimate from the price list (pi-ai's model catalog) when it reports none.
+- One record per call, keyed by OpenRouter's generation id (or another id the call has for good), so a call recorded again, as a Pi replay after an eviction does, counts once. Each retry of a call is its own record, marked `retried`, with what it cost. A thread's agent records one per step, from Pi's hooks: a failed step is marked `error`, and Pi's retry is the turn's next step.
+- The cost is frozen at call time, in integer millionths of a dollar: what OpenRouter billed, or an estimate from the price list (pi-ai's model catalog) when it reports none. pi-ai drops OpenRouter's billed cost and routed provider from the messages it returns, so a thread reads them from OpenRouter's raw stream. A web search has no cost yet: Cloudflare bills it to the AI Gateway without telling the call.
 - Who started the work is recorded apart from who it was for: a member, the agent, or Camox itself (patrollers, catch-up drafts), naming the patroller. Billing isn't decided, but these must be told apart.
 - Recording never blocks or fails the user's work: records are written in the background, and failed writes retried.
 - Records have no foreign keys and no cascading deletes: they outlive the organizations, projects, drafts and threads they name. They hold no prompts or outputs.
