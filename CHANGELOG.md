@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.67.0](https://github.com/remidej/camox/compare/camox-v0.66.0...camox-v0.67.0) (2026-10-31)
+
+
+### Changes
+
+* **api:** record what the agent's steps, compactions and web tools cost ([#784](https://github.com/remidej/camox/issues/784)) ([3dc2310](https://github.com/remidej/camox/commit/3dc231053c46b1ef0dceec0b5e8e4fea39404b8d))
+* **api:** web_fetch answers a question about a page instead of returning it ([#775](https://github.com/remidej/camox/issues/775)) ([c2eee25](https://github.com/remidej/camox/commit/c2eee25665364f5056c6f58bdb321e981296a8b8))
+* Code Agent, the website's code gets an agent of its own ([#783](https://github.com/remidej/camox/issues/783)) ([a4480a2](https://github.com/remidej/camox/commit/a4480a2a518d92fe38be934d9ade566b7633573d))
+* show findings where their content is edited, and remove the Proofreader ([#773](https://github.com/remidej/camox/issues/773)) ([c1adfa5](https://github.com/remidej/camox/commit/c1adfa5bb7eb69513bf435da8b30408aa8b8a812))
+
 ## [0.66.0](https://github.com/remidej/camox/compare/camox-v0.65.1...camox-v0.66.0) (2026-10-30)
 
 
