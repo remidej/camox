@@ -730,6 +730,8 @@ export function threadViewOf({
         break;
       case "tools":
         unfinished = false;
+        // The Code Agent's build status ends with its request, whose answer is a tool result.
+        status = undefined;
         break;
       case "unfinished":
         unfinished = true;
@@ -772,11 +774,11 @@ function activityOf({
   // Fixing a build error takes thinking, reading and writing, which all read as fixing, but its
   // builds show as building.
   if (status === "building" || calling(BUILD_TOOL)) return "building";
+  if (status === "fixing") return "fixing";
   // An Artifact Agent or the Code Agent works on the agent's behalf: editors see what it does as
   // the agent's.
   if (toolCalls.some((call) => handsOff(call.name))) return handedOffActivity ?? "changing";
   if (checking) return "checking";
-  if (status === "fixing") return "fixing";
   if (calling(START_DRAFT_TOOL)) return "startingDraft";
   if (changing) return "changing";
   if (callingTools || toolCalls.length > 0) return "exploring";
