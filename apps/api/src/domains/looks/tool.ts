@@ -138,18 +138,14 @@ const pages = (pages: string, examples: string, onSuch: string): Offered => ({
     "around it",
 });
 
-const LAYOUT_PAGES = "a page of a Singleton or Derived Layout";
+const OF_LAYOUTS = "of a Singleton or Derived Layout";
 
 /**
  * The targets each kind offers. The Code Agent's pages leave out curated Layouts' pages, which
  * the thread's agent composes.
  */
 const OFFERED: Record<LookTargetKind, Offered> = {
-  page: pages(
-    `a page, curated or ${LAYOUT_PAGES.slice(2)}`,
-    "`/pricing` or `/blog/my-post`",
-    "a page",
-  ),
+  page: pages(`a page, curated or ${OF_LAYOUTS}`, "`/pricing` or `/blog/my-post`", "a page"),
   blockDefinition: {
     schema: BLOCK_DEFINITION_TARGET,
     described:
@@ -163,7 +159,7 @@ const OFFERED: Record<LookTargetKind, Offered> = {
   },
 };
 
-const CODE_AGENT_PAGES = pages(LAYOUT_PAGES, "`/blog/my-post`", "such a page");
+const CODE_AGENT_PAGES = pages(`a page ${OF_LAYOUTS}`, "`/blog/my-post`", "such a page");
 
 /** The key a target of `kind` is named by. */
 const KEYS: Record<LookTargetKind, string> = {
