@@ -1,4 +1,3 @@
-import { Badge } from "@camox/ui/badge";
 import { Button } from "@camox/ui/button";
 import {
   DropdownMenu,
@@ -80,7 +79,6 @@ export function DraftPicker({ disabled = false }: { disabled?: boolean }) {
     () => () => {
       studioStore.send({ type: "closeReviewDraftSheet" });
       studioStore.send({ type: "closeDeleteDraftDialog" });
-      studioStore.send({ type: "closeKeepDraft" });
     },
     [draftId],
   );
@@ -186,28 +184,6 @@ export function DraftPicker({ disabled = false }: { disabled?: boolean }) {
 }
 
 /**
- * The current draft's pending changes, which open its review to publish or delete them. Live
- * has none, so it shows nothing there. An unnamed draft shows the Unnamed Draft Bar instead.
- */
-export function PendingChanges() {
-  const { current } = useDrafts();
-  if (!current || current.name === null) return null;
-
-  return (
-    <Button
-      type="button"
-      aria-label={`Review ${plural(current.changeCount, "change")}`}
-      onClick={() => studioStore.send({ type: "openReviewDraftSheet" })}
-    >
-      Review changes
-      <Badge className="bg-primary-foreground/20 text-primary-foreground min-w-5 px-1.5 tabular-nums">
-        {current.changeCount}
-      </Badge>
-    </Button>
-  );
-}
-
-/**
  * The drafts controls' actions in the command palette, offered where the controls offer them. The palette only opens the review and the delete confirmation; it never publishes or
  * deletes by itself.
  */
@@ -249,16 +225,11 @@ function useDraftsActions({
       },
       {
         id: "rename-draft",
-        label: unnamed ? "Keep as draft…" : "Rename draft…",
-        aliases: unnamed ? ["Name draft", "Rename draft", "Save draft"] : ["Name draft"],
+        label: unnamed ? "Name draft…" : "Rename draft…",
+        aliases: unnamed ? ["Rename draft", "Save draft"] : ["Name draft"],
         groupLabel: "Drafts",
         checkIfAvailable: () => inDraft,
-        execute: () =>
-          studioStore.send(
-            unnamed
-              ? { type: "openKeepDraft" }
-              : { type: "openReviewDraftSheet", startRenaming: true },
-          ),
+        execute: () => studioStore.send({ type: "openReviewDraftSheet", startRenaming: true }),
       },
       {
         id: "switch-to-live",

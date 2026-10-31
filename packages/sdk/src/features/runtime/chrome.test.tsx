@@ -174,7 +174,7 @@ void test("authenticated documents SSR real chrome and server-loaded project dat
     }),
   );
   assert.match(canvasHtml, /My actual project/);
-  assert.match(canvasHtml, /<div hidden=""[^>]*><menu role="toolbar"/);
+  assert.match(canvasHtml, /<div hidden=""[^>]*><div[^>]*><menu role="toolbar"/);
   assert.doesNotMatch(canvasHtml, /href="\/camox\/canvas"/);
 
   const publicInput = { ...input, presentation: "public" as const, project: undefined };

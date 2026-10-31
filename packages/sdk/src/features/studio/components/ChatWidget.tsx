@@ -13,7 +13,6 @@ import { EditorWhereContext } from "../editorWhereContext";
 import { FollowAgentContext } from "../followAgentContext";
 import { studioStore } from "../studioStore";
 import { useEditorSelection } from "../useEditorSelection";
-import { ConnectAgent } from "./ConnectAgent";
 import { type ComposerCarrier, ThreadComposer, useComposerCarrier } from "./ThreadComposer";
 import { ThreadMessages } from "./ThreadMessages";
 
@@ -25,7 +24,7 @@ import { ThreadMessages } from "./ThreadMessages";
  * it, if it still shows Live; the card the Live turn ends on opens it too. Each message tells the
  * agent where the editor is: the page they look at, with what they selected on it unless they
  * cleared it from the composer, or the Canvas with no page selected. "Ask the agent" elsewhere in
- * the studio fills its composer. Under the composer, it invites the editor to connect their own AI.
+ * the studio fills its composer.
  */
 export function ChatWidget({ className }: { className?: string }) {
   return (
@@ -41,7 +40,6 @@ export function ChatWidget({ className }: { className?: string }) {
       </header>
       <div className={cn("bg-background flex min-h-0 flex-1 flex-col", CARD_BODY_EDGES)}>
         <CurrentThread />
-        <ConnectAgent />
       </div>
     </section>
   );

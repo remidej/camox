@@ -31,8 +31,8 @@ Object.assign(globalThis, {
 });
 const { createRoot } = await import("react-dom/client");
 const { toast } = await import("@camox/ui/toaster");
-const { DraftPicker, PendingChanges } = await import("./DraftsControl");
-const { UnnamedDraftBar, SETTLE_MS } = await import("./UnnamedDraftBar");
+const { DraftPicker } = await import("./DraftsControl");
+const { DraftBar, SETTLE_MS } = await import("./DraftBar");
 const { initApiClient } = await import("@/lib/api-client");
 const { AuthContext } = await import("@/lib/auth");
 const { NavigationProvider } = await import("@/features/navigation/navigation");
@@ -154,10 +154,12 @@ async function click(element: unknown) {
 
 const trigger = () =>
   window.document.querySelector('[data-slot="dropdown-menu-trigger"]') as unknown as HTMLElement;
-const pendingButton = () =>
-  [...window.document.querySelectorAll("button")].find((button) =>
-    (button.textContent ?? "").startsWith("Review changes"),
-  ) as unknown as HTMLElement | undefined;
+const bar = () => window.document.querySelector('[aria-label="Draft"]');
+const barButtons = () => [...(bar()?.querySelectorAll("button") ?? [])];
+const barButton = (label: string) =>
+  barButtons().find((button) => button.textContent === label) as unknown as
+    | HTMLButtonElement
+    | undefined;
 const menu = () => window.document.querySelector('[role="menu"]');
 const menuItems = () =>
   [...window.document.querySelectorAll('[role="menu"] [role^="menuitem"]')].map(
@@ -251,8 +253,7 @@ async function render(t: test.TestContext, at: string | null) {
           <AuthContext.Provider value={auth}>
             <NavigationProvider navigate={(options) => void navigations.push(options)}>
               <DraftPicker />
-              <PendingChanges />
-              <UnnamedDraftBar stacked={false} />
+              <DraftBar />
               <Palette />
             </NavigationProvider>
           </AuthContext.Provider>
@@ -299,26 +300,28 @@ void test("in a regular draft, shows nothing until the draft loads rather than a
   assert.equal(trigger()?.textContent, undefined);
 });
 
-void test("on Live, reads Live, says the first edit starts a draft, and shows no pending changes", async (t) => {
+void test("on Live, reads Live, says the first edit starts a draft, and shows no draft row", async (t) => {
   mockApi(t);
   await render(t, null);
 
   assert.equal(trigger().textContent, "Live");
-  assert.equal(pendingButton(), undefined);
+  assert.ok(!bar(), "expected no draft row");
   await click(trigger());
 
   assert.match(menu()?.textContent ?? "", /Live is read-only/);
   assert.match(menu()?.textContent ?? "", /first edit starts a new draft/);
 });
 
-void test("in a named draft, the picker reads its name and the button its pending changes", async (t) => {
+void test("in a named draft, the picker reads its name and the row its pending changes, to discard or publish", async (t) => {
   mockApi(t);
   await render(t, spring);
 
   assert.equal(trigger().textContent, "Spring campaign");
-  assert.equal(pendingButton()?.getAttribute("aria-label"), "Review 4 changes");
-  // The count shows apart from the label, in its own indicator.
-  assert.equal(pendingButton()?.querySelector('[data-slot="badge"]')?.textContent, "4");
+  assert.match(bar()?.textContent ?? "", /4 pending changes/);
+  assert.deepEqual(
+    barButtons().map((button) => button.textContent),
+    ["Discard", "Publish…"],
+  );
 });
 
 void test("in an unnamed draft, the picker reads its creator and date", async (t) => {
@@ -328,14 +331,15 @@ void test("in an unnamed draft, the picker reads its creator and date", async (t
   assert.equal(trigger().textContent, "Ada, Oct 13");
 });
 
-void test("a draft without changes still offers its review, counting none", async (t) => {
+void test("a draft without changes can be discarded but has nothing to publish", async (t) => {
   mockApi(t, (path) =>
     path === "drafts/get" ? json({ ...drafts[0], changeCount: 0 }) : undefined,
   );
   await render(t, spring);
 
-  assert.equal(pendingButton()?.getAttribute("aria-label"), "Review 0 changes");
-  assert.equal(pendingButton()?.querySelector('[data-slot="badge"]')?.textContent, "0");
+  assert.match(bar()?.textContent ?? "", /No changes yet/);
+  assert.equal(barButton("Discard")?.disabled, false);
+  assert.equal(barButton("Publish…")?.disabled, true);
 });
 
 void test("in a draft, the picker offers only switching, not the draft's actions", async (t) => {
@@ -346,11 +350,11 @@ void test("in a draft, the picker offers only switching, not the draft's actions
   assert.doesNotMatch(menu()?.textContent ?? "", /Review|Delete|read-only/);
 });
 
-void test("the pending changes button opens the draft's review", async (t) => {
+void test("Publish… opens a named draft's review", async (t) => {
   mockApi(t);
   await render(t, spring);
 
-  await click(pendingButton());
+  await click(barButton("Publish…"));
 
   assert.equal(sheetTitle(), "Spring campaign");
   assert.match(window.document.querySelector('[role="dialog"]')?.textContent ?? "", /Delete draft/);
@@ -522,56 +526,26 @@ void test("searching the palette for a creator's name finds their draft", async 
   assert.deepEqual(draftsCommands(), ['Switch to "Spring campaign"']);
 });
 
-// --- The Unnamed Draft Bar ---
+// --- The Draft Row in an unnamed draft ---
 
-const bar = () => window.document.querySelector('[aria-label="Unnamed draft"]');
-const barButton = (label: string) =>
-  [...(bar()?.querySelectorAll("button") ?? [])].find(
-    (button) => button.textContent === label,
-  ) as unknown as HTMLButtonElement | undefined;
-
-async function typeInto(input: HTMLInputElement | undefined, text: string) {
-  assert.ok(input, "expected an input to type into");
-  await React.act(async () => {
-    const setValue = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value")!;
-    setValue.set!.call(input, text);
-    input.dispatchEvent(new window.Event("input", { bubbles: true }) as unknown as Event);
-    await new Promise((resolve) => setTimeout(resolve, 40));
-  });
-}
-
-async function submit(input: HTMLInputElement | undefined) {
-  assert.ok(input?.form, "expected the input's form");
-  await React.act(async () => {
-    input.form!.requestSubmit();
-    await new Promise((resolve) => setTimeout(resolve, 40));
-  });
-}
-
-void test("in an unnamed draft, the bar asks to discard, keep or publish instead of the review button", async (t) => {
+void test("in an unnamed draft, the row offers the same two buttons", async (t) => {
   mockApi(t);
   await render(t, adas);
 
   assert.match(bar()?.textContent ?? "", /1 pending change/);
-  assert.ok(barButton("Discard"));
-  assert.ok(barButton("Keep as draft"));
-  assert.ok(barButton("Publish…"));
-  assert.ok(!pendingButton(), "expected no review button");
+  assert.deepEqual(
+    barButtons().map((button) => button.textContent),
+    ["Discard", "Publish…"],
+  );
 });
 
-void test("in a named draft, there is no bar", async (t) => {
-  mockApi(t);
-  await render(t, spring);
-  assert.ok(!bar(), "expected no bar");
-});
-
-void test("the bar waits for the draft's edits to settle before showing", async (t) => {
+void test("the row waits for the draft's edits to settle before showing", async (t) => {
   const changedAt = Date.now();
   mockApi(t, (path) =>
     path === "drafts/get" ? json({ ...drafts[1], lastChangedAt: changedAt }) : undefined,
   );
   await render(t, adas);
-  assert.ok(!bar(), "expected no bar");
+  assert.ok(!bar(), "expected no draft row");
 
   await React.act(async () => {
     await new Promise((resolve) => setTimeout(resolve, changedAt + SETTLE_MS - Date.now() + 40));
@@ -614,69 +588,13 @@ void test("Discard asks to discard the changes, then discards them and returns t
   );
 });
 
-void test("Keep as draft offers the Draft Overview's short name, not its headline, and keeps the draft under it", async (t) => {
-  const calls = mockApi(t, (path) => {
-    if (path === "drafts/previewPublish") {
-      return previewWith({
-        status: "ready",
-        name: "New hero subtitle",
-        headline: "Rewords the homepage hero's subtitle to lead with pricing",
-        bullets: [],
-        stale: false,
-      });
-    }
-    if (path === "drafts/rename") return json({ ...drafts[1], name: "New hero subtitle" });
-    return undefined;
-  });
-  await render(t, adas);
-
-  await click(barButton("Keep as draft"));
-  await settle();
-  assert.equal(nameInput()?.value, "New hero subtitle");
-  await submit(nameInput());
-
-  assert.deepEqual(
-    calls.filter((call) => call.path === "drafts/rename").map((call) => call.input),
-    [{ projectId: project.id, name: "New hero subtitle" }],
-  );
-  assert.ok(!bar(), "expected no bar");
-  assert.equal(pendingButton()?.getAttribute("aria-label"), "Review 1 change");
-});
-
-void test("Keep as draft keeps the name the editor types over the suggested one", async (t) => {
-  const calls = mockApi(t, (path) => {
-    if (path === "drafts/previewPublish") {
-      return previewWith({
-        status: "ready",
-        name: "Hero subtitle",
-        headline: "Rewords the hero",
-        bullets: [],
-        stale: false,
-      });
-    }
-    if (path === "drafts/rename") return json({ ...drafts[1], name: "Hero copy test" });
-    return undefined;
-  });
-  await render(t, adas);
-
-  await click(barButton("Keep as draft"));
-  await settle();
-  await typeInto(nameInput(), "Hero copy test");
-  await submit(nameInput());
-
-  assert.deepEqual(
-    calls.filter((call) => call.path === "drafts/rename").map((call) => call.input),
-    [{ projectId: project.id, name: "Hero copy test" }],
-  );
-});
-
-void test("in an unnamed draft, the palette discards and keeps rather than deletes and renames", async (t) => {
+void test("in an unnamed draft, the palette discards and names rather than deletes and renames", async (t) => {
   mockApi(t);
   await render(t, adas);
   await openPalette();
 
   assert.ok(draftsCommands().includes("Discard changes…"));
-  assert.ok(draftsCommands().includes("Keep as draft…"));
+  assert.ok(draftsCommands().includes("Name draft…"));
   assert.equal(draftsCommands().includes("Delete draft…"), false);
   assert.equal(draftsCommands().includes("Rename draft…"), false);
 });
