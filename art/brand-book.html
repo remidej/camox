@@ -506,22 +506,76 @@
         return {
           x: (c1.x * c1.a + c2.x * c2.a) / (c1.a + c2.a),
           y: (c1.y * c1.a + c2.y * c2.a) / (c1.a + c2.a),
+          a: c1.a + c2.a,
         };
+      }
+
+      // Area centroid of a path made of M / L / Q / Z (the wordmark's outlines). Curves are
+      // flattened; counters wind the other way, so their area subtracts.
+      function pathCentroid(d) {
+        const toks = d.match(/[MLQZ]|-?[\d.]+/g);
+        const polys = [];
+        let i = 0;
+        let p;
+        const num = () => +toks[i++];
+        while (i < toks.length) {
+          const cmd = toks[i++];
+          if (cmd === "M") polys.push([(p = [num(), num()])]);
+          else if (cmd === "L") polys.at(-1).push((p = [num(), num()]));
+          else if (cmd === "Q") {
+            const q = [num(), num()];
+            const e = [num(), num()];
+            for (let n = 1; n <= 16; n++) {
+              const t = n / 16;
+              const u = 1 - t;
+              polys
+                .at(-1)
+                .push([
+                  u * u * p[0] + 2 * u * t * q[0] + t * t * e[0],
+                  u * u * p[1] + 2 * u * t * q[1] + t * t * e[1],
+                ]);
+            }
+            p = e;
+          }
+        }
+        let a = 0;
+        let cx = 0;
+        let cy = 0;
+        for (const pts of polys)
+          pts.forEach(([x0, y0], j) => {
+            const [x1, y1] = pts[(j + 1) % pts.length];
+            const cr = x0 * y1 - x1 * y0;
+            a += cr;
+            cx += (x0 + x1) * cr;
+            cy += (y0 + y1) * cr;
+          });
+        return { a: a / 2, x: cx / (3 * a), y: cy / (3 * a) };
       }
 
       // Lockup: wordmark x-height = 52.6% of the mark's height, baseline on the head's bottom,
       // gap one wall (s/φ²) from the muzzle tip to the c.
+      // The wordmark sits low, so the lockup's visual centre (the area centroid of mark and
+      // wordmark together) is well below the middle of its ink. Files are `height` tall with
+      // the ink `inkY` from the top, so centring the file centres the lockup's visual weight.
       function lockupLayout() {
         const g = geometry();
         const k = (g.h * 0.526) / WORDMARK.xHeight;
         const wordX = g.w + g.t - WORDMARK.inkLeft * k;
+        const bottom = g.h + WORDMARK.inkBottom * k;
+        const mark = centroid(g);
+        const word = pathCentroid(WORDMARK.d);
+        const wordA = word.a * k * k;
+        const cy = (mark.y * mark.a + (g.h + word.y * k) * wordA) / (mark.a + wordA);
+        const height = 2 * Math.max(cy, bottom - cy);
         return {
           g,
           k,
           wordX,
           width: g.w + g.t + (WORDMARK.inkRight - WORDMARK.inkLeft) * k,
           top: 0,
-          bottom: g.h + WORDMARK.inkBottom * k,
+          bottom,
+          height,
+          inkY: height / 2 - cy,
         };
       }
 
@@ -646,14 +700,19 @@
 
       // ---------- scene builders ----------
 
-      function markScene({ color = COLORS.emerald } = {}) {
+      // Screen files are padded so the canvas centre is the visual centre (see glyphScene and
+      // lockupLayout). `tight` crops to the ink, for print where artwork is placed by its edges.
+      function markScene({ color = COLORS.emerald, tight = false } = {}) {
+        if (!tight) return glyphScene({ color });
         const g = geometry();
         return { w: g.w, h: g.h, items: markItems(g, color, 0, 0, 1) };
       }
 
-      function lockupScene({ mark = COLORS.emerald, word = COLORS.white } = {}) {
+      function lockupScene({ mark = COLORS.emerald, word = COLORS.white, tight = false } = {}) {
         const L = lockupLayout();
-        return { w: L.width, h: L.bottom, items: lockupItems(L, mark, word, 0, 0, 1) };
+        const h = tight ? L.bottom : L.height;
+        const y = tight ? 0 : L.inkY;
+        return { w: L.width, h, items: lockupItems(L, mark, word, 0, y, 1) };
       }
 
       function wordmarkScene(color) {
@@ -674,15 +733,15 @@
         return { w: size, h: size, items };
       }
 
-      // Glyph for surfaces that already have a dark background: as large as possible, padded
-      // only so the canvas centre falls on the mark's visual centre. `square` pads the height up
-      // to the width, keeping the visual centre in the middle.
-      function glyphScene({ square = false } = {}) {
+      // The mark as large as possible, padded only so the canvas centre falls on its visual
+      // centre (it's heavier on the left, so the padding goes on the right). `square` pads the
+      // height up to the width, keeping the visual centre in the middle.
+      function glyphScene({ square = false, color = COLORS.emerald } = {}) {
         const g = geometry();
         const c = centroid(g);
         const w = 2 * Math.max(c.x, g.w - c.x);
         const h = square ? w : 2 * Math.max(c.y, g.h - c.y);
-        return { w, h, items: markItems(g, COLORS.emerald, w / 2 - c.x, h / 2 - c.y, 1) };
+        return { w, h, items: markItems(g, color, w / 2 - c.x, h / 2 - c.y, 1) };
       }
 
       // Pixel-fitted favicon: wall rounded to whole pixels, knockout takes the rest, so edges are
@@ -715,9 +774,11 @@
         const tagSize = markHeight * 0.2;
         const tagGap = markHeight * 0.62;
         const text = withTagline ? tagline.trim() : "";
-        const blockH = markHeight + (text ? tagGap : 0);
+        // Alone, the lockup's visual centre goes on the canvas centre. With a tagline, the block
+        // runs from the mark's top to the tagline's baseline.
         const x0 = (w - L.width * k) / 2;
-        const y0 = (h - blockH) / 2 + offsetY;
+        const y0 =
+          (text ? (h - markHeight - tagGap) / 2 : h / 2 - (L.height / 2 - L.inkY) * k) + offsetY;
         const g = L.g;
         const guide = hexA(fg, dark ? 0.09 : 0.1);
         const sw = Math.max(1, h / 520);
@@ -824,7 +885,7 @@
         const L = lockupLayout();
         const pad = L.g.k;
         const w = L.width + pad * 2;
-        const h = L.bottom + pad * 2;
+        const h = L.height + pad * 2;
         const outline = roundedPoly(
           [
             [0, 0],
@@ -839,7 +900,7 @@
           h,
           items: [
             path(outline, COLORS.ink),
-            ...lockupItems(L, COLORS.emerald, COLORS.white, pad, pad, 1),
+            ...lockupItems(L, COLORS.emerald, COLORS.white, pad, pad + L.inkY, 1),
             {
               t: "path",
               id: "CutContour",
@@ -970,7 +1031,7 @@
           dir: "logo",
           title: "Logo",
           blurb:
-            "Vector masters for screens. Use the lockup by default and the mark alone when space is tight or the name is already present.",
+            "Vector masters for screens. Use the lockup by default and the mark alone when space is tight or the name is already present. Each file's centre is the logo's visual centre (the centroid of its ink), so centring the file in a box centres the logo by eye: the lockups have transparent space below the wordmark, the mark a little on its right. The wordmark alone needs none.",
           files: [
             {
               name: "camox-lockup-on-dark.svg",
@@ -1114,7 +1175,7 @@
           dir: "icons",
           title: "Icons",
           blurb:
-            "Favicons are pixel-fitted (walls on whole pixels) at 16/32/48. App icons centre the mark on its visual weight, at 1/φ of the width; the maskable one stays inside the 80% safe zone. The glyph files are for surfaces that already have a dark background: the mark as large as it gets, padded only for optical centring.",
+            "Favicons are pixel-fitted (walls on whole pixels) at 16/32/48. App icons centre the mark on its visual weight, at 1/φ of the width; the maskable one stays inside the 80% safe zone. The glyph files are the mark as large as it gets, padded only for optical centring, the same as logo/camox-mark.svg.",
           files: [
             {
               name: "glyph.svg",
@@ -1295,15 +1356,15 @@
             {
               name: "tshirt-chest.svg",
               note: "One ink, wearer's left chest",
-              scene: () => markScene(),
-              size: mm(() => markScene(), 75),
+              scene: () => markScene({ tight: true }),
+              size: mm(() => markScene({ tight: true }), 75),
               bg: "#151517",
             },
             {
               name: "tshirt-back.svg",
               note: "Emerald + white, upper back",
-              scene: () => lockupScene(),
-              size: mm(() => lockupScene(), 280),
+              scene: () => lockupScene({ tight: true }),
+              size: mm(() => lockupScene({ tight: true }), 280),
               bg: "#151517",
             },
           ],
@@ -1459,7 +1520,7 @@
         const clear = g.k; // clear space: one knockout (s/φ) on every side
         const clearScene = () => {
           const pad = clear * 1.6;
-          const sc = lockupScene();
+          const sc = lockupScene({ tight: true });
           const items = [
             { t: "rect", x: 0, y: 0, w: sc.w + pad * 2, h: sc.h + pad * 2, fill: COLORS.ink },
             {
@@ -1504,8 +1565,8 @@
             <h2>Logo</h2>
             <p>A chamois head looking right: the horn is the top-left square, the head the slanted block below it. Where they overlap, the knockout is a block, and a selection on the canvas. The wordmark is Archivo ExtraBold at 112% width, set at −0.02em and outlined.</p>
             <div class="duo">
-              <div class="panel"><div class="canvas" style="background:${COLORS.ink}">${toSVG(lockupScene({ word: COLORS.white }), { width: 520, height: f2((520 * L.bottom) / L.width) })}</div><div class="caption">On dark</div></div>
-              <div class="panel"><div class="canvas" style="background:${COLORS.paper}">${toSVG(lockupScene({ word: COLORS.ink }), { width: 520, height: f2((520 * L.bottom) / L.width) })}</div><div class="caption">On light</div></div>
+              <div class="panel"><div class="canvas" style="background:${COLORS.ink}">${toSVG(lockupScene({ word: COLORS.white }), { width: 520, height: f2((520 * L.height) / L.width) })}</div><div class="caption">On dark</div></div>
+              <div class="panel"><div class="canvas" style="background:${COLORS.paper}">${toSVG(lockupScene({ word: COLORS.ink }), { width: 520, height: f2((520 * L.height) / L.width) })}</div><div class="caption">On light</div></div>
             </div>
           </section>
 
