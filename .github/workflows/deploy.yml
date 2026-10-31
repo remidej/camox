@@ -17,9 +17,10 @@ on:
 permissions:
   contents: read
 
-# Only main writes to the shared Nx cache; PR runs get a cache scoped to the PR.
+# Nx's remote task cache (apps/nx-cache), which local runs share.
 env:
-  NX_CLOUD_ACCESS_TOKEN: ${{ secrets.NX_CLOUD_ACCESS_TOKEN }}
+  NX_SELF_HOSTED_REMOTE_CACHE_SERVER: https://nx-cache.camox.ai
+  NX_SELF_HOSTED_REMOTE_CACHE_ACCESS_TOKEN: ${{ secrets.NX_SELF_HOSTED_REMOTE_CACHE_ACCESS_TOKEN }}
 
 jobs:
   # Gates the deploy, split across runners: the API's integration tests alone take about 25

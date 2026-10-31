@@ -43,6 +43,5 @@
   "tui": {
     "enabled": false
   },
-  "defaultBase": "main",
-  "nxCloudId": "6ad1deecb8130ab58ee864b3"
+  "defaultBase": "main"
 }
