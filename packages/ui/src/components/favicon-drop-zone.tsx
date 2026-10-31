@@ -21,8 +21,15 @@ function validateFaviconFile(file: File) {
   return null;
 }
 
+/** Browsers show favicons on both, so the preview checks the icon reads on each. */
+const PREVIEW_BACKGROUNDS = [
+  { label: "Light", className: "border-neutral-200 bg-white" },
+  { label: "Dark", className: "border-neutral-800 bg-neutral-950" },
+];
+
 /**
- * A large area to drop or browse for a favicon, which previews `previewUrl` in its center.
+ * A large area to drop or browse for a favicon, which previews `previewUrl`
+ * on a light and a dark background side by side.
  * It only picks the file: saving it is up to the caller.
  */
 function FaviconDropZone({
@@ -83,8 +90,20 @@ function FaviconDropZone({
         onClick={() => fileInputRef.current?.click()}
         className="hover:bg-accent/50 focus-visible:ring-ring/50 flex w-full flex-col items-center gap-5 rounded-xl border-2 border-dashed px-6 py-10 transition-colors outline-none focus-visible:ring-3 disabled:pointer-events-none disabled:opacity-50"
       >
-        <span className="bg-background flex size-20 items-center justify-center rounded-2xl border shadow-xs">
-          <img src={previewUrl} alt="" className="size-12 object-contain" />
+        <span className="flex gap-4">
+          {PREVIEW_BACKGROUNDS.map((background) => (
+            <span key={background.label} className="flex flex-col items-center gap-2">
+              <span
+                className={cn(
+                  "flex size-20 items-center justify-center rounded-2xl border shadow-xs",
+                  background.className,
+                )}
+              >
+                <img src={previewUrl} alt="" className="size-12 object-contain" />
+              </span>
+              <span className="text-muted-foreground text-xs">{background.label}</span>
+            </span>
+          ))}
         </span>
         <span className="space-y-1 text-center">
           <span className="mx-auto block max-w-72 truncate text-sm font-medium">{prompt}</span>
