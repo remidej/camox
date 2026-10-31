@@ -1,11 +1,17 @@
 import { LOOK_PLACEHOLDER_HEIGHTS } from "@camox/api-contract/drafts";
 import { LOOK_TOOL } from "@camox/api-contract/threads";
-import { Type } from "@earendil-works/pi-ai";
+import { type TSchema, Type } from "@earendil-works/pi-ai";
 import { defineTool, type ToolRegistration } from "@earendil-works/pi-durable";
 
 import type { ToolInvocation } from "../threads/tools";
 import { type CaptureChecks, LOOK_SIZES } from "./capture";
-import { LOOK_IMAGE_CAP, LOOK_MAX_DELAY_MS, type Looked, type LookTarget } from "./look";
+import {
+  LOOK_IMAGE_CAP,
+  LOOK_MAX_DELAY_MS,
+  type Looked,
+  type Looker,
+  type LookTarget,
+} from "./look";
 
 const SIZE = Type.Union(
   Object.keys(LOOK_SIZES).map((size) => Type.Literal(size)),
@@ -36,26 +42,28 @@ const CAPTURE_OPTIONS = {
 /**
  * A page of the draft, captured as a visitor sees it: its first screen. With a block, one
  * Placement on it: the page renders whole, its Layout and neighbours included, and the capture is
- * that block's element.
+ * that block's element. `pages` says which pages the agent can look at.
  */
-const PAGE_TARGET = Type.Object({
-  path: Type.String({
-    description:
-      "The page's path in its Locale, such as `/pricing`: a curated page, a Singleton " +
-      "Layout's page, or a page of a Derived Layout, such as `/blog/my-post`.",
-  }),
-  block: Type.Optional(
-    Type.String({
-      description:
-        "The ID of one block on that page, its Layout's included, to capture that block alone " +
-        "instead of the first screen. Its capture stops at two screens tall.",
-    }),
-  ),
-  locale: Type.Optional(
-    Type.String({ description: "The Locale's tag, such as `fr`. The Default Locale without." }),
-  ),
-  ...CAPTURE_OPTIONS,
-});
+const pageTarget = (pages: string) =>
+  Type.Object({
+    path: Type.String({ description: `The page's path in its Locale: ${pages}.` }),
+    block: Type.Optional(
+      Type.String({
+        description:
+          "The ID of one block on that page, its Layout's included, to capture that block " +
+          "alone instead of the first screen. Its capture stops at two screens tall.",
+      }),
+    ),
+    locale: Type.Optional(
+      Type.String({ description: "The Locale's tag, such as `fr`. The Default Locale without." }),
+    ),
+    ...CAPTURE_OPTIONS,
+  });
+
+const ANY_PAGE = pageTarget(
+  "a curated page, such as `/pricing`, a Singleton Layout's page, or a page of a Derived " +
+    "Layout, such as `/blog/my-post`",
+);
 
 /**
  * A Block Definition's block, placed nowhere, captured alone in the site's shell: up to two
@@ -120,6 +128,51 @@ const LAYOUT_DEFINITION_TARGET = Type.Object({
   ...CAPTURE_OPTIONS,
 });
 
+const DEFINITIONS = {
+  schemas: [BLOCK_DEFINITION_TARGET, LAYOUT_DEFINITION_TARGET],
+  described:
+    "a Block Definition, captured alone, with overrides to try its variants and edge cases; " +
+    "or a curated Layout Definition, captured alone at its first screen around a placeholder " +
+    "for page content, with overrides for its blocks",
+};
+
+const AFTER_BUILD =
+  "code shows as the draft's preview has it, so after code changes call `build` first";
+
+/**
+ * The targets each agent can look at (`Looker`), as the model is offered them: their schemas,
+ * how the description lists them, and when code changes show.
+ */
+const TARGETS: Record<Looker, { schemas: TSchema[]; described: string; code: string }> = {
+  thread: {
+    schemas: [ANY_PAGE],
+    described:
+      "a page, curated or of a Singleton or Derived Layout, captured at its first screen; or " +
+      "one block on a page, captured with the page around it",
+    code: "code shows as the draft's preview has it, once the Code Agent built it",
+  },
+  code: {
+    schemas: [
+      pageTarget(
+        "a page of a Singleton or Derived Layout, such as `/blog/my-post`, never a curated " +
+          "Layout's page",
+      ),
+      ...DEFINITIONS.schemas,
+    ],
+    described:
+      "a page of a Singleton or Derived Layout, captured at its first screen; one block on " +
+      `such a page, captured with the page around it; ${DEFINITIONS.described}`,
+    code: AFTER_BUILD,
+  },
+  artifact: {
+    schemas: [ANY_PAGE, ...DEFINITIONS.schemas],
+    described:
+      "a page, curated or of a Singleton or Derived Layout, captured at its first screen; one " +
+      `block on a page, captured with the page around it; ${DEFINITIONS.described}`,
+    code: AFTER_BUILD,
+  },
+};
+
 /**
  * What one result says beside its image, as a line of JSON: the target it captured, at which
  * size, and whether its image was cut, or why it failed.
@@ -150,31 +203,28 @@ const reportChecks = ({ errors, failedRequests, overflow }: CaptureChecks) => {
 };
 
 /**
- * The agent's `look`, which captures pages of its draft in a real browser and returns the images,
- * which the model reads. `look` runs it for the call: the thread knows its draft and run.
+ * `looker`'s `look`, which captures its draft's targets in a real browser and returns the images,
+ * which the model reads, offering only the targets that agent can use. `look` runs it for the
+ * call: the thread knows its draft and run.
  */
 export const lookTool = (
+  looker: Looker,
   look: (targets: LookTarget[], invocation: ToolInvocation) => Promise<Looked[]>,
-): ToolRegistration =>
-  defineTool({
+): ToolRegistration => {
+  const { schemas, described, code } = TARGETS[looker];
+  return defineTool({
     name: LOOK_TOOL,
     description:
       "See the draft as visitors will, in a real browser, at each target's sizes. A target is " +
-      "a page, curated or of a Singleton or Derived Layout, captured at its first screen; one block on a page, captured with the page " +
-      "around it; a Block Definition, captured alone, with overrides to try its variants " +
-      "and edge cases; or a curated Layout Definition, captured alone at its first screen " +
-      "around a placeholder for page content, with overrides for its blocks. Look at all you need in one call: its targets render in parallel, at " +
-      `most ${LOOK_IMAGE_CAP} images per call. Content shows as the draft has it now; code ` +
-      "shows as the draft's preview has it, so after code changes call `build` first. " +
+      `${described}. Look at all you need in one call: its targets render in parallel, at ` +
+      `most ${LOOK_IMAGE_CAP} images per call. Content shows as the draft has it now; ` +
+      `${code}. ` +
       "Returns, for each target and size, a line of JSON naming it, then either what the page " +
       "reported that the image can't show (console and page errors, horizontal overflow, " +
       "failed requests) and the image, or the `error` that target alone hit. `cut` says a " +
       "block was taller than two screens: its image shows the top only.",
     parameters: Type.Object({
-      targets: Type.Array(
-        Type.Union([PAGE_TARGET, BLOCK_DEFINITION_TARGET, LAYOUT_DEFINITION_TARGET]),
-        { minItems: 1 },
-      ),
+      targets: Type.Array(Type.Union(schemas), { minItems: 1 }),
     }),
     async execute({ targets }, api, context) {
       const looked = await look(targets as LookTarget[], { api, context });
@@ -191,3 +241,4 @@ export const lookTool = (
       };
     },
   });
+};

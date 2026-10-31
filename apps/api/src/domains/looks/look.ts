@@ -101,8 +101,19 @@ export type LookTarget = (
 /** One result: a target at one size, with its image, or why it failed. */
 export type Looked = { target: LookTarget; size: LookSize } & Captured;
 
-/** Where a `look` runs: the thread's draft, with what its spans are logged with. */
+/**
+ * Which agent looks, each at the targets of its job: the thread's agent at pages and Placements;
+ * the Code Agent at Block and Layout Definitions and the pages and Placements of Singleton and
+ * Derived Layouts, never a curated Layout's pages, which the thread's agent composes; an Artifact
+ * Agent at any target.
+ */
+export type Looker = "thread" | "code" | "artifact";
+
+/**
+ * Where a `look` runs: the thread's draft, with what its spans are logged with, and who looks.
+ */
 export type LookIn = {
+  looker: Looker;
   projectId: number;
   draftId: string;
   draftHasCode: boolean;
@@ -229,6 +240,14 @@ async function resolve(
   }
   const page = await pagePlacements(env, where, projectUuid, target);
   if ("error" in page) return page;
+  if (where.looker === "code" && page.curated) {
+    return {
+      error:
+        `The page at ${target.path} is of a curated Layout, whose pages the thread's agent ` +
+        "composes and you never see. Look at its Layout Definition, or at a Block Definition " +
+        "with the content to try as overrides.",
+    };
+  }
   url.searchParams.set(LOOK_PATH_PARAM, target.path);
   if (target.locale) url.searchParams.set(LOOK_LOCALE_PARAM, target.locale);
   if (!("block" in target)) return { url: url.href };
@@ -269,25 +288,25 @@ function messageOf(error: unknown) {
 }
 
 /**
- * The Placements on the page `target` names, its Layout's included, read as the browser will,
- * with the draft's look token, or why it can't be looked at. A path is matched as the website
- * serves it: a Singleton Layout's route first, then a curated page, then a Derived Layout's route.
- * The API can't run a Derived Layout's loader, so a path its route matches but its data doesn't
- * fails at the capture.
+ * The Placements on the page `target` names, its Layout's included, and whether it's a curated
+ * page, read as the browser will, with the draft's look token, or why it can't be looked at. A
+ * path is matched as the website serves it: a Singleton Layout's route first, then a curated page,
+ * then a Derived Layout's route. The API can't run a Derived Layout's loader, so a path its route
+ * matches but its data doesn't fails at the capture.
  */
 async function pagePlacements(
   env: Bindings,
   where: LookIn,
   projectUuid: string,
   { path, locale }: PageTarget,
-): Promise<{ placements: string[] } | { error: string }> {
+): Promise<{ placements: string[]; curated: boolean } | { error: string }> {
   const context = lookContext(env, where, locale);
   try {
     const layouts = await runService(listLayouts(context, { projectId: where.projectId }));
     const match = matchLayoutRoute(layouts, path, ({ layoutId, kind }) => ({ id: layoutId, kind }));
     const layoutPage = async (layoutId: string) => {
       const { layout } = await runService(getLayout(context, { projectUuid, layoutId }));
-      return { placements: [...layout.beforeBlockIds, ...layout.afterBlockIds] };
+      return { placements: [...layout.beforeBlockIds, ...layout.afterBlockIds], curated: false };
     };
     if (match?.layout.kind === "singleton") return await layoutPage(match.layout.layoutId);
     try {
@@ -298,6 +317,7 @@ async function pagePlacements(
           ...page.blockIds,
           ...(layout?.afterBlockIds ?? []),
         ],
+        curated: true,
       };
     } catch (error) {
       if (!match || (error as ORPCError<string, unknown>).code !== "NOT_FOUND") throw error;

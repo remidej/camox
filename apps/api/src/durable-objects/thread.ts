@@ -110,7 +110,7 @@ import { writeLine } from "../domains/code/write-line";
 import { writeAccessWhilePublishing } from "../domains/drafts/access";
 import { searchFontsTool } from "../domains/fonts/tool";
 import { browserRun } from "../domains/looks/browser-run";
-import { look, type Looked, type LookTarget } from "../domains/looks/look";
+import { look, type Looked, type Looker, type LookTarget } from "../domains/looks/look";
 import { lookTool } from "../domains/looks/tool";
 import { projects } from "../domains/projects/schema";
 import { BuildInfrastructureError, buildRevision } from "../domains/revisions/build";
@@ -668,7 +668,10 @@ export class Thread extends DurableObject<Bindings> {
         ...codeReadingTools(),
         searchFontsTool(this.env),
       ];
-      const look = lookTool((targets, invocation) => this.#look(targets, invocation));
+      // Each agent looks at the targets of its job: the Code Agent never sees a curated Layout's
+      // pages, which the thread's agent composes.
+      const lookOf = (looker: Looker) =>
+        lookTool(looker, (targets, invocation) => this.#look(looker, targets, invocation));
       // Only the Code Agent touches code: the thread's agent hands it code work with `code`.
       const web = webTools(this.env, this.#model);
       const tools = live
@@ -680,7 +683,7 @@ export class Thread extends DurableObject<Bindings> {
         : [
             ...content,
             ...web,
-            look,
+            lookOf("thread"),
             artifactTool((invocation, call, onActivity) =>
               this.#artifact(invocation, call, onActivity),
             ),
@@ -738,9 +741,13 @@ export class Thread extends DurableObject<Bindings> {
       // In a draft, each artifact's Artifact Agent works in a conversation of its own, with an
       // extension of its own: the thread's agent never selects it (ADR 0035).
       if (!live) {
-        this.#artifactAgents.extension = this.#artifactAgentExtension(content, reading, look);
+        this.#artifactAgents.extension = this.#artifactAgentExtension(
+          content,
+          reading,
+          lookOf("artifact"),
+        );
         this.#registry.install(this.#artifactAgents.extension);
-        this.#codeAgent.extension = this.#codeAgentExtension(reading, look);
+        this.#codeAgent.extension = this.#codeAgentExtension(reading, lookOf("code"));
         this.#registry.install(this.#codeAgent.extension);
       }
       return Harness.open(
@@ -973,10 +980,14 @@ export class Thread extends DurableObject<Bindings> {
   }
 
   /**
-   * Captures `targets` in the thread's draft for the agent's `look`, in the thread's browser
+   * Captures `targets` in the thread's draft for `looker`'s `look`, in the thread's browser
    * session. A browser that can't be reached fails the call with an error the agent can act on.
    */
-  async #look(targets: LookTarget[], invocation: ToolInvocation): Promise<Looked[]> {
+  async #look(
+    looker: Looker,
+    targets: LookTarget[],
+    invocation: ToolInvocation,
+  ): Promise<Looked[]> {
     const identity = await this.#knownIdentity();
     const draftId = identity?.draftId;
     if (!identity || !draftId) throw new Error("`look` sees a draft, never Live");
@@ -993,7 +1004,7 @@ export class Thread extends DurableObject<Bindings> {
       "look",
       { ...span, targets: targets.length },
       async () => {
-        const where = { ...span, span, draftHasCode: await this.#hasCode(draftId) };
+        const where = { ...span, span, looker, draftHasCode: await this.#hasCode(draftId) };
         try {
           return await look(this.env, where, targets, {
             capture: (batch, fields) =>

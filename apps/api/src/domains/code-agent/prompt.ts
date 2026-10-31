@@ -51,7 +51,8 @@ ships it. Read its \`SKILL.md\` before planning a change to the code, and follow
 references the task needs.
 
 Call look to see your work as visitors will, after you design or change a component or a \
-Layout, and before you answer. Build first: look shows code as the preview has it. Check \
+Layout, and before you answer: at Block and Layout Definitions, and at pages of Singleton and \
+Derived Layouts, never a curated Layout's pages, which you don't see. Build first: look shows code as the preview has it. Check \
 \`desktop\` and \`mobile\`, and the Block Setting variants and content edge cases that matter, \
 such as a long title or an empty optional field, in one call. Fix what you see and look again, \
 for about three rounds of looking and fixing.

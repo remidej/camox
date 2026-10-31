@@ -145,6 +145,8 @@ export type ModelRequest = {
   instructions: string;
   editorMessages: string[];
   offeredTools: string[];
+  /** The description and parameters of each tool it's offered, by name. */
+  toolDefinitions: Record<string, { description: string; parameters: unknown }>;
   lastToolResult: string;
   lastToolImages: { data: string; mimeType: string }[];
   scriptOutput: string;
@@ -172,7 +174,7 @@ const requestOf = ({
 }): ModelRequest => {
   const instructions = systemPrompt ? [systemPrompt] : [];
   const editorMessages: string[] = [];
-  const offered = new Set<string>();
+  const offered = new Map<string, { description: string; parameters: unknown }>();
   let lastToolResult = "";
   let lastToolImages: ModelRequest["lastToolImages"] = [];
   let scriptOutput = "";
@@ -193,7 +195,9 @@ const requestOf = ({
       for (const section of Object.values(message.sections ?? {})) {
         if (section) instructions.push(section);
       }
-      for (const tool of message.toolsAdded ?? []) offered.add(tool.name);
+      for (const { name, description, parameters } of message.toolsAdded ?? []) {
+        offered.set(name, { description, parameters });
+      }
       for (const tool of message.toolsRemoved ?? []) offered.delete(tool.name);
     }
     if (message.role === "toolResult") {
@@ -209,7 +213,8 @@ const requestOf = ({
   return {
     instructions: instructions.join("\n\n"),
     editorMessages,
-    offeredTools: [...offered],
+    offeredTools: [...offered.keys()],
+    toolDefinitions: Object.fromEntries(offered),
     lastToolResult,
     lastToolImages,
     scriptOutput,
