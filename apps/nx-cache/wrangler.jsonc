@@ -1,0 +1,18 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  // Nx's remote task cache, shared by CI and local runs (README.md).
+  "name": "camox-nx-cache",
+  "main": "src/worker.ts",
+  "compatibility_date": "2026-10-31",
+  "workers_dev": false,
+  "preview_urls": false,
+  "routes": [{ "pattern": "nx-cache.camox.ai", "custom_domain": true }],
+  // Entries expire 30 days after upload, by the bucket's lifecycle rule (README.md).
+  "r2_buckets": [{ "binding": "CACHE", "bucket_name": "camox-nx-cache" }],
+  "observability": {
+    "logs": {
+      "enabled": true,
+      "invocation_logs": true,
+    },
+  },
+}
