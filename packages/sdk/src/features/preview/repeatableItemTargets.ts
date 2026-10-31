@@ -28,14 +28,22 @@ type Registry = {
   listeners: Set<(kind: ChangeKind) => void>;
 };
 
-const registries = new WeakMap<Document, Registry>();
+/**
+ * The registry lives on the document, not in this module: the renderer document
+ * registers items with its own copy of the SDK, and the studio's copy observes them.
+ * `Symbol.for` resolves to the same symbol in every realm.
+ */
+const REGISTRY = Symbol.for("camox.repeatableItems");
+type WithRegistry = Document & { [REGISTRY]?: Registry };
+
+function existingRegistry(document: Document): Registry | undefined {
+  return (document as WithRegistry)[REGISTRY];
+}
 
 function registryOf(document: Document) {
-  let registry = registries.get(document);
-  if (registry) return registry;
-  registry = { items: new Set(), listeners: new Set() };
-  registries.set(document, registry);
-  return registry;
+  const owner = document as WithRegistry;
+  owner[REGISTRY] ??= { items: new Set(), listeners: new Set() };
+  return owner[REGISTRY];
 }
 
 function notify(registry: Registry, kind: ChangeKind) {
@@ -84,7 +92,7 @@ function fragmentsOf(element: Element): ReadonlySet<FragmentInstance> | undefine
 /** Each registered item with its first-level elements, in document order. */
 export function repeatableItemElements(document: Document) {
   const result = new Map<RepeatableItemTarget, Element[]>();
-  const items = registries.get(document)?.items;
+  const items = existingRegistry(document)?.items;
   if (!items?.size) return result;
   for (const item of items) result.set(item, []);
   for (const element of document.querySelectorAll("*")) {

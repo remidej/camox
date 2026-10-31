@@ -9,6 +9,7 @@ import * as React from "react";
 import { act } from "react";
 
 import { CanvasWorkspaceContext } from "../../features/canvas/canvasZoom";
+import { PreviewEditingOwnerContext } from "../../features/preview/previewSelection";
 import { previewStore, selectIsCanvasShown } from "../../features/preview/previewStore";
 import { CamoxAppProvider } from "../../features/provider/components/CamoxAppContext";
 import { initApiClient } from "../../lib/api-client";
@@ -137,6 +138,8 @@ void test("where artifacts don't run, the studio preview shows their title in a 
   assert.equal(placeholder.getAttribute("title"), "Empty artifact");
 });
 
+const owner = { kind: "page", pageId: "1" } as const;
+
 /** Mounts the artifact block in the studio with the Canvas shown or hidden. */
 async function mount(content: Record<string, unknown>, editing: boolean) {
   previewStore.send({ type: editing ? "showCanvas" : "hideCanvas" });
@@ -150,12 +153,14 @@ async function mount(content: Record<string, unknown>, editing: boolean) {
     root.render(
       <StudioQueryClientProvider client={new QueryClient()}>
         <CompleteBlockEditingRuntimeProvider>
-          <NormalizedDataProvider files={[]} repeatableItems={[]} blocks={[]}>
-            <artifactBlock._internal.Component
-              mode="site"
-              blockData={{ _id: "4", type: "visual", position: "a0", content: content as never }}
-            />
-          </NormalizedDataProvider>
+          <PreviewEditingOwnerContext value={owner}>
+            <NormalizedDataProvider files={[]} repeatableItems={[]} blocks={[]}>
+              <artifactBlock._internal.Component
+                mode="site"
+                blockData={{ _id: "4", type: "visual", position: "a0", content: content as never }}
+              />
+            </NormalizedDataProvider>
+          </PreviewEditingOwnerContext>
         </CompleteBlockEditingRuntimeProvider>
       </StudioQueryClientProvider>,
     ),
@@ -225,6 +230,46 @@ void test("on the Canvas, sidebar hover highlights the artifact", async () => {
       await new Promise((resolve) => setTimeout(resolve, 10));
     });
     assert.equal(highlighted(), true);
+  } finally {
+    await preview.unmount();
+  }
+});
+
+void test("on the Canvas, a selected artifact is highlighted as selected", async () => {
+  const preview = await mount(withItem, true);
+  try {
+    const [visual, scene] = preview.frames();
+    const selected = (frame: Element) => frame.closest("[data-camox-focused]") != null;
+    assert.equal(selected(visual), false);
+    await act(async () => {
+      previewStore.send({
+        type: "selectTarget",
+        ...owner,
+        selection: {
+          type: "block-field",
+          blockId: "4",
+          fieldName: "visual",
+          fieldType: "Artifact",
+        },
+      });
+    });
+    assert.equal(selected(visual), true);
+    assert.equal(selected(scene), false);
+    await act(async () => {
+      previewStore.send({
+        type: "selectTarget",
+        ...owner,
+        selection: {
+          type: "item-field",
+          blockId: "4",
+          itemId: "12",
+          fieldName: "scene",
+          fieldType: "Artifact",
+        },
+      });
+    });
+    assert.equal(selected(visual), false);
+    assert.equal(selected(scene), true);
   } finally {
     await preview.unmount();
   }
