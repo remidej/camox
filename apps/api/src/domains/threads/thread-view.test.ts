@@ -1,5 +1,6 @@
 import {
   ARTIFACT_TOOL,
+  CODE_TOOL,
   BUILD_STATUS_ENTRY,
   BUILD_TOOL,
   type BuildStatus,
@@ -364,6 +365,50 @@ describe("a thread's view", () => {
     expect(activity([{ callId: "call-1", name: START_DRAFT_TOOL, status: "running" }])).toBe(
       "startingDraft",
     );
+  });
+
+  it("says the Code Agent's request builds and fixes over what it does, until the code call returns", () => {
+    const asked = editorMessage("Add a pricing section");
+    const calling = {
+      kind: "pi.assistant",
+      model: [
+        fauxAssistantMessage([fauxToolCall(CODE_TOOL, { request: "…" })], {
+          stopReason: "toolUse",
+        }),
+      ],
+    };
+    const returned = {
+      kind: "pi.tool-result",
+      model: [
+        {
+          role: "toolResult" as const,
+          toolCallId: "call-1",
+          toolName: CODE_TOOL,
+          content: [{ type: "text" as const, text: "I added a pricing block." }],
+          details: { answer: "I added a pricing block.", final: false },
+          isError: false,
+          timestamp: 0,
+        },
+      ],
+    };
+    const waiting: Tool = {
+      callId: "call-1",
+      name: CODE_TOOL,
+      status: "running",
+      details: { activity: "changing" },
+    };
+    const activity = (entries: Omit<EntryRecord, "id" | "conversationId">[], tools: Tool[]) =>
+      threadViewOf(
+        reduceThreadEvents(EMPTY_THREAD_STATE, [snapshot(entries, { running: true, tools })]),
+      ).activity;
+    const building = [asked, calling, buildStatus("building")];
+    const fixing = [...building, buildStatus("fixing")];
+
+    expect(activity([asked, calling], [waiting])).toBe("changing");
+    expect(activity(building, [waiting])).toBe("building");
+    expect(activity(fixing, [waiting])).toBe("fixing");
+    // The agent places what the Code Agent built: its build is over.
+    expect(activity([...fixing, returned], [])).toBe("thinking");
   });
 
   it("says what an Artifact Agent does while the agent's artifact call waits for it", () => {

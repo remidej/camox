@@ -11,9 +11,12 @@ import {
   startDraft,
   syncDefinitionSet,
 } from "../../../test/fixtures";
+import { pushToMain } from "../../../test/pushes";
+import { HERO, LOCKFILE, PRICING } from "../../../test/revision-builds";
 import {
   answerFrom,
   answerNext,
+  answerWithCodeRequest,
   answerWithScript,
   answerWithToolCall,
   answerWithToolCallFrom,
@@ -67,11 +70,19 @@ const visualDefinition = {
 
 /**
  * A website whose Live page `/visual` holds a block of `visualDefinition`, with `source` in its
- * artifact, and a draft the fixture member started, with its thread open.
+ * artifact, and code when `code` holds, and a draft the fixture member started, with its thread
+ * open.
  */
-async function artifactFixture(source = "") {
+async function artifactFixture(source = "", { code = false }: { code?: boolean } = {}) {
   const website = await websiteFixture({});
   const { db, memberUser, project } = website;
+  if (code) {
+    await pushToMain(project.uuid, {
+      "package.json": `{ "name": "acme", "dependencies": { "camox": "1.0.0" } }\n`,
+      "pnpm-lock.yaml": LOCKFILE,
+      "src/blocks/hero.tsx": HERO,
+    });
+  }
   await syncDefinitionSet(db, project, { blocks: [textDefinition, visualDefinition] });
   const options = { context: createRpcContext(db, memberUser) };
   const { page } = await callSeedingLive(
@@ -131,6 +142,30 @@ describe("an artifact's Artifact Agent", () => {
       operationIds: [operationId],
       touches: [expect.objectContaining({ entity: "page", pageId: page.id, blockId: block.id })],
     });
+  });
+
+  it("ends the turn on its answer even after the Code Agent changed code in the turn", async () => {
+    const { thread, block } = await artifactFixture("", { code: true });
+    answerWithCodeRequest("Add a pricing block listing plans with their price.", { final: false });
+    answerWithToolCall("write", { path: "src/blocks/pricing.tsx", content: PRICING });
+    answerNext("I added the pricing block.");
+    answerWithToolCall("artifact", {
+      block: block.id,
+      field: "visual",
+      request: "Draw a planet orbiting its sun.",
+      final: true,
+    });
+    answerWithToolCall("write", { path: ARTIFACT_PATH, content: ORBIT });
+    answerNext("I added pricing, and drew a planet orbiting its sun.");
+
+    const view = await ask(thread, "Add pricing and an orbit animation");
+
+    expect(said(view).at(-1)).toEqual({
+      from: "agent",
+      text: "I added pricing, and drew a planet orbiting its sun.",
+    });
+    // The agent wasn't called again to repeat the answer.
+    expect(threadModelCalls()).toBe(6);
   });
 
   it("keeps one conversation per artifact, which reads the earlier requests and edits the source in place", async () => {

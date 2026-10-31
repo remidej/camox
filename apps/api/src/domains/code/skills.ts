@@ -9,8 +9,10 @@ import { parse as parseYaml } from "yaml";
 // - The platform's, which the API ships for tasks beyond the code, such as writing copy
 //   (apps/api/skills/README.md).
 //
-// The agent's instructions list the platform's skills by their frontmatter (`skillsSection`), and
-// it reads one when a task matches it, as Pi's coding agent does. Camox's skill isn't listed: the
+// The Code Agent's instructions list its platform skills by their frontmatter (`skillsSection`),
+// and it reads one when a task matches it, as Pi's coding agent does. The thread's agent, which
+// can't read files, has its platform skills held whole in its instructions
+// (`inlinedSkillsSection`). Camox's skill isn't listed: the
 // instructions for the code tell the agent to read it before any change (prompt.ts).
 
 /** The skills the agent reads: the others drive the CLI, which it works without. */
@@ -90,9 +92,47 @@ export function skillsSection(files: SkillFiles) {
   ].join("\n");
 }
 
+/**
+ * The section of the instructions of an agent that can't read files, holding each skill of
+ * `files` whole: its name and description, then its `SKILL.md` past the frontmatter. Such a skill
+ * is its `SKILL.md` alone, since the agent couldn't follow a link to another file.
+ */
+export function inlinedSkillsSection(files: SkillFiles) {
+  const skills = Object.entries(files)
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([path, text]) => {
+      if (!/^[^/]+\/SKILL\.md$/.test(path)) {
+        throw new Error(`An inlined skill is its SKILL.md alone, but it has ${path}`);
+      }
+      const { name, description } = frontmatterOf(text);
+      if (typeof name !== "string" || typeof description !== "string" || !description.trim()) {
+        throw new Error(`The skill in ${path} has no name or description`);
+      }
+      return [
+        "<skill>",
+        `<name>${escapeXml(name.trim())}</name>`,
+        `<description>${escapeXml(description.trim())}</description>`,
+        "",
+        bodyOf(text).trim(),
+        "</skill>",
+      ].join("\n");
+    });
+  if (skills.length === 0) return undefined;
+  return [
+    "The following skills provide specialized instructions for specific tasks. Follow a skill when the task matches its description.",
+    "",
+    ...skills,
+  ].join("\n");
+}
+
+const FRONTMATTER = /^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/;
+
+/** `markdown` past its YAML frontmatter, if any. */
+const bodyOf = (markdown: string) => markdown.replace(FRONTMATTER, "");
+
 /** The fields of the YAML frontmatter `markdown` starts with, or none. */
 function frontmatterOf(markdown: string): Record<string, unknown> {
-  const yaml = /^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/.exec(markdown)?.[1];
+  const yaml = FRONTMATTER.exec(markdown)?.[1];
   if (yaml === undefined) return {};
   try {
     const data: unknown = parseYaml(yaml);

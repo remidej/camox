@@ -4,19 +4,26 @@ import { openrouterProvider } from "@earendil-works/pi-ai/providers/openrouter";
 
 import type { Bindings } from "../types";
 
-/**
- * The model a thread's agent runs on, the smaller one its `web_fetch` reads pages with, and the
- * models Pi resolves them against.
- */
-export type ThreadModel = {
-  models: Models;
+/** A model, and the thinking level an agent runs it at. */
+export type AgentModel = {
   model: { provider: string; id: string };
   thinkingLevel: ModelThinkingLevel;
+};
+
+/**
+ * The model a thread's agent runs on, the one its Code Agent runs on, set apart so either can
+ * change alone, the smaller one its `web_fetch` reads pages with, and the models Pi resolves them
+ * against.
+ */
+export type ThreadModel = AgentModel & {
+  models: Models;
+  codeAgent: AgentModel;
   pageReader: { provider: string; id: string };
 };
 
 /**
- * Claude Opus 5.5 at medium effort, and Claude Haiku 5.5 to read pages, through pi-ai's
+ * Claude Opus 5.5 at medium effort, for the thread's agent and its Code Agent alike, and Claude
+ * Haiku 5.5 to read pages, through pi-ai's
  * OpenRouter provider with the API's OpenRouter key. Integration tests replace this module with
  * pi-ai's fake provider (`test/thread-model.ts`).
  */
@@ -34,6 +41,10 @@ export const threadModel = (env: Bindings): ThreadModel => {
     models,
     model: { provider: "openrouter", id: "anthropic/claude-opus-5.5" },
     thinkingLevel: "medium",
+    codeAgent: {
+      model: { provider: "openrouter", id: "anthropic/claude-opus-5.5" },
+      thinkingLevel: "medium",
+    },
     pageReader: { provider: "openrouter", id: "anthropic/claude-haiku-5.5" },
   };
 };

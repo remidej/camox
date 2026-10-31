@@ -5,7 +5,12 @@ import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 
 import { createRpcContext, startDraft } from "../../../test/fixtures";
 import { PRICING, websiteWithCode } from "../../../test/revision-builds";
-import { answerNext, answerWithToolCall, forgetThreadModel } from "../../../test/thread-model";
+import {
+  answerNext,
+  answerWithCodeRequest,
+  answerWithToolCall,
+  forgetThreadModel,
+} from "../../../test/thread-model";
 import { ask, connectDraftThread, signIn } from "../../../test/threads";
 import { router } from "../../router";
 import { publishScriptsTag } from "../publishes/scripts";
@@ -107,6 +112,7 @@ describe("cleaning up a deleted project", () => {
     const token = await signIn(website.db, website.memberUser.id);
     const draftId = await startDraft(website.db, website.project.id, website.memberUser.id);
     const thread = await connectDraftThread(website.project.id, draftId, token);
+    answerWithCodeRequest();
     answerWithToolCall("write", { path: "src/blocks/pricing.tsx", content: PRICING });
     answerNext("I added a pricing section.");
     await ask(thread, "Add a pricing section");

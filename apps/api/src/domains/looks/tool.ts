@@ -1,10 +1,19 @@
+import { LOOK_PLACEHOLDER_HEIGHTS } from "@camox/api-contract/drafts";
 import { LOOK_TOOL } from "@camox/api-contract/threads";
-import { Type } from "@earendil-works/pi-ai";
+import { type TSchema, Type } from "@earendil-works/pi-ai";
 import { defineTool, type ToolRegistration } from "@earendil-works/pi-durable";
 
 import type { ToolInvocation } from "../threads/tools";
 import { type CaptureChecks, LOOK_SIZES } from "./capture";
-import { LOOK_IMAGE_CAP, LOOK_MAX_DELAY_MS, type Looked, type LookTarget } from "./look";
+import {
+  LOOK_IMAGE_CAP,
+  LOOK_MAX_DELAY_MS,
+  type Looked,
+  type Looker,
+  LOOKS_AT,
+  type LookTarget,
+  type LookTargetKind,
+} from "./look";
 
 const SIZE = Type.Union(
   Object.keys(LOOK_SIZES).map((size) => Type.Literal(size)),
@@ -35,26 +44,23 @@ const CAPTURE_OPTIONS = {
 /**
  * A page of the draft, captured as a visitor sees it: its first screen. With a block, one
  * Placement on it: the page renders whole, its Layout and neighbours included, and the capture is
- * that block's element.
+ * that block's element. `pages` says which pages the agent can look at.
  */
-const PAGE_TARGET = Type.Object({
-  path: Type.String({
-    description:
-      "The page's path in its Locale, such as `/pricing`: a curated page, a Singleton " +
-      "Layout's page, or a page of a Derived Layout, such as `/blog/my-post`.",
-  }),
-  block: Type.Optional(
-    Type.String({
-      description:
-        "The ID of one block on that page, its Layout's included, to capture that block alone " +
-        "instead of the first screen. Its capture stops at two screens tall.",
-    }),
-  ),
-  locale: Type.Optional(
-    Type.String({ description: "The Locale's tag, such as `fr`. The Default Locale without." }),
-  ),
-  ...CAPTURE_OPTIONS,
-});
+const pageTarget = (pages: string) =>
+  Type.Object({
+    path: Type.String({ description: `The page's path in its Locale: ${pages}.` }),
+    block: Type.Optional(
+      Type.String({
+        description:
+          "The ID of one block on that page, its Layout's included, to capture that block " +
+          "alone instead of the first screen. Its capture stops at two screens tall.",
+      }),
+    ),
+    locale: Type.Optional(
+      Type.String({ description: "The Locale's tag, such as `fr`. The Default Locale without." }),
+    ),
+    ...CAPTURE_OPTIONS,
+  });
 
 /**
  * A Block Definition's block, placed nowhere, captured alone in the site's shell: up to two
@@ -78,6 +84,119 @@ const BLOCK_DEFINITION_TARGET = Type.Object({
   ),
   ...CAPTURE_OPTIONS,
 });
+
+/**
+ * A curated Layout Definition, around no page, captured alone in the site's shell at its first
+ * screen, with a placeholder where a page's content goes.
+ */
+const LAYOUT_DEFINITION_TARGET = Type.Object({
+  layoutDefinition: Type.String({
+    description:
+      "The curated Layout's id. Its blocks show their default content and Block Settings, " +
+      "with the overrides below merged on, around a labelled, hatched placeholder where a " +
+      "page's content goes. Nothing editors see changes. A Singleton or Derived Layout is " +
+      "looked at by its pages' paths instead.",
+  }),
+  placeholder: Type.Optional(
+    Type.Union(
+      LOOK_PLACEHOLDER_HEIGHTS.map((height) => Type.Literal(height)),
+      {
+        description:
+          "How tall the placeholder is: `short` by default, to see whether the footer rises " +
+          "up the screen; `tall`, to see the Layout with more than a screen of content.",
+      },
+    ),
+  ),
+  blocks: Type.Optional(
+    Type.Record(
+      Type.String(),
+      Type.Object({
+        content: Type.Optional(Type.Unknown({ description: "Content overrides, as above." })),
+        settings: Type.Optional(Type.Unknown({ description: "Block Setting overrides." })),
+      }),
+      {
+        description:
+          "Overrides for the Layout's blocks, by Block Definition name, such as " +
+          "`{ navbar: { content: { links: [...] } } }`, in the shape a Block Definition " +
+          "target takes them.",
+      },
+    ),
+  ),
+  ...CAPTURE_OPTIONS,
+});
+
+/**
+ * A target the model is offered: its schema, and how the tool's description lists it.
+ */
+type Offered = { schema: TSchema; described: string };
+
+/** The pages `pages` names, as a target: each page at its first screen, or one block on it. */
+const pages = (pages: string, examples: string, onSuch: string): Offered => ({
+  schema: pageTarget(`${pages}, such as ${examples}`),
+  described:
+    `${pages}, captured at its first screen; one block on ${onSuch}, captured with the page ` +
+    "around it",
+});
+
+const OF_LAYOUTS = "of a Singleton or Derived Layout";
+
+/**
+ * The targets each kind offers. The Code Agent's pages leave out curated Layouts' pages, which
+ * the thread's agent composes.
+ */
+const OFFERED: Record<LookTargetKind, Offered> = {
+  page: pages(`a page, curated or ${OF_LAYOUTS}`, "`/pricing` or `/blog/my-post`", "a page"),
+  blockDefinition: {
+    schema: BLOCK_DEFINITION_TARGET,
+    described:
+      "a Block Definition, captured alone, with overrides to try its variants and edge cases",
+  },
+  layoutDefinition: {
+    schema: LAYOUT_DEFINITION_TARGET,
+    described:
+      "a curated Layout Definition, captured alone at its first screen around a placeholder " +
+      "for page content, with overrides for its blocks",
+  },
+};
+
+const CODE_AGENT_PAGES = pages(`a page ${OF_LAYOUTS}`, "`/blog/my-post`", "such a page");
+
+/** The key a target of `kind` is named by. */
+const KEYS: Record<LookTargetKind, string> = {
+  page: "path",
+  blockDefinition: "blockDefinition",
+  layoutDefinition: "layoutDefinition",
+};
+
+/**
+ * What `looker`'s `look` offers, from the kinds of target it can use: their schemas, how its
+ * description lists them, and when code changes show. A kind it can't use parses by its key alone,
+ * so that target fails alone, saying why, while the description never mentions it.
+ */
+function targetsOf(looker: Looker) {
+  const { kinds } = LOOKS_AT[looker];
+  const offered = (kind: LookTargetKind) =>
+    looker === "code" && kind === "page" ? CODE_AGENT_PAGES : OFFERED[kind];
+  const kept = kinds.map(offered);
+  const described = kept.map(({ described }) => described);
+  return {
+    schemas: (Object.keys(KEYS) as LookTargetKind[]).map((kind) =>
+      kinds.includes(kind) ? offered(kind).schema : Type.Object({ [KEYS[kind]]: Type.String() }),
+    ),
+    described:
+      described.length > 1
+        ? `${described.slice(0, -1).join("; ")}; or ${described.at(-1)}`
+        : described[0]!,
+    code:
+      looker === "thread"
+        ? "code shows as the draft's preview has it, once the Code Agent built it"
+        : "code shows as the draft's preview has it, so after code changes call `build` first",
+  };
+}
+
+/** How many rounds of `look` and fixing an agent's instructions ask for, in their words. */
+export const LOOK_ROUNDS =
+  "Fix what you see and look again, for about three rounds of looking and fixing.";
 
 /**
  * What one result says beside its image, as a line of JSON: the target it captured, at which
@@ -109,27 +228,28 @@ const reportChecks = ({ errors, failedRequests, overflow }: CaptureChecks) => {
 };
 
 /**
- * The agent's `look`, which captures pages of its draft in a real browser and returns the images,
- * which the model reads. `look` runs it for the call: the thread knows its draft and run.
+ * `looker`'s `look`, which captures its draft's targets in a real browser and returns the images,
+ * which the model reads, offering only the targets that agent can use. `look` runs it for the
+ * call: the thread knows its draft and run.
  */
 export const lookTool = (
+  looker: Looker,
   look: (targets: LookTarget[], invocation: ToolInvocation) => Promise<Looked[]>,
-): ToolRegistration =>
-  defineTool({
+): ToolRegistration => {
+  const { schemas, described, code } = targetsOf(looker);
+  return defineTool({
     name: LOOK_TOOL,
     description:
       "See the draft as visitors will, in a real browser, at each target's sizes. A target is " +
-      "a page, curated or of a Singleton or Derived Layout, captured at its first screen; one block on a page, captured with the page " +
-      "around it; or a Block Definition, captured alone, with overrides to try its variants " +
-      "and edge cases. Look at all you need in one call: its targets render in parallel, at " +
-      `most ${LOOK_IMAGE_CAP} images per call. Content shows as the draft has it now; code ` +
-      "shows as the draft's preview has it, so after code changes call `build` first. " +
+      `${described}. Look at all you need in one call: its targets render in parallel, at ` +
+      `most ${LOOK_IMAGE_CAP} images per call. Content shows as the draft has it now; ` +
+      `${code}. ` +
       "Returns, for each target and size, a line of JSON naming it, then either what the page " +
       "reported that the image can't show (console and page errors, horizontal overflow, " +
       "failed requests) and the image, or the `error` that target alone hit. `cut` says a " +
       "block was taller than two screens: its image shows the top only.",
     parameters: Type.Object({
-      targets: Type.Array(Type.Union([PAGE_TARGET, BLOCK_DEFINITION_TARGET]), { minItems: 1 }),
+      targets: Type.Array(Type.Union(schemas), { minItems: 1 }),
     }),
     async execute({ targets }, api, context) {
       const looked = await look(targets as LookTarget[], { api, context });
@@ -146,3 +266,4 @@ export const lookTool = (
       };
     },
   });
+};

@@ -109,6 +109,34 @@ export const artifactRequestDataSchema = z.object({
 export type ArtifactRequestData = z.infer<typeof artifactRequestDataSchema>;
 
 /**
+ * The agent's tool handing code work to the draft thread's Code Agent, which reads and writes the
+ * website's code in a conversation of its own and answers the agent.
+ */
+export const CODE_TOOL = "code";
+
+/**
+ * The kind of the entry recording a request the agent sent the Code Agent, in the Code Agent's
+ * own conversation, which editors never see: who the run acts for, the operation ids of its
+ * messages, and whether it's Camox's reconcile turn, as data (`codeRequestDataSchema`).
+ */
+export const CODE_REQUEST_ENTRY = "camox.code-request";
+
+/** What a Code Agent's request records: as an Artifact Agent's, and whether Camox reconciles. */
+export const codeRequestDataSchema = artifactRequestDataSchema.extend({
+  reconciling: z.boolean().optional(),
+});
+export type CodeRequestData = z.infer<typeof codeRequestDataSchema>;
+
+/**
+ * The agent's tools handing work to an agent of its own, in a conversation beside the thread's,
+ * whose answer they return: editors see what that agent does as the agent's.
+ */
+const HANDING_OFF_TOOLS: ReadonlySet<string> = new Set([ARTIFACT_TOOL, CODE_TOOL]);
+
+/** Whether `name` is a tool handing work to an agent of its own (`HANDING_OFF_TOOLS`). */
+export const handsOff = (name: string) => HANDING_OFF_TOOLS.has(name);
+
+/**
  * The tools whose calls change a draft: the content tools that write, and the code tools that
  * write files. The model calls the code tools, and code mode scripts call both. A test in the API
  * keeps this in step with the tools themselves.
@@ -320,16 +348,16 @@ export const agentActivitySchema = z.enum([
 export type AgentActivity = z.infer<typeof agentActivitySchema>;
 
 /**
- * What an `artifact` call's result carries for the studio: the Artifact Agent's answer, whether
- * it's the agent's answer to the turn too, which then ends on it, and while it works, what the
- * Artifact Agent is doing.
+ * What the result of a call handing work off (`handsOff`), such as `artifact` or `code`, carries
+ * for the studio: the other agent's answer, whether it's the agent's answer to the turn too,
+ * which then ends on it, and while it works, what the other agent is doing.
  */
-export const artifactDetailsSchema = z.object({
+export const handOffDetailsSchema = z.object({
   answer: z.string().optional(),
   final: z.boolean().optional(),
   activity: agentActivitySchema.optional(),
 });
-export type ArtifactDetails = z.infer<typeof artifactDetailsSchema>;
+export type HandOffDetails = z.infer<typeof handOffDetailsSchema>;
 
 /** Everything the studio shows for a thread. */
 export type ThreadView = {
@@ -361,8 +389,11 @@ export type ThreadState = {
   changing?: boolean;
   /** Whether the model's latest round calls `look`: from writing the call until it's called again. */
   checking?: boolean;
-  /** What the Artifact Agent the running `artifact` call waits for is doing, as it last said. */
-  artifactActivity?: AgentActivity;
+  /**
+   * What the agent a running call handing work off (`handsOff`) waits for is doing, as it last
+   * said.
+   */
+  handedOffActivity?: AgentActivity;
   /** The drafts the thread's cards name, as the thread last looked them up. */
   drafts?: DraftCardStates;
 };
@@ -563,9 +594,10 @@ function threadStepOf(entry: EntryRecord): ThreadStep | undefined {
   }
   if (message.role === "assistant") return assistantStep(id, message);
   if (message.role === "toolResult") {
-    // An Artifact Agent's answer that ends the turn is the agent's: editors never see it apart.
-    if (message.toolName === ARTIFACT_TOOL && !message.isError) {
-      const details = artifactDetailsSchema.safeParse(message.details).data;
+    // An Artifact Agent's or the Code Agent's answer that ends the turn is the agent's: editors
+    // never see it apart.
+    if (handsOff(message.toolName) && !message.isError) {
+      const details = handOffDetailsSchema.safeParse(message.details).data;
       if (details?.final && details.answer) return { id, type: "answer", text: details.answer };
     }
     const card =
@@ -593,7 +625,7 @@ export function threadViewOf({
   callingTools = false,
   changing = false,
   checking = false,
-  artifactActivity,
+  handedOffActivity,
   drafts = {},
 }: ThreadState): ThreadView {
   const messages: ThreadMessage[] = [];
@@ -698,6 +730,8 @@ export function threadViewOf({
         break;
       case "tools":
         unfinished = false;
+        // The Code Agent's build status ends with its request, whose answer is a tool result.
+        status = undefined;
         break;
       case "unfinished":
         unfinished = true;
@@ -709,7 +743,14 @@ export function threadViewOf({
   return {
     messages,
     running,
-    activity: activityOf({ status, toolCalls, callingTools, changing, checking, artifactActivity }),
+    activity: activityOf({
+      status,
+      toolCalls,
+      callingTools,
+      changing,
+      checking,
+      handedOffActivity,
+    }),
   };
 }
 
@@ -720,23 +761,24 @@ function activityOf({
   callingTools,
   changing,
   checking,
-  artifactActivity,
+  handedOffActivity,
 }: {
   status: BuildStatus | undefined;
   toolCalls: NonNullable<ThreadState["toolCalls"]>;
   callingTools: boolean;
   changing: boolean;
   checking: boolean;
-  artifactActivity: AgentActivity | undefined;
+  handedOffActivity: AgentActivity | undefined;
 }): AgentActivity {
   const calling = (name: string) => toolCalls.some((call) => call.name === name);
   // Fixing a build error takes thinking, reading and writing, which all read as fixing, but its
   // builds show as building.
   if (status === "building" || calling(BUILD_TOOL)) return "building";
-  // An Artifact Agent works on the agent's behalf: editors see what it does as the agent's.
-  if (calling(ARTIFACT_TOOL)) return artifactActivity ?? "changing";
-  if (checking) return "checking";
   if (status === "fixing") return "fixing";
+  // An Artifact Agent or the Code Agent works on the agent's behalf: editors see what it does as
+  // the agent's.
+  if (toolCalls.some((call) => handsOff(call.name))) return handedOffActivity ?? "changing";
+  if (checking) return "checking";
   if (calling(START_DRAFT_TOOL)) return "startingDraft";
   if (changing) return "changing";
   if (callingTools || toolCalls.length > 0) return "exploring";
@@ -781,13 +823,11 @@ export function reduceThreadState(state: ThreadState, event: AgentEvent): Thread
         tool.status === "done" ? [] : [{ callId: tool.callId, name: tool.name }],
       );
       const generated = event.generation?.message?.content ?? [];
-      const artifact = event.tools.find(
-        (tool) => tool.name === ARTIFACT_TOOL && tool.status !== "done",
-      );
+      const handingOff = event.tools.find((tool) => handsOff(tool.name) && tool.status !== "done");
       return {
         ...state,
         steps: event.entries.flatMap((entry) => threadStepOf(entry) ?? []),
-        artifactActivity: artifactDetailsSchema.safeParse(artifact?.details).data?.activity,
+        handedOffActivity: handOffDetailsSchema.safeParse(handingOff?.details).data?.activity,
         running: event.run !== undefined,
         toolCalls,
         callingTools: generated.some((part) => part.type === "toolCall"),
@@ -817,7 +857,7 @@ export function reduceThreadState(state: ThreadState, event: AgentEvent): Thread
         callingTools: false,
         changing: false,
         checking: false,
-        artifactActivity: undefined,
+        handedOffActivity: undefined,
       };
     case "message_start":
       // The model is called again: it thinks until it writes a tool call.
@@ -852,17 +892,17 @@ export function reduceThreadState(state: ThreadState, event: AgentEvent): Thread
       };
     }
     case "tool_execution_update": {
-      if (event.toolName !== ARTIFACT_TOOL || event.parentToolCallId !== undefined) return state;
-      const activity = artifactDetailsSchema.safeParse(event.details).data?.activity;
-      return activity ? { ...state, artifactActivity: activity } : state;
+      if (!handsOff(event.toolName) || event.parentToolCallId !== undefined) return state;
+      const activity = handOffDetailsSchema.safeParse(event.details).data?.activity;
+      return activity ? { ...state, handedOffActivity: activity } : state;
     }
     case "tool_execution_end":
       return append(
         {
           ...state,
           toolCalls: state.toolCalls?.filter((call) => call.callId !== event.toolCallId),
-          ...(event.toolName === ARTIFACT_TOOL &&
-            event.parentToolCallId === undefined && { artifactActivity: undefined }),
+          ...(handsOff(event.toolName) &&
+            event.parentToolCallId === undefined && { handedOffActivity: undefined }),
         },
         event.entry,
       );

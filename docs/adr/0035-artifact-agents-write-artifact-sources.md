@@ -16,3 +16,7 @@ Artifacts are where threads spend most: each change rewrote the whole source in 
 - An Artifact Agent works as the member whose run asked, in the thread's draft and its artifact's locale: its writes are content writes, checked and stored as editors' are, and the studio follows them. It writes its artifact's source alone, and only reads the code.
 - Its instructions are the same for every artifact, so its cached prompt keeps across requests; which artifact it works on comes with each request. It runs on the thread's model.
 - While it works, the studio shows its activity as the agent's. Stopping the run stops it. Its conversation ends with the thread.
+
+## Amendment: `final` no longer depends on code changes
+
+The Code Agent writes the website's code and builds it within its own requests (ADR 0037), so the thread's agent's turn never builds at its end. `artifact` ends the turn on the Artifact Agent's answer whenever the model asks and the call is its round's only one, even when code changed earlier in the turn.

@@ -10,6 +10,7 @@ import { LOCKFILE } from "../../../test/revision-builds";
 import {
   answerFrom,
   answerNext,
+  answerWithCodeRequest,
   answerWithScript,
   answerWithToolCall,
   forgetThreadModel,
@@ -17,7 +18,6 @@ import {
 import {
   ask,
   connectDraftThread,
-  connectLiveThread,
   draftsOf,
   lastAnswer,
   signIn,
@@ -34,6 +34,7 @@ vi.mock("../../lib/thread-model", async () => {
 
 type GitFakes = {
   branches(repo: string): Promise<string[]>;
+  readFile(repo: string, ref: string, path: string): Promise<string | null | undefined>;
   commit(repo: string, files: Record<string, string>, message: string): Promise<string>;
 };
 
@@ -65,20 +66,21 @@ async function draftThread(website: Awaited<ReturnType<typeof websiteWithCode>>,
 }
 
 /**
- * Has the agent call the tool `name` with `args`, and returns what the tool answered it, as the
- * agent's answer shows it: without a last newline.
+ * Has the Code Agent call the tool `name` with `args`, and returns what the tool answered it, as
+ * its answer, which ends the agent's turn, shows it: without a last newline.
  */
 async function toolResult(
   thread: ThreadClient,
   name: string,
   args: Parameters<typeof answerWithToolCall>[1],
 ) {
+  answerWithCodeRequest();
   answerWithToolCall(name, args);
   answerFrom(({ lastToolResult }) => lastToolResult);
   return lastAnswer(await ask(thread, `Call ${name}`, { keepOpen: true }));
 }
 
-describe("the agent writing the website's code", () => {
+describe("the Code Agent writing the website's code", () => {
   it("writes in the draft's own branch, whose reads return the new file, leaving Live's code", async () => {
     const website = await websiteWithCode();
     const token = await signIn(website.db, website.memberUser.id);
@@ -93,27 +95,9 @@ describe("the agent writing the website's code", () => {
     thread.close();
 
     // Live's code is unchanged, and the draft has its own branch.
-    const live = await connectLiveThread(website.project.id, token);
-    expect(await toolResult(live, "ls", { path: "src/blocks" })).toBe("hero.tsx");
-    live.close();
+    expect(await fakes.readFile(website.project.uuid, "main", "src/blocks/hero.tsx")).toBe(HERO);
+    expect(await fakes.readFile(website.project.uuid, "main", "src/blocks/pricing.tsx")).toBeNull();
     expect(await fakes.branches(website.project.uuid)).toEqual(["main", draftId]);
-  });
-
-  it("offers no code writes on Live, where a write changes nothing and starts no draft", async () => {
-    const website = await websiteWithCode();
-    const token = await signIn(website.db, website.memberUser.id);
-    const live = await connectLiveThread(website.project.id, token);
-
-    const result = await toolResult(live, "write", {
-      path: "src/blocks/pricing.tsx",
-      content: PRICING,
-    });
-
-    expect(result).not.toBe("");
-    expect(await toolResult(live, "ls", { path: "src/blocks" })).toBe("hero.tsx");
-    live.close();
-    expect(await draftsOf(website)).toEqual([]);
-    expect(await fakes.branches(website.project.uuid)).toEqual(["main"]);
   });
 
   it("still reads its changes in a later turn, after the working copy was evicted", async () => {

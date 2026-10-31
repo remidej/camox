@@ -18,6 +18,8 @@ export type RevisionFakes = {
   readFile(repo: string, ref: string, path: string): Promise<string | null>;
   revisionBuilds(sandbox: string): Promise<RevisionBuild[]>;
   failBuildsOf(marker: string, log: string): Promise<void>;
+  /** Makes every build of a tree holding `marker` give `definitionSet` as its Definition Set. */
+  defineBuildsOf(marker: string, definitionSet: unknown): Promise<void>;
   lintFindingsOf(marker: string, diagnostics: LintDiagnostic[]): Promise<void>;
   revisionCommands(sandbox: string): Promise<{ command: string }[]>;
   /** Holds the sandbox's builds from now on, until `releaseBuilds(sandbox)`. */

@@ -10,6 +10,7 @@ import {
   answerFrom,
   answerNext,
   answerWithScript,
+  answerWithCodeRequest,
   answerWithToolCall,
   answerWithToolCallFrom,
   forgetThreadModel,
@@ -115,11 +116,12 @@ async function blockTypesOf({ db, memberUser, project }: Website, draftId?: stri
 }
 
 /**
- * Has the agent call `build`, and returns its result. A build that fails fails the end of the
- * turn too, which sends the agent back to work: unscripted, its turn then fails.
+ * Has the Code Agent call `build`, and returns its result. A build that fails fails the end of
+ * its request too, which sends it back to work: unscripted, the request then fails.
  */
 async function build(thread: ThreadClient) {
   let result = "";
+  answerWithCodeRequest();
   answerWithToolCall("build", {});
   answerFrom(({ lastToolResult }) => {
     result = lastToolResult;
@@ -130,13 +132,15 @@ async function build(thread: ThreadClient) {
 }
 
 describe("a revision's definitions", () => {
-  it("let the agent place a block it wrote and built in the same turn", async () => {
+  it("let the agent place a block the Code Agent wrote and built in the same turn", async () => {
     const { website, token } = await websiteWithCode();
     const marker = crypto.randomUUID();
     await fakes.defineBuildsOf(marker, definitionSetWith(website, [pricingDefinition]));
     const { draft, thread } = await newDraftThread(website, token);
+    answerWithCodeRequest("Add a pricing block.", { final: false });
     answerWithToolCall("write", { path: "src/blocks/pricing.tsx", content: blockFile(marker) });
     answerWithToolCall("build", {});
+    answerNext("I added the pricing block.");
     answerWithScript(placePricing("Plans start at $9"));
     answerFrom(({ scriptOutput }) => `Done: ${scriptOutput}`);
 
@@ -154,6 +158,7 @@ describe("a revision's definitions", () => {
     const marker = crypto.randomUUID();
     await fakes.failBuildsOf(marker, "error during build:\nBuild failed with 1 error\n");
     const { draft, thread: first } = await newDraftThread(website, token);
+    answerWithCodeRequest();
     answerWithToolCall("write", { path: "src/blocks/pricing.tsx", content: blockFile(marker) });
     answerFrom(() => "Wrote it.");
     await ask(first, "Add a pricing section");
@@ -173,15 +178,18 @@ describe("a revision's definitions", () => {
     await fakes.defineBuildsOf(withPricing, definitionSetWith(website, [pricingDefinition]));
     await fakes.defineBuildsOf(withoutPricing, definitionSetWith(website, []));
     const { draft, thread: first } = await newDraftThread(website, token);
+    answerWithCodeRequest("Add a pricing block.", { final: false });
     answerWithToolCall("write", {
       path: "src/blocks/pricing.tsx",
       content: blockFile(withPricing),
     });
     answerWithToolCall("build", {});
+    answerNext("I added the pricing block.");
     answerWithScript(placePricing("Plans start at $9"));
     answerFrom(() => "Added it.");
     await ask(first, "Add a pricing section");
     const thread = await connectDraftThread(website.project.id, draft.id, token);
+    answerWithCodeRequest();
     answerWithToolCall("rm", { path: "src/blocks/pricing.tsx" });
     answerWithToolCall("write", {
       path: "src/blocks/text.tsx",
@@ -196,6 +204,7 @@ describe("a revision's definitions", () => {
     expect(await pagesOf(website, draft.id)).toEqual({ "/home": [HELLO] });
 
     // Back to the first revision's code, which brings the block and its content back.
+    answerWithCodeRequest();
     answerWithToolCall("write", {
       path: "src/blocks/pricing.tsx",
       content: blockFile(withPricing),
@@ -211,11 +220,12 @@ describe("a revision's definitions", () => {
     expect(await pagesOf(website, draft.id)).toEqual({ "/home": [HELLO, PRICING] });
   });
 
-  it("that can't be used, once the end of the turn gave up, block publishing the draft", async () => {
+  it("that can't be used, once the end of the Code Agent's request gave up, block publishing the draft", async () => {
     const { website, token } = await websiteWithCode();
     const unusable = crypto.randomUUID();
     await fakes.defineBuildsOf(unusable, { ...definitionSetWith(website, []), blocks: "none" });
     const { draft, thread: first } = await newDraftThread(website, token);
+    answerWithCodeRequest();
     answerWithToolCall("write", { path: "src/blocks/pricing.tsx", content: blockFile(unusable) });
     for (let failed = 0; failed < END_OF_TURN_BUILD_FAILURES; failed++) answerNext("Done.");
     answerNext("The pricing section can't be shown yet.");
@@ -246,13 +256,14 @@ describe("a revision's definitions", () => {
     ).rejects.toMatchObject({ code: PUBLISH_BLOCKED_ERROR });
   });
 
-  it("that can't be used send the agent back to fix them as its turn ends, after its own build", async () => {
+  it("that can't be used send the Code Agent back to fix them as its request ends, after its own build", async () => {
     const { website, token } = await websiteWithCode();
     const unusable = crypto.randomUUID();
     const fixed = crypto.randomUUID();
     await fakes.defineBuildsOf(unusable, { ...definitionSetWith(website, []), blocks: "none" });
     await fakes.defineBuildsOf(fixed, definitionSetWith(website, [pricingDefinition]));
     const { draft, thread: first } = await newDraftThread(website, token);
+    answerWithCodeRequest();
     answerWithToolCall("write", { path: "src/blocks/pricing.tsx", content: blockFile(unusable) });
     answerWithToolCall("build", {});
     answerFrom(() => "Added it.");

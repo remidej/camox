@@ -1,17 +1,23 @@
 import { abortAllDurableObjects } from "cloudflare:test";
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 
+import { startDraft } from "../../../test/fixtures";
 import { pushToMain } from "../../../test/pushes";
 import { HERO, LOCKFILE, websiteWithCode } from "../../../test/revision-builds";
 import { publishSkills, skillsOf } from "../../../test/skills";
-import { answerFrom, answerWithToolCall, forgetThreadModel } from "../../../test/thread-model";
+import {
+  answerFrom,
+  answerWithCodeRequest,
+  answerWithToolCall,
+  forgetThreadModel,
+} from "../../../test/thread-model";
 import {
   ask,
-  connectLiveThread,
-  draftsOf,
+  connectDraftThread,
   lastAnswer,
   signIn,
   type ThreadClient,
+  type Website,
 } from "../../../test/threads";
 
 // Threads run on pi-ai's fake provider, scripted per test, rather than reaching OpenRouter.
@@ -23,7 +29,12 @@ vi.mock("../../lib/thread-model", async () => {
 // No platform skills, so the tree shows only what the camox version main installs mounts.
 vi.mock("./platform-skills", async () => {
   const { skillsSection } = await import("./skills");
-  return { PLATFORM_SKILLS: {}, PLATFORM_SKILLS_SECTION: skillsSection({}) };
+  return {
+    PLATFORM_SKILLS: {},
+    CODE_AGENT_SKILLS: {},
+    CODE_AGENT_SKILLS_SECTION: skillsSection({}),
+    THREAD_AGENT_SKILLS_SECTION: undefined,
+  };
 });
 
 afterEach(async () => {
@@ -35,26 +46,33 @@ afterEach(async () => {
 const lockfileOf = (version: string) => LOCKFILE.replaceAll("1.0.0", version);
 
 /**
- * Has the agent call the tool `name` with `args`, and returns what the tool answered it, as the
- * agent's answer shows it: without a last newline.
+ * The thread of a new draft of `website`, as its member, open: its code is Live's until a code
+ * write changes it.
+ */
+async function draftThreadOf({ db, project, memberUser }: Website) {
+  const draftId = await startDraft(db, project.id, memberUser.id);
+  return connectDraftThread(project.id, draftId, await signIn(db, memberUser.id));
+}
+
+/**
+ * Has the Code Agent call the tool `name` with `args`, and returns what the tool answered it, as
+ * its answer, which ends the agent's turn, shows it: without a last newline.
  */
 async function toolResult(
   thread: ThreadClient,
   name: string,
   args: Parameters<typeof answerWithToolCall>[1],
 ) {
+  answerWithCodeRequest();
   answerWithToolCall(name, args);
   answerFrom(({ lastToolResult }) => lastToolResult);
   return lastAnswer(await ask(thread, `Call ${name}`, { keepOpen: true }));
 }
 
-describe("the agent reading the website's code", () => {
-  it("lists, finds, searches and reads the files of Live's code, in a Live thread", async () => {
+describe("the Code Agent reading the website's code", () => {
+  it("lists, finds, searches and reads the files of Live's code, in a draft that changed none", async () => {
     const website = await websiteWithCode();
-    const thread = await connectLiveThread(
-      website.project.id,
-      await signIn(website.db, website.memberUser.id),
-    );
+    const thread = await draftThreadOf(website);
 
     // Git's own directory isn't shown; Camox's skills are.
     expect(await toolResult(thread, "ls", {})).toBe(".camox/\npackage.json\npnpm-lock.yaml\nsrc/");
@@ -69,14 +87,11 @@ describe("the agent reading the website's code", () => {
     // Platform-owned files are readable too.
     expect(await toolResult(thread, "read", { path: "package.json" })).toContain(`"camox"`);
     thread.close();
-
-    expect(await draftsOf(website)).toEqual([]);
   });
 
   it("reads the new contents once a push moved main", async () => {
     const website = await websiteWithCode();
-    const token = await signIn(website.db, website.memberUser.id);
-    const thread = await connectLiveThread(website.project.id, token);
+    const thread = await draftThreadOf(website);
     expect(await toolResult(thread, "read", { path: "src/blocks/hero.tsx" })).toBe(HERO.trimEnd());
 
     const changed = `export const hero = "Welcome back";\n`;
@@ -92,11 +107,9 @@ describe("the agent reading the website's code", () => {
 
   it("is told the hosted website's rules, and where Camox's skill is", async () => {
     const website = await websiteWithCode();
-    const thread = await connectLiveThread(
-      website.project.id,
-      await signIn(website.db, website.memberUser.id),
-    );
+    const thread = await draftThreadOf(website);
     let instructions = "";
+    answerWithCodeRequest("How would tabs be added?");
     answerFrom((request) => {
       instructions = request.instructions;
       return "Noted.";
@@ -115,10 +128,7 @@ describe("the agent reading the website's code", () => {
 
   it("reads the skills of the camox version main installs, the CLI's left out", async () => {
     const website = await websiteWithCode();
-    const thread = await connectLiveThread(
-      website.project.id,
-      await signIn(website.db, website.memberUser.id),
-    );
+    const thread = await draftThreadOf(website);
 
     const skills = skillsOf("1.0.0");
     expect(await toolResult(thread, "ls", { path: ".camox/skills" })).toBe("camox/");
@@ -135,10 +145,7 @@ describe("the agent reading the website's code", () => {
 
   it("reads the skills of the camox version an Upgrade moved main to", async () => {
     const website = await websiteWithCode();
-    const thread = await connectLiveThread(
-      website.project.id,
-      await signIn(website.db, website.memberUser.id),
-    );
+    const thread = await draftThreadOf(website);
     const read = () => toolResult(thread, "read", { path: ".camox/skills/camox/SKILL.md" });
     expect(await read()).toBe(skillsOf("1.0.0")["camox/SKILL.md"].trimEnd());
 
@@ -157,10 +164,7 @@ describe("the agent reading the website's code", () => {
       "pnpm-lock.yaml": lockfileOf(version),
       "src/blocks/hero.tsx": HERO,
     });
-    const thread = await connectLiveThread(
-      website.project.id,
-      await signIn(website.db, website.memberUser.id),
-    );
+    const thread = await draftThreadOf(website);
 
     expect(await toolResult(thread, "ls", {})).toBe("pnpm-lock.yaml\nsrc/");
     expect(await toolResult(thread, "read", { path: "src/blocks/hero.tsx" })).toBe(HERO.trimEnd());

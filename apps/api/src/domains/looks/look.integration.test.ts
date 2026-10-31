@@ -4,12 +4,19 @@ import { abortAllDurableObjects } from "cloudflare:test";
 import { env } from "cloudflare:workers";
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 
+import { contentFieldBuilder as field } from "../../../../../packages/sdk/src/core/lib/contentType";
 import { browserRunFakes } from "../../../test/browser-run";
-import { createRpcContext, startDraft, syncDefinitionSet } from "../../../test/fixtures";
+import {
+  callSeedingLive,
+  createRpcContext,
+  startDraft,
+  syncDefinitionSet,
+} from "../../../test/fixtures";
 import { PRICING, revisionFakes, websiteWithCode } from "../../../test/revision-builds";
 import {
   answerFrom,
   answerNext,
+  answerWithCodeRequest,
   answerWithToolCall,
   forgetThreadModel,
   type ModelRequest,
@@ -23,6 +30,7 @@ import {
   type ThreadClient,
   type Website,
 } from "../../../test/threads";
+import { blockProcedures } from "../blocks/routes";
 import { verifyLookToken } from "../drafts/look-token";
 import { layoutProcedures } from "../layouts/routes";
 import { pageProcedures } from "../pages/routes";
@@ -101,7 +109,7 @@ async function look(
     text,
     results: text
       .split("\n")
-      .filter((line) => line.startsWith("{"))
+      .filter((line) => /^{.+}$/.test(line))
       .map((line) => JSON.parse(line) as Record<string, unknown>),
     images: seen!.lastToolImages,
   };
@@ -116,6 +124,9 @@ async function placementOn({ db, memberUser, project }: Website, path: string) {
   );
   return page.blockIds[0]!;
 }
+
+/** Has the thread's agent hand the turn to the Code Agent, which calls `look`. */
+const byCodeAgent = { before: () => answerWithCodeRequest() };
 
 const pathOf = (url: string) => new URL(url).searchParams.get("path");
 
@@ -307,10 +318,12 @@ describe("the agent's look", () => {
 
     const { results, text } = await look(
       thread,
-      { targets: [{ path: "/home" }] },
+      { targets: [{ blockDefinition: "text" }] },
       {
-        before: () =>
-          answerWithToolCall("write", { path: "src/blocks/pricing.tsx", content: PRICING }),
+        before: () => {
+          answerWithCodeRequest();
+          answerWithToolCall("write", { path: "src/blocks/pricing.tsx", content: PRICING });
+        },
       },
     );
     thread.close();
@@ -327,9 +340,10 @@ describe("the agent's look", () => {
 
     const { results, text } = await look(
       thread,
-      { targets: [{ path: "/home" }] },
+      { targets: [{ blockDefinition: "text" }] },
       {
         before: () => {
+          answerWithCodeRequest();
           answerWithToolCall("write", {
             path: "src/blocks/pricing.tsx",
             content: markedFile(unusable),
@@ -357,9 +371,10 @@ describe("the agent's look", () => {
 
     const built = await look(
       thread,
-      { targets: [{ path: "/home" }] },
+      { targets: [{ blockDefinition: "text" }] },
       {
         before: () => {
+          answerWithCodeRequest();
           answerWithToolCall("write", {
             path: "src/blocks/pricing.tsx",
             content: markedFile(usable),
@@ -373,13 +388,15 @@ describe("the agent's look", () => {
 
     const unbuilt = await look(
       thread,
-      { targets: [{ path: "/home" }] },
+      { targets: [{ blockDefinition: "text" }] },
       {
-        before: () =>
+        before: () => {
+          answerWithCodeRequest();
           answerWithToolCall("write", {
             path: "src/blocks/pricing.tsx",
             content: markedFile(further),
-          }),
+          });
+        },
       },
     );
     thread.close();
@@ -564,7 +581,7 @@ describe("the agent's look at a page of a Singleton or Derived Layout", () => {
   });
 });
 
-describe("the agent's look at a Block Definition", () => {
+describe("the Code Agent's look at a Block Definition", () => {
   it("captures the block alone, with its overrides, cut at the block's element", async () => {
     const { draftId, thread } = await draftThreadWithHero();
     const target = {
@@ -573,9 +590,13 @@ describe("the agent's look at a Block Definition", () => {
       settings: { colorScheme: "dark" },
     };
 
-    const { results, images } = await look(thread, {
-      targets: [{ ...target, sizes: ["desktop", "mobile"] }],
-    });
+    const { results, images } = await look(
+      thread,
+      {
+        targets: [{ ...target, sizes: ["desktop", "mobile"] }],
+      },
+      byCodeAgent,
+    );
     thread.close();
 
     expect(results).toEqual([
@@ -598,12 +619,16 @@ describe("the agent's look at a Block Definition", () => {
     const { draftId, thread } = await draftThreadWithHero();
     const long = { title: "x".repeat(LOOK_MAX_URL_LENGTH) };
 
-    const { results, images } = await look(thread, {
-      targets: [
-        { blockDefinition: "hero", content: long, sizes: ["desktop"] },
-        { blockDefinition: "hero", sizes: ["mobile"] },
-      ],
-    });
+    const { results, images } = await look(
+      thread,
+      {
+        targets: [
+          { blockDefinition: "hero", content: long, sizes: ["desktop"] },
+          { blockDefinition: "hero", sizes: ["mobile"] },
+        ],
+      },
+      byCodeAgent,
+    );
     thread.close();
 
     expect(results).toEqual([
@@ -622,13 +647,17 @@ describe("the agent's look at a Block Definition", () => {
   it("fails a target with an override its schema refuses, or an unknown Block Definition, with the schema's error, and captures the others", async () => {
     const { draftId, thread } = await draftThreadWithHero();
 
-    const { results, images } = await look(thread, {
-      targets: [
-        { blockDefinition: "hero", settings: { colorScheme: "purple" }, sizes: ["desktop"] },
-        { blockDefinition: "pricing", sizes: ["desktop"] },
-        { blockDefinition: "hero", sizes: ["mobile"] },
-      ],
-    });
+    const { results, images } = await look(
+      thread,
+      {
+        targets: [
+          { blockDefinition: "hero", settings: { colorScheme: "purple" }, sizes: ["desktop"] },
+          { blockDefinition: "pricing", sizes: ["desktop"] },
+          { blockDefinition: "hero", sizes: ["mobile"] },
+        ],
+      },
+      byCodeAgent,
+    );
     thread.close();
 
     expect(results).toEqual([
@@ -646,5 +675,341 @@ describe("the agent's look at a Block Definition", () => {
     expect(
       captures.map(({ url, size }) => [new URL(url).searchParams.get("blockDefinition"), size]),
     ).toEqual([["hero", "mobile"]]);
+  });
+});
+
+/** A Layout-only Block Definition with a Settings Schema, which a curated Layout places. */
+const navbarDefinition = {
+  ...heroDefinition,
+  blockId: "navbar",
+  title: "Navbar",
+  description: "The site's navigation",
+  layoutOnly: true,
+};
+
+/**
+ * A draft thread of a website whose code adds a curated Layout `site`, placing a navbar before
+ * its pages' content, beside the Singleton and Derived Layouts of `draftThreadWithLayoutPages`.
+ */
+async function draftThreadWithCuratedLayout() {
+  const opened = await draftThread();
+  const { website } = opened;
+  const before = (body: string) => [{ type: "text", content: { body }, slot: "before" as const }];
+  await syncDefinitionSet(website.db, website.project, {
+    blocks: [textDefinition, navbarDefinition],
+    layouts: [
+      { layoutId: website.layout.layoutId, description: "Default", blocks: [] },
+      {
+        layoutId: "site",
+        description: "",
+        blocks: [{ type: "navbar", content: {}, slot: "before" as const }],
+      },
+      { layoutId: "offers", kind: "singleton", description: "", blocks: before("Offers") },
+      { layoutId: "articles.$slug", kind: "derived", description: "", blocks: before("Blog") },
+    ],
+  });
+  return opened;
+}
+
+describe("the Code Agent's look at a Layout Definition", () => {
+  it("captures the curated Layout alone at its first screen, with its blocks' overrides and a short or tall placeholder", async () => {
+    const { draftId, thread } = await draftThreadWithCuratedLayout();
+    const blocks = { navbar: { content: { title: "Acme" }, settings: { colorScheme: "dark" } } };
+
+    const { results, images } = await look(
+      thread,
+      {
+        targets: [
+          { layoutDefinition: "site", blocks, sizes: ["desktop", "mobile"] },
+          { layoutDefinition: "site", placeholder: "tall", sizes: ["desktop"] },
+        ],
+      },
+      byCodeAgent,
+    );
+    thread.close();
+
+    expect(results).toEqual([
+      { layoutDefinition: "site", blocks, size: "desktop" },
+      { layoutDefinition: "site", blocks, size: "mobile" },
+      { layoutDefinition: "site", placeholder: "tall", size: "desktop" },
+    ]);
+    expect(images).toHaveLength(3);
+    const captures = await browserRunFakes.captures(draftId);
+    expect(
+      captures.map(({ url, size, element }) => {
+        const params = new URL(url).searchParams;
+        const overrides = params.get("blocks");
+        return [
+          params.get("layoutDefinition"),
+          params.get("placeholder"),
+          overrides && JSON.parse(overrides),
+          size,
+          element,
+        ];
+      }),
+    ).toEqual([
+      ["site", "short", blocks, "desktop", undefined],
+      ["site", "short", blocks, "mobile", undefined],
+      ["site", "tall", null, "desktop", undefined],
+    ]);
+  });
+
+  it("fails a target with an override its schema refuses, or for a block the Layout doesn't place, and captures the others", async () => {
+    const { draftId, thread } = await draftThreadWithCuratedLayout();
+    const purple = { navbar: { settings: { colorScheme: "purple" } } };
+    const elsewhere = { footer: { content: { title: "Bye" } } };
+
+    const { results, images } = await look(
+      thread,
+      {
+        targets: [
+          { layoutDefinition: "site", blocks: purple, sizes: ["desktop"] },
+          { layoutDefinition: "site", blocks: elsewhere, sizes: ["desktop"] },
+          { layoutDefinition: "site", sizes: ["mobile"] },
+        ],
+      },
+      byCodeAgent,
+    );
+    thread.close();
+
+    expect(results).toEqual([
+      {
+        layoutDefinition: "site",
+        blocks: purple,
+        size: "desktop",
+        error: expect.stringContaining("colorScheme"),
+      },
+      {
+        layoutDefinition: "site",
+        blocks: elsewhere,
+        size: "desktop",
+        error: expect.stringContaining("footer"),
+      },
+      { layoutDefinition: "site", size: "mobile" },
+    ]);
+    expect(images).toHaveLength(1);
+    expect((await browserRunFakes.captures(draftId)).map(({ size }) => size)).toEqual(["mobile"]);
+  });
+
+  it("fails an unknown Layout, and a Singleton or Derived Layout with a pointer to its pages, and captures the others", async () => {
+    const { draftId, thread } = await draftThreadWithCuratedLayout();
+
+    const { results } = await look(
+      thread,
+      {
+        targets: [
+          { layoutDefinition: "landing", sizes: ["desktop"] },
+          { layoutDefinition: "offers", sizes: ["desktop"] },
+          { layoutDefinition: "articles.$slug", sizes: ["desktop"] },
+          { layoutDefinition: "site", sizes: ["desktop"] },
+        ],
+      },
+      byCodeAgent,
+    );
+    thread.close();
+
+    expect(results).toEqual([
+      { layoutDefinition: "landing", size: "desktop", error: expect.stringContaining("landing") },
+      { layoutDefinition: "offers", size: "desktop", error: expect.stringMatching(/path/) },
+      { layoutDefinition: "articles.$slug", size: "desktop", error: expect.stringMatching(/path/) },
+      { layoutDefinition: "site", size: "desktop" },
+    ]);
+    expect(
+      (await browserRunFakes.captures(draftId)).map(({ url }) =>
+        new URL(url).searchParams.get("layoutDefinition"),
+      ),
+    ).toEqual(["site"]);
+  });
+});
+
+/** A block definition with an artifact field, `visual`. */
+const visualDefinition = {
+  blockId: "visual",
+  title: "Visual",
+  description: "An artifact",
+  contentSchema: {
+    type: "object",
+    properties: { visual: field.artifact({ size: "fill" }) },
+  },
+};
+
+/**
+ * A draft thread of a website whose code adds the curated Layout `site` and the Singleton Layout
+ * at `/offers`, and whose `/home` page holds a block with an artifact field, `visual`.
+ */
+async function draftThreadWithArtifact() {
+  const website = await websiteWithCode();
+  const { db, memberUser, project } = website;
+  await syncDefinitionSet(db, project, {
+    blocks: [textDefinition, navbarDefinition, visualDefinition],
+    layouts: [
+      { layoutId: website.layout.layoutId, description: "Default", blocks: [] },
+      {
+        layoutId: "site",
+        description: "",
+        blocks: [{ type: "navbar", content: {}, slot: "before" as const }],
+      },
+    ],
+  });
+  const options = { context: createRpcContext(db, memberUser) };
+  const { page } = await call(
+    pageProcedures.getStructure,
+    { projectUuid: project.uuid, path: "/home" },
+    options,
+  );
+  const block = await callSeedingLive(
+    blockProcedures.create,
+    { pageId: page.id, type: "visual", content: { visual: "" } },
+    options,
+  );
+  const draftId = await startDraft(db, project.id, memberUser.id);
+  const thread = await connectDraftThread(project.id, draftId, await signIn(db, memberUser.id));
+  return { website, draftId, thread, block };
+}
+
+/**
+ * The keys naming the targets the `look` tool `request` offers its agent: those it can capture,
+ * at sizes it picks. A target it can't use takes no sizes: it only parses, to fail alone.
+ */
+function lookTargetsOf(request: ModelRequest) {
+  const { parameters } = request.toolDefinitions.look!;
+  const targets = (parameters as { properties: { targets: { items: { anyOf: unknown[] } } } })
+    .properties.targets.items.anyOf as { required: string[]; properties: object }[];
+  return targets
+    .filter(({ properties }) => "sizes" in properties)
+    .map(({ required }) => required.join());
+}
+
+describe("each agent's look targets", () => {
+  it("lets the Code Agent capture Block and Layout Definitions and Singleton and Derived Layouts' pages, and fails alone a curated Layout's page or a Placement on one", async () => {
+    const { website, draftId, thread } = await draftThreadWithCuratedLayout();
+    const offer = await layoutBlockOf(website, "offers");
+    const home = await placementOn(website, "/home");
+
+    const { results, images } = await look(
+      thread,
+      {
+        targets: [
+          { blockDefinition: "text", sizes: ["desktop"] },
+          { layoutDefinition: "site", sizes: ["desktop"] },
+          { path: "/offers", sizes: ["desktop"] },
+          { path: "/offers", block: offer, sizes: ["desktop"] },
+          { path: "/articles/hello", sizes: ["desktop"] },
+          { path: "/home", sizes: ["desktop"] },
+          { path: "/home", block: home, sizes: ["desktop"] },
+        ],
+      },
+      byCodeAgent,
+    );
+    thread.close();
+
+    expect(results).toEqual([
+      { blockDefinition: "text", size: "desktop" },
+      { layoutDefinition: "site", size: "desktop" },
+      { path: "/offers", size: "desktop" },
+      { path: "/offers", block: offer, size: "desktop" },
+      { path: "/articles/hello", size: "desktop" },
+      { path: "/home", size: "desktop", error: expect.stringMatching(/curated Layout/) },
+      {
+        path: "/home",
+        block: home,
+        size: "desktop",
+        error: expect.stringMatching(/curated Layout/),
+      },
+    ]);
+    expect(images).toHaveLength(5);
+    expect(await browserRunFakes.captures(draftId)).toHaveLength(5);
+  });
+
+  it("lets the thread's agent capture pages and Placements of any Layout, and fails alone a Block or Layout Definition, saying why", async () => {
+    const { website, draftId, thread } = await draftThreadWithCuratedLayout();
+    const home = await placementOn(website, "/home");
+
+    const { results, images } = await look(thread, {
+      targets: [
+        { path: "/home", sizes: ["desktop"] },
+        { path: "/home", block: home, sizes: ["desktop"] },
+        { path: "/offers", sizes: ["desktop"] },
+        { path: "/articles/hello", sizes: ["desktop"] },
+        { blockDefinition: "text", sizes: ["desktop"] },
+        { layoutDefinition: "site", sizes: ["desktop"] },
+      ],
+    });
+    thread.close();
+
+    expect(results).toEqual([
+      { path: "/home", size: "desktop" },
+      { path: "/home", block: home, size: "desktop" },
+      { path: "/offers", size: "desktop" },
+      { path: "/articles/hello", size: "desktop" },
+      { blockDefinition: "text", size: "desktop", error: expect.stringMatching(/Code Agent/) },
+      { layoutDefinition: "site", size: "desktop", error: expect.stringMatching(/Code Agent/) },
+    ]);
+    expect(images).toHaveLength(4);
+    expect(await browserRunFakes.captures(draftId)).toHaveLength(4);
+  });
+
+  it("lets an Artifact Agent capture a curated Layout's page and a Block Definition, and fails alone a Layout Definition", async () => {
+    const { draftId, thread, block } = await draftThreadWithArtifact();
+
+    const { results, images } = await look(
+      thread,
+      {
+        targets: [
+          { path: "/home", sizes: ["desktop"] },
+          { blockDefinition: "text", sizes: ["desktop"] },
+          { layoutDefinition: "site", sizes: ["desktop"] },
+        ],
+      },
+      {
+        before: () =>
+          answerWithToolCall("artifact", {
+            block: block.id,
+            field: "visual",
+            request: "Draw a planet orbiting its sun.",
+            final: true,
+          }),
+      },
+    );
+    thread.close();
+
+    expect(results).toEqual([
+      { path: "/home", size: "desktop" },
+      { blockDefinition: "text", size: "desktop" },
+      { layoutDefinition: "site", size: "desktop", error: expect.stringMatching(/page/) },
+    ]);
+    expect(images).toHaveLength(2);
+    expect(await browserRunFakes.captures(draftId)).toHaveLength(2);
+  });
+
+  it("offers each agent a look whose parameters take sizes only for the targets it can use", async () => {
+    const { thread, block } = await draftThreadWithArtifact();
+    const seen: Record<string, string[]> = {};
+    answerWithCodeRequest(undefined, { final: false });
+    answerFrom((request) => {
+      seen.code = lookTargetsOf(request);
+      return "Done.";
+    });
+    answerWithToolCall("artifact", {
+      block: block.id,
+      field: "visual",
+      request: "Draw a planet orbiting its sun.",
+      final: false,
+    });
+    answerFrom((request) => {
+      seen.artifact = lookTargetsOf(request);
+      return "Done.";
+    });
+    answerFrom((request) => {
+      seen.thread = lookTargetsOf(request);
+      return "Done.";
+    });
+    await ask(thread, "Look at it");
+
+    expect(seen).toEqual({
+      code: ["path", "blockDefinition", "layoutDefinition"],
+      artifact: ["path", "blockDefinition"],
+      thread: ["path"],
+    });
   });
 });

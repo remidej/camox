@@ -19,7 +19,9 @@ import {
   websiteWithCode,
 } from "../../../test/revision-builds";
 import {
+  answerFrom,
   answerNext,
+  answerWithCodeRequest,
   answerWithMessages,
   answerWithToolCall,
   forgetThreadModel,
@@ -128,6 +130,7 @@ async function agentDraft(website: Website) {
   const token = await signIn(website.db, website.memberUser.id);
   const draftId = await startDraft(website.db, website.project.id, website.memberUser.id);
   const thread = await connectDraftThread(website.project.id, draftId, token);
+  answerWithCodeRequest("Add a pricing block listing plans with their price.");
   answerWithToolCall("write", { path: PRICING_FILE, content: PRICING });
   answerNext("I added a pricing section.");
   await ask(thread, "Add a pricing section", { keepOpen: true });
@@ -330,6 +333,29 @@ describe("pushing to a draft the agent works in", () => {
     expect(await draftAsItIs(website, checkout, draftId)).toEqual(before);
   });
 
+  it("tells the Code Agent about it with its next request, once", async () => {
+    const { website, checkout } = await flaggedWebsite();
+    const { draftId, thread } = await agentDraft(website);
+    await checkout.pull(draftId);
+    await checkout.commit({ [FAQ_FILE]: FAQ }, "Add an FAQ");
+    await push(website, checkout, { draftId });
+    const told: string[] = [];
+    for (const request of ["Add a testimonials block.", "Add a team block."]) {
+      answerWithCodeRequest(request);
+      answerFrom(({ editorMessages }) => {
+        told.push(editorMessages.at(-1)!);
+        return "Done.";
+      });
+    }
+
+    await ask(thread, "Add testimonials", { keepOpen: true });
+    await ask(thread, "Add our team");
+
+    expect(told[0]).toContain("Add an FAQ");
+    expect(told[0]).toContain("Add a testimonials block.");
+    expect(told[1]).not.toContain("Add an FAQ");
+  });
+
   it("waits for the agent's turn going, then lands", async () => {
     const { website, checkout } = await flaggedWebsite();
     const { draftId, thread } = await agentDraft(website);
@@ -353,6 +379,7 @@ describe("pushing to a draft the agent works in", () => {
     const { draftId, thread } = await agentDraft(website);
     await checkout.pull(draftId);
     await checkout.commit({ [FAQ_FILE]: FAQ }, "Add an FAQ");
+    answerWithCodeRequest("Make the hero's title bold.");
     const write = holdNextToolCall("write", { path: HERO_FILE, content: `${HERO}// Bold\n` });
     answerNext("I made the hero bold.");
     thread.send({ type: "send", operationId: crypto.randomUUID(), text: "Make the hero bold" });

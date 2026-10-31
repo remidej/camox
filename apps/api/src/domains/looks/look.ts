@@ -1,11 +1,16 @@
 import {
   DRAFT_SEARCH_PARAM,
   LOOK_BLOCK_DEFINITION_PARAM,
+  LOOK_BLOCKS_PARAM,
   LOOK_CONTENT_PARAM,
   LOOK_DOCUMENT_PATH,
+  LOOK_LAYOUT_DEFINITION_PARAM,
   LOOK_LOCALE_PARAM,
   LOOK_PATH_PARAM,
+  LOOK_PLACEHOLDER_HEIGHTS,
+  LOOK_PLACEHOLDER_PARAM,
   LOOK_SETTINGS_PARAM,
+  type LookPlaceholderHeight,
   LOOK_TOKEN_COOKIE,
   UNPLACED_BLOCK_ID,
 } from "@camox/api-contract/drafts";
@@ -21,7 +26,7 @@ import type { Bindings } from "../../types";
 import { agentServiceContext } from "../_shared/service-context";
 import { getUnplacedBlock } from "../blocks/service";
 import { signLookToken } from "../drafts/look-token";
-import { getLayout, listLayouts } from "../layouts/service";
+import { getLayout, getUnplacedLayout, listLayouts } from "../layouts/service";
 import { getPageStructure } from "../pages/service";
 import { projects } from "../projects/schema";
 import { previewsWorkingCopy } from "../revisions/end-of-turn";
@@ -65,6 +70,17 @@ export type BlockDefinitionTarget = {
   settings?: unknown;
 };
 
+/**
+ * A curated Layout Definition around no page: its blocks with their default content and Block
+ * Settings and overrides by Block Definition name merged on, around a labelled placeholder where
+ * a page's content goes, short (the first height) or tall.
+ */
+export type LayoutDefinitionTarget = {
+  layoutDefinition: string;
+  placeholder?: LookPlaceholderHeight;
+  blocks?: Record<string, { content?: unknown; settings?: unknown }>;
+};
+
 /** One Placement on a page of the draft, by the page's path and the block's ID. */
 export type PlacementTarget = PageTarget & { block: string };
 
@@ -72,7 +88,12 @@ export type PlacementTarget = PageTarget & { block: string };
  * What the agent asks `look` to capture, with the sizes it wants and how long to wait before
  * capturing, in milliseconds.
  */
-export type LookTarget = (PageTarget | PlacementTarget | BlockDefinitionTarget) & {
+export type LookTarget = (
+  | PageTarget
+  | PlacementTarget
+  | BlockDefinitionTarget
+  | LayoutDefinitionTarget
+) & {
   sizes?: LookSize[];
   delay?: number;
 };
@@ -80,8 +101,53 @@ export type LookTarget = (PageTarget | PlacementTarget | BlockDefinitionTarget) 
 /** One result: a target at one size, with its image, or why it failed. */
 export type Looked = { target: LookTarget; size: LookSize } & Captured;
 
-/** Where a `look` runs: the thread's draft, with what its spans are logged with. */
+/**
+ * Which agent looks, each at the targets of its job (`LOOKS_AT`): the thread's agent, the Code
+ * Agent or an Artifact Agent.
+ */
+export type Looker = "thread" | "code" | "artifact";
+
+/** The kinds of target `look` captures: a page or a Placement on one, or a Definition alone. */
+export type LookTargetKind = "page" | "blockDefinition" | "layoutDefinition";
+
+/**
+ * The kinds of target each agent can look at, and why it can't look at the others, which then
+ * fail alone. The Code Agent never sees a curated Layout's pages, which the thread's agent
+ * composes: `resolve` refuses those apart.
+ */
+export const LOOKS_AT: Record<Looker, { kinds: readonly LookTargetKind[]; otherwise?: string }> = {
+  thread: {
+    kinds: ["page"],
+    otherwise:
+      "is the Code Agent's to look at, as it writes the code. Look at a page that uses it, " +
+      "or have the Code Agent check it with your `code` request.",
+  },
+  code: { kinds: ["page", "blockDefinition", "layoutDefinition"] },
+  artifact: {
+    kinds: ["page", "blockDefinition"],
+    otherwise: "isn't a target you can look at: look at a page of that Layout instead.",
+  },
+};
+
+const NAMED: Record<LookTargetKind, string> = {
+  page: "A page",
+  blockDefinition: "A Block Definition",
+  layoutDefinition: "A Layout Definition",
+};
+
+/** Which kind of target `target` is. */
+const kindOf = (target: LookTarget): LookTargetKind =>
+  "layoutDefinition" in target
+    ? "layoutDefinition"
+    : "blockDefinition" in target
+      ? "blockDefinition"
+      : "page";
+
+/**
+ * Where a `look` runs: the thread's draft, with what its spans are logged with, and who looks.
+ */
 export type LookIn = {
+  looker: Looker;
   projectId: number;
   draftId: string;
   draftHasCode: boolean;
@@ -174,9 +240,10 @@ function delayRefused({ delay }: LookTarget): { error: string } | undefined {
 }
 
 /**
- * What `target` is captured as: the lightweight document of its page, once it's in the draft,
- * and for a Placement, its block's element there; or of its Block Definition's block, once the
- * draft has the definition and its schemas accept the overrides.
+ * What `target` is captured as, once it's a kind of target its looker can use: the lightweight
+ * document of its page, once it's in the draft, and for a Placement, its block's element there; or
+ * of its Block or Layout Definition, once the draft has the definition and its schemas accept the
+ * overrides.
  */
 async function resolve(
   env: Bindings,
@@ -185,28 +252,40 @@ async function resolve(
   origin: string,
   target: LookTarget,
 ): Promise<Resolved> {
+  const kind = kindOf(target);
+  const looksAt = LOOKS_AT[where.looker];
+  if (!looksAt.kinds.includes(kind)) return { error: `${NAMED[kind]} ${looksAt.otherwise}` };
   const url = new URL(LOOK_DOCUMENT_PATH, origin);
   url.searchParams.set(DRAFT_SEARCH_PARAM, where.draftId);
+  if ("layoutDefinition" in target) {
+    url.searchParams.set(LOOK_LAYOUT_DEFINITION_PARAM, target.layoutDefinition);
+    url.searchParams.set(LOOK_PLACEHOLDER_PARAM, target.placeholder ?? LOOK_PLACEHOLDER_HEIGHTS[0]);
+    if (target.blocks !== undefined)
+      url.searchParams.set(LOOK_BLOCKS_PARAM, JSON.stringify(target.blocks));
+    const refused = overridesTooLong(url) ?? (await layoutRefused(env, where, projectUuid, target));
+    if (refused) return { error: refused };
+    return { url: url.href };
+  }
   if ("blockDefinition" in target) {
     url.searchParams.set(LOOK_BLOCK_DEFINITION_PARAM, target.blockDefinition);
     if (target.content !== undefined)
       url.searchParams.set(LOOK_CONTENT_PARAM, JSON.stringify(target.content));
     if (target.settings !== undefined)
       url.searchParams.set(LOOK_SETTINGS_PARAM, JSON.stringify(target.settings));
-    if (url.href.length > LOOK_MAX_URL_LENGTH) {
-      return {
-        error:
-          `The overrides are too long to look at: they travel in the page's address, at most ` +
-          `${LOOK_MAX_URL_LENGTH} characters, and this one is ${url.href.length}. Shorten the ` +
-          "overrides, such as long text, and look again.",
-      };
-    }
-    const refused = await blockRefused(env, where, projectUuid, target);
+    const refused = overridesTooLong(url) ?? (await blockRefused(env, where, projectUuid, target));
     if (refused) return { error: refused };
     return { url: url.href, element: `[data-camox-viewport-block="${UNPLACED_BLOCK_ID}"]` };
   }
   const page = await pagePlacements(env, where, projectUuid, target);
   if ("error" in page) return page;
+  if (where.looker === "code" && page.curated) {
+    return {
+      error:
+        `The page at ${target.path} is of a curated Layout, whose pages the thread's agent ` +
+        "composes and you never see. Look at its Layout Definition, or at a Block Definition " +
+        "with the content to try as overrides.",
+    };
+  }
   url.searchParams.set(LOOK_PATH_PARAM, target.path);
   if (target.locale) url.searchParams.set(LOOK_LOCALE_PARAM, target.locale);
   if (!("block" in target)) return { url: url.href };
@@ -215,6 +294,16 @@ async function resolve(
   }
   // The site's block render marks each block's element with its Placement ID, Layout blocks too.
   return { url: url.href, element: `[data-camox-viewport-block="${target.block}"]` };
+}
+
+/** Why the overrides `url` carries are refused for their length, or undefined when they fit. */
+function overridesTooLong(url: URL) {
+  if (url.href.length <= LOOK_MAX_URL_LENGTH) return undefined;
+  return (
+    `The overrides are too long to look at: they travel in the page's address, at most ` +
+    `${LOOK_MAX_URL_LENGTH} characters, and this one is ${url.href.length}. Shorten the ` +
+    "overrides, such as long text, and look again."
+  );
 }
 
 /** A service context reading the draft as the browser will, with the draft's look token. */
@@ -237,25 +326,25 @@ function messageOf(error: unknown) {
 }
 
 /**
- * The Placements on the page `target` names, its Layout's included, read as the browser will,
- * with the draft's look token, or why it can't be looked at. A path is matched as the website
- * serves it: a Singleton Layout's route first, then a curated page, then a Derived Layout's route.
- * The API can't run a Derived Layout's loader, so a path its route matches but its data doesn't
- * fails at the capture.
+ * The Placements on the page `target` names, its Layout's included, and whether it's a curated
+ * page, read as the browser will, with the draft's look token, or why it can't be looked at. A
+ * path is matched as the website serves it: a Singleton Layout's route first, then a curated page,
+ * then a Derived Layout's route. The API can't run a Derived Layout's loader, so a path its route
+ * matches but its data doesn't fails at the capture.
  */
 async function pagePlacements(
   env: Bindings,
   where: LookIn,
   projectUuid: string,
   { path, locale }: PageTarget,
-): Promise<{ placements: string[] } | { error: string }> {
+): Promise<{ placements: string[]; curated: boolean } | { error: string }> {
   const context = lookContext(env, where, locale);
   try {
     const layouts = await runService(listLayouts(context, { projectId: where.projectId }));
     const match = matchLayoutRoute(layouts, path, ({ layoutId, kind }) => ({ id: layoutId, kind }));
     const layoutPage = async (layoutId: string) => {
       const { layout } = await runService(getLayout(context, { projectUuid, layoutId }));
-      return { placements: [...layout.beforeBlockIds, ...layout.afterBlockIds] };
+      return { placements: [...layout.beforeBlockIds, ...layout.afterBlockIds], curated: false };
     };
     if (match?.layout.kind === "singleton") return await layoutPage(match.layout.layoutId);
     try {
@@ -266,6 +355,7 @@ async function pagePlacements(
           ...page.blockIds,
           ...(layout?.afterBlockIds ?? []),
         ],
+        curated: true,
       };
     } catch (error) {
       if (!match || (error as ORPCError<string, unknown>).code !== "NOT_FOUND") throw error;
@@ -300,6 +390,31 @@ async function blockRefused(
         type: blockDefinition,
         content,
         settings,
+      }),
+    );
+    return undefined;
+  } catch (error) {
+    return messageOf(error);
+  }
+}
+
+/**
+ * Why the Layout Definition `target` names can't be looked at with its overrides, or undefined
+ * when it can: the draft has no such Layout, it's a Singleton or Derived Layout, whose pages are
+ * looked at instead, or a block's schemas refuse an override. Read as the browser will.
+ */
+async function layoutRefused(
+  env: Bindings,
+  where: LookIn,
+  projectUuid: string,
+  { layoutDefinition, blocks }: LayoutDefinitionTarget,
+) {
+  try {
+    await runService(
+      getUnplacedLayout(lookContext(env, where), {
+        projectUuid,
+        layoutId: layoutDefinition,
+        blocks,
       }),
     );
     return undefined;

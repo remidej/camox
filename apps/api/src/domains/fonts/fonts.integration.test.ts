@@ -2,10 +2,16 @@ import { abortAllDurableObjects, createScheduledController } from "cloudflare:te
 import { env } from "cloudflare:workers";
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 
-import { answerFrom, answerWithToolCall, forgetThreadModel } from "../../../test/thread-model";
+import { startDraft } from "../../../test/fixtures";
+import {
+  answerFrom,
+  answerWithCodeRequest,
+  answerWithToolCall,
+  forgetThreadModel,
+} from "../../../test/thread-model";
 import {
   ask,
-  connectLiveThread,
+  connectDraftThread,
   lastAnswer,
   signIn,
   type ThreadClient,
@@ -82,19 +88,21 @@ async function runScheduledJob() {
   await worker.scheduled(createScheduledController(), env as Bindings);
 }
 
-/** A website's Live thread, open, with a member signed in. */
-async function liveThread() {
+/** The thread of a new draft of a website, open, with a member signed in. */
+async function draftThread() {
   const website = await websiteFixture({ home: "Hello" });
   const token = await signIn(website.db, website.memberUser.id);
-  return { website, token, thread: await connectLiveThread(website.project.id, token) };
+  const draftId = await startDraft(website.db, website.project.id, website.memberUser.id);
+  return { website, token, thread: await connectDraftThread(website.project.id, draftId, token) };
 }
 
-/** Has the agent call the tool `name` with `args`, and returns what the tool answered it. */
+/** Has the Code Agent call the tool `name` with `args`, and returns what the tool answered it. */
 async function toolResult(
   thread: ThreadClient,
   name: string,
   args: Parameters<typeof answerWithToolCall>[1],
 ) {
+  answerWithCodeRequest();
   answerWithToolCall(name, args);
   answerFrom(({ lastToolResult }) => lastToolResult);
   return lastAnswer(await ask(thread, `Call ${name}`, { keepOpen: true }));
@@ -107,7 +115,7 @@ describe("searchFonts", () => {
   it("finds families by name in the snapshot the scheduled job took", async () => {
     await fakes.listGoogleFonts([ARCHIVO, PLAYFAIR_DISPLAY, PLAYFAIR_DISPLAY_SC, ABRIL_FATFACE]);
     await runScheduledJob();
-    const { thread } = await liveThread();
+    const { thread } = await draftThread();
 
     const result = await searchFonts(thread, { query: "playfair" });
     thread.close();
@@ -137,7 +145,7 @@ describe("searchFonts", () => {
   it("finds families by category, most popular first", async () => {
     await fakes.listGoogleFonts([ARCHIVO, ABRIL_FATFACE, PLAYFAIR_DISPLAY]);
     await runScheduledJob();
-    const { thread } = await liveThread();
+    const { thread } = await draftThread();
 
     const display = await searchFonts(thread, { category: "display" });
     const sans = await searchFonts(thread, { query: "arch", category: "sans-serif" });
@@ -179,7 +187,7 @@ describe("searchFonts", () => {
     }));
     await fakes.listGoogleFonts([ARCHIVO, ...serifs]);
     await runScheduledJob();
-    const { thread } = await liveThread();
+    const { thread } = await draftThread();
 
     const result = (await searchFonts(thread, { category: "serif" })) as {
       families: { family: string }[];
@@ -199,7 +207,7 @@ describe("the fonts snapshot", () => {
     await fakes.listGoogleFonts([PLAYFAIR_DISPLAY]);
     await runScheduledJob();
     await fakes.listGoogleFonts([PLAYFAIR_DISPLAY_SC]);
-    const { thread } = await liveThread();
+    const { thread } = await draftThread();
     const before = await searchFonts(thread, { query: "playfair" });
 
     await runScheduledJob();
@@ -213,7 +221,7 @@ describe("the fonts snapshot", () => {
   it("is taken by the first search when the scheduled job hasn't run yet", async () => {
     await env.REVISION_BUILDS.delete(FONTS_SNAPSHOT_KEY);
     await fakes.listGoogleFonts([PLAYFAIR_DISPLAY]);
-    const { thread } = await liveThread();
+    const { thread } = await draftThread();
 
     const result = await searchFonts(thread, { query: "playfair" });
     thread.close();

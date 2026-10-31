@@ -20,6 +20,8 @@ import { deliverPushes, pushToMain } from "../../../test/pushes";
 import { sdkBundleFiles, storeSdkBundle } from "../../../test/sdk-bundles";
 import {
   answerFrom,
+  answerNext,
+  answerWithCodeRequest,
   answerWithScript,
   answerWithToolCall,
   forgetThreadModel,
@@ -175,8 +177,10 @@ async function draftAddingPricing(website: Website, token: string) {
     homepage: null,
   });
   const { draftId, thread } = await draftWithThread(website, token);
+  answerWithCodeRequest("Add a pricing block.", { final: false });
   answerWithToolCall("write", { path: "src/blocks/pricing.tsx", content: pricingFile(marker) });
   answerWithToolCall("build", {});
+  answerNext("I added the pricing block.");
   answerWithScript(`
     const [home] = await tools.listPages({});
     await tools.createBlock({ pageId: home.id, type: "pricing", content: { headline: "Plans start at $9" } });
@@ -362,11 +366,12 @@ async function uploadsOf(project: string) {
 }
 
 /**
- * A draft whose agent changed the text block's code and built it, changing no content. Returns
+ * A draft whose Code Agent changed the text block's code and built it, changing no content. Returns
  * the draft.
  */
 async function draftChangingCode(website: Website, token: string) {
   const { draftId, thread } = await draftWithThread(website, token);
+  answerWithCodeRequest();
   answerWithToolCall("write", {
     path: "src/blocks/text.tsx",
     content: `export const text = "${crypto.randomUUID()}";\n`,
@@ -389,6 +394,7 @@ async function changeCodeAgain(
   { uploaded = true }: { uploaded?: boolean } = {},
 ) {
   const thread = await connectDraftThread(website.project.id, draftId, token);
+  answerWithCodeRequest();
   answerWithToolCall("write", {
     path: "src/blocks/text.tsx",
     content: `export const text = "${crypto.randomUUID()}";\n`,
@@ -549,6 +555,7 @@ describe("publishing a draft with code", () => {
       compatibility_flags: ["nodejs_compat", "experimental"],
     });
     const { draftId, thread } = await draftWithThread(website, token);
+    answerWithCodeRequest();
     answerWithToolCall("write", { path: "src/blocks/text.tsx", content: `// ${marker}\n` });
     answerWithToolCall("build", {});
     answerFrom(() => "Changed it.");
@@ -979,8 +986,9 @@ describe("publishing a draft with code", () => {
       interval: 50,
     });
 
-    // The agent builds a change while the publish's build runs.
+    // The Code Agent builds a change while the publish's build runs.
     const thread = await connectDraftThread(website.project.id, draftId, token);
+    answerWithCodeRequest();
     answerWithToolCall("write", {
       path: "src/blocks/text.tsx",
       content: `export const text = "x";\n`,
@@ -1124,6 +1132,7 @@ describe("publishing a draft with code", () => {
     const repo = website.project.uuid;
     await fakes.failCloudflareCalls(repo, UPLOAD(repo), 1);
     const { draftId, thread } = await draftWithThread(website, token);
+    answerWithCodeRequest();
     answerWithToolCall("write", { path: "src/blocks/text.tsx", content: `// ${draftId}\n` });
     answerWithToolCall("build", {});
     answerFrom(() => "Changed it.");

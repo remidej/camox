@@ -7,7 +7,12 @@ import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 import { createRpcContext, startDraft } from "../../../test/fixtures";
 import { pushToMain } from "../../../test/pushes";
 import { cancelOwedBuilds } from "../../../test/revision-builds";
-import { answerFrom, answerWithToolCall, forgetThreadModel } from "../../../test/thread-model";
+import {
+  answerFrom,
+  answerWithCodeRequest,
+  answerWithToolCall,
+  forgetThreadModel,
+} from "../../../test/thread-model";
 import {
   ask,
   connectDraftThread,
@@ -75,9 +80,9 @@ async function websiteWithCode() {
 }
 
 /**
- * Has the agent call the tool `name` with `args`, and returns what the tool answered it. The turn
- * ends with a build of the code it changed, which may send the agent back to work: unscripted,
- * its turn then fails.
+ * Has the Code Agent call the tool `name` with `args`, and returns what the tool answered it. Its
+ * request ends with a build of the code it changed, which may send it back to work: unscripted,
+ * the request then fails.
  */
 async function toolResult(
   thread: ThreadClient,
@@ -85,6 +90,7 @@ async function toolResult(
   args: Parameters<typeof answerWithToolCall>[1],
 ) {
   let result: string | undefined;
+  answerWithCodeRequest();
   answerWithToolCall(name, args);
   answerFrom(({ lastToolResult }) => {
     result = lastToolResult;
@@ -95,8 +101,8 @@ async function toolResult(
 }
 
 /**
- * Has the agent of a new draft write `files` and build them in one turn, so the end of the turn
- * builds nothing more, returning what `build` answered it.
+ * Has the Code Agent of a new draft write `files` and build them in one request, so the end of
+ * the request builds nothing more, returning what `build` answered it.
  */
 async function buildInFirstTurn(files: Record<string, string>) {
   const website = await websiteWithCode();
@@ -106,6 +112,7 @@ async function buildInFirstTurn(files: Record<string, string>) {
     draftId,
     await signIn(website.db, website.memberUser.id),
   );
+  answerWithCodeRequest();
   for (const [path, content] of Object.entries(files)) {
     answerWithToolCall("write", { path, content });
   }
@@ -119,7 +126,7 @@ async function buildInFirstTurn(files: Record<string, string>) {
   return { website, draft: { id: draftId }, result };
 }
 
-/** A draft whose agent wrote `files`, with its thread open. */
+/** A draft whose Code Agent wrote `files`, with its thread open. */
 async function draftWithChanges(files: Record<string, string>) {
   const website = await websiteWithCode();
   const token = await signIn(website.db, website.memberUser.id);
@@ -168,7 +175,7 @@ ${grey("───╯")}
 const build = async (thread: ThreadClient) =>
   JSON.parse((await toolResult(thread, "build", {}))!) as Record<string, unknown>;
 
-describe("the agent's build", () => {
+describe("the Code Agent's build", () => {
   it("commits a revision on the draft's branch when it passes, with its build in R2", async () => {
     const { website, draft, thread } = await draftWithChanges({
       "src/blocks/pricing.tsx": PRICING,

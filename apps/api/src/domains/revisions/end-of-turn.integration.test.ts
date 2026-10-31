@@ -24,6 +24,7 @@ import {
 import {
   answerFrom,
   answerNext,
+  answerWithCodeRequest,
   answerWithToolCall,
   answerWithToolCallFrom,
   forgetThreadModel,
@@ -42,7 +43,9 @@ import { router } from "../../router";
 import { INFRASTRUCTURE_ATTEMPTS } from "./build";
 import { END_OF_TURN_BUILD_FAILURES } from "./end-of-turn";
 
-// Threads run on pi-ai's fake provider, scripted per test, rather than reaching OpenRouter.
+// Threads run on pi-ai's fake provider, scripted per test, rather than reaching OpenRouter: the
+// thread's agent and its Code Agent take their answers from the same script, in call order. The
+// Code Agent's requests end with the end-of-turn build and lint loop.
 vi.mock("../../lib/thread-model", async () => {
   const { testThreadModel } = await import("../../../test/thread-model");
   return { threadModel: testThreadModel };
@@ -87,22 +90,24 @@ async function newDraftThread(website: Website) {
   return { draftId, thread: await connectDraftThread(website.project.id, draftId, token) };
 }
 
-/** A draft whose agent added a pricing section that built, with its thread open. */
+/** A draft whose Code Agent added a pricing section that built, with its thread open. */
 async function draftWithPricing() {
   const website = await websiteWithCode();
   const { draftId, thread } = await newDraftThread(website);
+  answerWithCodeRequest();
   answerWithToolCall("write", { path: PRICING_FILE, content: PRICING });
   answerNext("I added a pricing section.");
   await ask(thread, "Add a pricing section", { keepOpen: true });
   return { website, draft: { id: draftId }, thread };
 }
 
-describe("the end of a turn", () => {
+describe("the end of a Code Agent's request", () => {
   it("hands the agent the errors of changes that don't build, and it fixes them", async () => {
     const marker = await failingMarker(PRICING_FILE);
     const website = await websiteWithCode();
     const { draftId, thread } = await newDraftThread(website);
     let toldAfterAnswering = "";
+    answerWithCodeRequest();
     answerWithToolCall("write", { path: PRICING_FILE, content: broken(marker) });
     answerNext("I added a pricing section.");
     answerWithToolCallFrom("write", ({ editorMessages }) => {
@@ -136,6 +141,7 @@ describe("the end of a turn", () => {
     const built = (await previewOf(website, draft.id)).code;
     const marker = await failingMarker(PRICING_FILE);
     let told = "";
+    answerWithCodeRequest();
     answerWithToolCall("write", { path: PRICING_FILE, content: broken(marker) });
     // The agent answers without fixing anything, every time the end of the turn sends it back.
     for (let failed = 0; failed < END_OF_TURN_BUILD_FAILURES; failed++) answerNext("Done.");
@@ -168,6 +174,7 @@ describe("the end of a turn", () => {
   it("goes on fixing as long as the end of the turn failed fewer times than the limit", async () => {
     const { website, draft, thread } = await draftWithPricing();
     const marker = await failingMarker(PRICING_FILE);
+    answerWithCodeRequest();
     answerWithToolCall("write", { path: PRICING_FILE, content: broken(marker) });
     for (let failed = 1; failed < END_OF_TURN_BUILD_FAILURES; failed++) answerNext("Done.");
     let told = "";
@@ -189,6 +196,7 @@ describe("the end of a turn", () => {
     const marker = await failingMarker(PRICING_FILE);
     const website = await websiteWithCode();
     const { thread } = await newDraftThread(website);
+    answerWithCodeRequest();
     answerWithToolCall("write", { path: PRICING_FILE, content: broken(marker) });
     answerNext("I added a pricing section.");
     answerWithToolCall("write", { path: PRICING_FILE, content: PRICING });
@@ -206,9 +214,10 @@ describe("the end of a turn", () => {
     ]);
   });
 
-  it("skips building when the agent's last build covered the turn's changes", async () => {
+  it("skips building when the Code Agent's last build covered its request's changes", async () => {
     const website = await websiteWithCode();
     const { draftId, thread } = await newDraftThread(website);
+    answerWithCodeRequest();
     answerWithToolCall("write", { path: PRICING_FILE, content: PRICING });
     answerWithToolCall("build", {});
     answerNext("I added a pricing section.");
@@ -216,14 +225,14 @@ describe("the end of a turn", () => {
     await ask(thread, "Add a pricing section", { keepOpen: true });
     thread.close();
 
+    // Only the Code Agent's own build ran: the end of its request built nothing more.
     expect(await fakes.revisionBuilds(draftId)).toHaveLength(1);
-    // Only the agent's own build shows: the end of the turn builds nothing more.
-    expect(statusLines(viewsOf(thread))).toEqual(["building"]);
   });
 
   it("says the draft is building while its latest changes build", async () => {
     const { website, draft, thread } = await draftWithPricing();
     await fakes.holdBuilds(draft.id);
+    answerWithCodeRequest();
     answerWithToolCall("write", { path: PRICING_FILE, content: `${PRICING}// Yearly plans\n` });
     answerNext("I added yearly plans.");
     thread.send({ type: "send", operationId: crypto.randomUUID(), text: "Add yearly plans" });
@@ -239,9 +248,10 @@ describe("the end of a turn", () => {
   });
 });
 
-describe("an end of turn that fails on Camox's side", () => {
-  /** Has the agent change the pricing section, holding `marker`, and end its turn. */
+describe("the end of a Code Agent's request that fails on Camox's side", () => {
+  /** Has the Code Agent change the pricing section, holding `marker`, and answer. */
   async function changePricing(thread: ThreadClient, marker: string) {
+    answerWithCodeRequest();
     answerWithToolCall("write", { path: PRICING_FILE, content: `${PRICING}// ${marker}\n` });
     answerNext("I added yearly plans.");
     await ask(thread, "Add yearly plans");
@@ -293,13 +303,15 @@ describe("an end of turn that fails on Camox's side", () => {
     const { website, draft, thread } = await draftWithPricing();
     const marker = crypto.randomUUID();
     await fakes.crashTypeChecks(marker, INFRASTRUCTURE_ATTEMPTS);
+    answerWithCodeRequest();
     answerWithToolCall("write", { path: PRICING_FILE, content: `${PRICING}// ${marker}\n` });
     answerWithToolCall("build", {});
     const calls = threadModelCalls();
     const answer = holdNextAnswer("I added yearly plans.");
     thread.send({ type: "send", operationId: crypto.randomUUID(), text: "Add yearly plans" });
-    // The agent has its build's answer: the revision built, and its check failed on Camox's side.
-    await vi.waitFor(() => expect(threadModelCalls()).toBe(calls + 3), {
+    // The Code Agent has its build's answer: the revision built, and its check failed on Camox's
+    // side.
+    await vi.waitFor(() => expect(threadModelCalls()).toBe(calls + 4), {
       timeout: 10_000,
       interval: 50,
     });
@@ -313,7 +325,7 @@ describe("an end of turn that fails on Camox's side", () => {
   });
 });
 
-describe("lint at the end of a turn", () => {
+describe("lint at the end of a Code Agent's request", () => {
   /** A new draft's thread on a website with code, as its member. */
   async function draftThreadOf() {
     const website = await websiteWithCode();
@@ -327,6 +339,7 @@ describe("lint at the end of a turn", () => {
     const marker = await lintedMarker([debuggerStatement(PRICING_FILE, 2)]);
     const { website, draftId, thread } = await draftThreadOf();
     let told = "";
+    answerWithCodeRequest();
     answerWithToolCall("write", { path: PRICING_FILE, content: linted(marker) });
     answerNext("I added a pricing section.");
     answerWithToolCallFrom("write", ({ editorMessages }) => {
@@ -350,6 +363,7 @@ describe("lint at the end of a turn", () => {
   it("ends the turn with the lint findings the agent didn't fix once the limit is reached", async () => {
     const marker = await lintedMarker([debuggerStatement(PRICING_FILE, 2)]);
     const { website, draftId, thread } = await draftThreadOf();
+    answerWithCodeRequest();
     answerWithToolCall("write", { path: PRICING_FILE, content: linted(marker) });
     // The agent answers without fixing anything, every time the end of the turn sends it back.
     for (let linting = 0; linting < END_OF_TURN_BUILD_FAILURES; linting++) answerNext("Done.");
@@ -357,7 +371,7 @@ describe("lint at the end of a turn", () => {
     const view = await ask(thread, "Add a pricing section");
 
     expect(said(view).at(-1)).toEqual({ from: "agent", text: "Done." });
-    expect(threadModelCalls()).toBe(1 + END_OF_TURN_BUILD_FAILURES);
+    expect(threadModelCalls()).toBe(2 + END_OF_TURN_BUILD_FAILURES);
     expect(await lintRuns(draftId)).toBe(END_OF_TURN_BUILD_FAILURES);
     // Lint never stops a draft from being published.
     expect((await previewOf(website, draftId)).blockers).toEqual([]);
@@ -366,13 +380,14 @@ describe("lint at the end of a turn", () => {
   it("leaves out the lint findings of files the turn didn't change", async () => {
     const marker = await lintedMarker([debuggerStatement("src/blocks/hero.tsx", 2)]);
     const { draftId, thread } = await draftThreadOf();
+    answerWithCodeRequest();
     answerWithToolCall("write", { path: PRICING_FILE, content: linted(marker) });
     answerNext("I added a pricing section.");
 
     const view = await ask(thread, "Add a pricing section");
 
     expect(said(view).at(-1)).toEqual({ from: "agent", text: "I added a pricing section." });
-    expect(threadModelCalls()).toBe(2);
+    expect(threadModelCalls()).toBe(3);
     expect(await lintRuns(draftId)).toBe(1);
   });
 
@@ -380,6 +395,7 @@ describe("lint at the end of a turn", () => {
     const marker = await lintedMarker([debuggerStatement(PRICING_FILE, 2)]);
     const { thread } = await draftThreadOf();
     let told = "";
+    answerWithCodeRequest();
     answerWithToolCall("write", { path: PRICING_FILE, content: linted(marker) });
     answerWithToolCall("build", {});
     answerWithToolCall("write", {
@@ -403,6 +419,7 @@ describe("lint at the end of a turn", () => {
     const marker = await lintedMarker([debuggerStatement(PRICING_FILE, 2)]);
     const { thread } = await draftThreadOf();
     let told = "";
+    answerWithCodeRequest();
     answerWithToolCall("write", {
       path: PRICING_FILE,
       content: `${broken(failing)}// ${marker}\n`,
@@ -430,6 +447,7 @@ describe("lint at the end of a turn", () => {
     const marker = await lintedMarker([debuggerStatement(PRICING_FILE, 2)]);
     const { thread } = await draftThreadOf();
     let told = "";
+    answerWithCodeRequest();
     answerWithToolCall("write", { path: PRICING_FILE, content: linted(marker) });
     answerWithToolCall("build", {});
     answerNext("I added a pricing section.");
@@ -446,6 +464,7 @@ describe("lint at the end of a turn", () => {
   it("doesn't lint a turn that left the code as it was", async () => {
     const marker = await lintedMarker([debuggerStatement(PRICING_FILE, 2)]);
     const { website, draftId, thread: first } = await draftThreadOf();
+    answerWithCodeRequest();
     answerWithToolCall("write", { path: PRICING_FILE, content: linted(marker) });
     answerNext("I added a pricing section.");
     answerNext("I added a pricing section.");
