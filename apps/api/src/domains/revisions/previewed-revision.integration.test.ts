@@ -9,7 +9,12 @@ import { createRpcContext, createSessionFixture, startDraft } from "../../../tes
 import { sentTo } from "../../../test/project-rooms";
 import { pushToMain } from "../../../test/pushes";
 import { cancelOwedBuilds } from "../../../test/revision-builds";
-import { answerFrom, answerWithToolCall, forgetThreadModel } from "../../../test/thread-model";
+import {
+  answerFrom,
+  answerWithCodeRequest,
+  answerWithToolCall,
+  forgetThreadModel,
+} from "../../../test/thread-model";
 import {
   ask,
   connectDraftThread,
@@ -110,11 +115,12 @@ async function websiteWithCode() {
 }
 
 /**
- * Has the agent call `build`, and returns its result. Its turn then ends, which builds nothing more
- * when the build covered the tree.
+ * Has the Code Agent call `build`, and returns its result. Its request then ends, which builds
+ * nothing more when the build covered the tree.
  */
 async function build(thread: ThreadClient) {
   let result = "";
+  answerWithCodeRequest();
   answerWithToolCall("build", {});
   answerFrom(({ lastToolResult }) => {
     result = lastToolResult;
@@ -124,9 +130,10 @@ async function build(thread: ThreadClient) {
   return result;
 }
 
-/** Has the agent write `src/blocks/pricing.tsx` as `content` and build it in one turn. */
+/** Has the Code Agent write `src/blocks/pricing.tsx` as `content` and build it in one request. */
 async function writeAndBuild(thread: ThreadClient, content: string, { keepOpen = true } = {}) {
   let result = "";
+  answerWithCodeRequest();
   answerWithToolCall("write", { path: "src/blocks/pricing.tsx", content });
   answerWithToolCall("build", {});
   answerFrom(({ lastToolResult }) => {
@@ -138,7 +145,7 @@ async function writeAndBuild(thread: ThreadClient, content: string, { keepOpen =
 }
 
 /**
- * Starts a draft whose agent writes and builds the pricing block as `content`, its thread open.
+ * Starts a draft whose Code Agent writes and builds the pricing block as `content`, its thread open.
  */
 async function draftBuilding(website: Website, token: string, content: string) {
   const draftId = await startDraft(website.db, website.project.id, website.memberUser.id);

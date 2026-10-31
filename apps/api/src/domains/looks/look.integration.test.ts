@@ -10,6 +10,7 @@ import { PRICING, revisionFakes, websiteWithCode } from "../../../test/revision-
 import {
   answerFrom,
   answerNext,
+  answerWithCodeRequest,
   answerWithToolCall,
   forgetThreadModel,
   type ModelRequest,
@@ -309,8 +310,10 @@ describe("the agent's look", () => {
       thread,
       { targets: [{ path: "/home" }] },
       {
-        before: () =>
-          answerWithToolCall("write", { path: "src/blocks/pricing.tsx", content: PRICING }),
+        before: () => {
+          answerWithCodeRequest();
+          answerWithToolCall("write", { path: "src/blocks/pricing.tsx", content: PRICING });
+        },
       },
     );
     thread.close();
@@ -330,6 +333,7 @@ describe("the agent's look", () => {
       { targets: [{ path: "/home" }] },
       {
         before: () => {
+          answerWithCodeRequest();
           answerWithToolCall("write", {
             path: "src/blocks/pricing.tsx",
             content: markedFile(unusable),
@@ -360,6 +364,7 @@ describe("the agent's look", () => {
       { targets: [{ path: "/home" }] },
       {
         before: () => {
+          answerWithCodeRequest();
           answerWithToolCall("write", {
             path: "src/blocks/pricing.tsx",
             content: markedFile(usable),
@@ -375,11 +380,13 @@ describe("the agent's look", () => {
       thread,
       { targets: [{ path: "/home" }] },
       {
-        before: () =>
+        before: () => {
+          answerWithCodeRequest();
           answerWithToolCall("write", {
             path: "src/blocks/pricing.tsx",
             content: markedFile(further),
-          }),
+          });
+        },
       },
     );
     thread.close();

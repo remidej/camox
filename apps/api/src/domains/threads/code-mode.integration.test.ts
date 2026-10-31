@@ -83,7 +83,7 @@ describe("the agent reading the website through code mode", () => {
     });
   });
 
-  it("offers the model on Live code mode, the web and code reading tools, and startDraft, its scripts only reading", async () => {
+  it("offers the model on Live code mode, the web tools and startDraft, and no code tools, its scripts only reading", async () => {
     const website = await websiteFixture({ pricing: "Plans start at $9." });
     const { db, memberUser, project } = website;
     answerWithScript(`text(ALL_TOOLS.map((tool) => tool.name).join(", "));`);
@@ -96,25 +96,15 @@ describe("the agent reading the website through code mode", () => {
     const live = await connectLiveThread(project.id, await signIn(db, memberUser.id));
     const view = await ask(live, "What can you read?");
 
-    expect(offered.toSorted()).toEqual([
-      "codemode",
-      "find",
-      "grep",
-      "ls",
-      "read",
-      "searchFonts",
-      "startDraft",
-      "web_fetch",
-      "web_search",
-    ]);
+    expect(offered.toSorted()).toEqual(["codemode", "startDraft", "web_fetch", "web_search"]);
     const scriptTools = lastAnswer(view)?.split(", ");
-    expect(scriptTools).toEqual(expect.arrayContaining(["listPages", "getPage", "read", "grep"]));
-    for (const write of ["editBlock", "createPage", "uploadFile", "write", "mv", "startDraft"]) {
-      expect(scriptTools).not.toContain(write);
+    expect(scriptTools).toEqual(expect.arrayContaining(["listPages", "getPage"]));
+    for (const tool of ["editBlock", "createPage", "uploadFile", "read", "grep", "startDraft"]) {
+      expect(scriptTools).not.toContain(tool);
     }
   });
 
-  it("offers the model in a draft code mode, the web and code tools, look, artifact and code, its scripts reaching the content tools", async () => {
+  it("offers the model in a draft code mode, the web tools, look, artifact and code, and no code tools, its scripts reaching the content tools", async () => {
     const website = await websiteFixture({ pricing: "Plans start at $9." });
     answerWithScript(`text(ALL_TOOLS.map((tool) => tool.name).join(", "));`);
     let offered: string[] = [];
@@ -127,29 +117,17 @@ describe("the agent reading the website through code mode", () => {
 
     expect(offered.toSorted()).toEqual([
       "artifact",
-      "build",
       "code",
       "codemode",
-      "conflicts",
-      "edit",
-      "find",
-      "grep",
       "look",
-      "ls",
-      "mv",
-      "read",
-      "rm",
-      "searchFonts",
       "web_fetch",
       "web_search",
-      "write",
     ]);
     const scriptTools = lastAnswer(view)?.split(", ");
-    expect(scriptTools).toEqual(
-      expect.arrayContaining(["listPages", "getPage", "read", "grep", "write", "mv"]),
-    );
-    expect(scriptTools).not.toEqual(expect.arrayContaining(["web_fetch"]));
-    expect(scriptTools).not.toEqual(expect.arrayContaining(["web_search"]));
+    expect(scriptTools).toEqual(expect.arrayContaining(["listPages", "getPage", "editBlock"]));
+    for (const tool of ["web_fetch", "web_search", "read", "grep", "write", "mv", "build"]) {
+      expect(scriptTools).not.toContain(tool);
+    }
   });
 
   it("shows only the turn's final message, not what the agent writes between scripts", async () => {

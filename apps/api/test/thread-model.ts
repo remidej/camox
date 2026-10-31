@@ -224,3 +224,13 @@ export const forgetThreadModel = () => {
   faux.setResponses([]);
   faux.state.callCount = 0;
 };
+
+/**
+ * Scripts the thread's agent's next answer as a `code` call handing `request` to the Code Agent,
+ * whose answer ends the turn unless `final` is false. The Code Agent's own answers follow it in
+ * the script.
+ */
+export const answerWithCodeRequest = (
+  request = "Change the website's code as the editor asks.",
+  { final = true }: { final?: boolean } = {},
+) => answerWithToolCall("code", { request, final });

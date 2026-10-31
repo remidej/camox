@@ -20,6 +20,7 @@ import {
 import {
   answerFrom,
   answerNext,
+  answerWithCodeRequest,
   answerWithToolCall,
   answerWithToolCallFrom,
   forgetThreadModel,
@@ -102,12 +103,26 @@ const previewOf = (website: Website, draftId: string) =>
 const blockersOf = async (website: Website, draftId: string) =>
   (await previewOf(website, draftId)).blockers.map(({ entity, code }) => ({ entity, code }));
 
-/** A draft whose agent wrote `content` to `path`, built at the end of its turn, its thread open. */
+/**
+ * Scripts the thread's agent's answer to Camox's reconcile turn: it hands the request its
+ * instructions hold to the Code Agent, whose answer ends the turn.
+ */
+const answerByHandingOffTheClash = () =>
+  answerWithToolCallFrom("code", ({ editorMessages }) => ({
+    request: editorMessages.at(-1)!.split("\n---\n")[1]!,
+    final: true,
+  }));
+
+/**
+ * A draft whose Code Agent wrote `content` to `path`, built at the end of its request, its thread
+ * open.
+ */
 async function draftChanging(path: string, content: string) {
   const website = await websiteWithCode();
   const token = await signIn(website.db, website.memberUser.id);
   const draftId = await startDraft(website.db, website.project.id, website.memberUser.id);
   const thread = await connectDraftThread(website.project.id, draftId, token);
+  answerWithCodeRequest();
   answerWithToolCall("write", { path, content });
   answerNext("I changed the website.");
   await ask(thread, "Change the website", { keepOpen: true });
@@ -115,11 +130,13 @@ async function draftChanging(path: string, content: string) {
 }
 
 describe("Camox's reconcile turn", () => {
-  it("fixes a merge of Live's code that conflicts, in a turn of its own", async () => {
+  it("has the Code Agent fix a merge of Live's code that conflicts, in a turn of its own", async () => {
     const { website, draftId, thread } = await draftChanging(HERO_FILE, OUR_HERO);
     const repo = website.project.uuid;
     const reviewed = await previewOf(website, draftId);
-    // Camox's turn: it lists the files with markers, and fixes the one listed.
+    // Camox's turn hands the clash to the Code Agent, which lists the files with markers, and
+    // fixes the one listed, as Camox.
+    answerByHandingOffTheClash();
     const listed = holdNextToolCall("conflicts", {});
     let conflicts: string | undefined;
     answerWithToolCallFrom("write", ({ lastToolResult }) => {
@@ -156,11 +173,12 @@ describe("Camox's reconcile turn", () => {
     expect(preview.blockers).toEqual([]);
   });
 
-  it("fixes a merge of Live's code that no longer builds, from the merged files", async () => {
+  it("has the Code Agent fix a merge of Live's code that no longer builds, from the merged files", async () => {
     const { website, draftId, thread } = await draftChanging(PRICING_FILE, PRICING);
     const repo = website.project.uuid;
     const reviewed = await previewOf(website, draftId);
     const marker = await failingMarker(HERO_FILE);
+    answerByHandingOffTheClash();
     let told = "";
     let merged: string | undefined;
     const read = holdNextToolCall("read", { path: HERO_FILE });
@@ -175,7 +193,7 @@ describe("Camox's reconcile turn", () => {
     await pushToMain(repo, mainWith({ [HERO_FILE]: broken(marker) }));
 
     // The files hold the merge, which built nothing: the preview keeps the draft's revision.
-    await vi.waitFor(() => expect(threadModelCalls()).toBe(calls + 1));
+    await vi.waitFor(() => expect(threadModelCalls()).toBe(calls + 2));
     expect(await blockersOf(website, draftId)).toEqual([
       { entity: "code", code: "codeDoesNotMerge" },
     ]);
@@ -196,10 +214,11 @@ describe("Camox's reconcile turn", () => {
     expect(preview.blockers).toEqual([]);
   });
 
-  it("fixes a merge of Live's code that no longer type checks, in a turn of its own", async () => {
+  it("has the Code Agent fix a merge of Live's code that no longer type checks, in a turn of its own", async () => {
     const { website, draftId, thread } = await draftChanging(PRICING_FILE, PRICING);
     const repo = website.project.uuid;
     const marker = await typeErrorsMarker([NOT_A_STRING]);
+    answerByHandingOffTheClash();
     const fixed = holdNextToolCall("write", { path: HERO_FILE, content: LIVE_HERO });
     answerNext("Live's new welcome is in, with the draft's pricing.");
     const calls = threadModelCalls();
@@ -208,7 +227,7 @@ describe("Camox's reconcile turn", () => {
     // Live's hero merges cleanly into the draft, but the merged code has a type error in it.
     await pushToMain(repo, mainWith({ [HERO_FILE]: `${LIVE_HERO}// ${marker}\n` }));
 
-    await vi.waitFor(() => expect(threadModelCalls()).toBe(calls + 1));
+    await vi.waitFor(() => expect(threadModelCalls()).toBe(calls + 2));
     expect(said(thread.view()).at(-1)).toEqual({ from: "camox", text: expect.any(String) });
     const clashed = await previewOf(website, draftId);
     expect(clashed.blockers.map(({ entity, code }) => ({ entity, code }))).toEqual([
@@ -233,7 +252,8 @@ describe("Camox's reconcile turn that fails", () => {
     const { website, draftId, thread } = await draftChanging(HERO_FILE, OUR_HERO);
     const repo = website.project.uuid;
     const reviewed = await previewOf(website, draftId);
-    // The agent never fixes the conflict, and explains once the end of its turn gives up.
+    // The Code Agent never fixes the conflict, and explains once the end of its request gives up.
+    answerByHandingOffTheClash();
     for (let ended = 0; ended < END_OF_TURN_BUILD_FAILURES; ended++) answerNext("Done.");
     let told = "";
     answerFrom(({ editorMessages }) => {
@@ -282,12 +302,14 @@ describe("a merge of main into files holding one Camox's turn didn't fix", () =>
     const { website, draftId, thread } = await draftChanging(HERO_FILE, OUR_HERO);
     const repo = website.project.uuid;
     // Camox's reconcile turn leaves the conflict, and explains once the end of its turn gives up.
+    answerByHandingOffTheClash();
     for (let ended = 0; ended < END_OF_TURN_BUILD_FAILURES; ended++) answerNext("Done.");
     answerNext(EXPLAINED);
     await pushToMain(repo, mainWith({ [HERO_FILE]: LIVE_HERO }));
     await thread.until(() => lastAnswer(thread.view()) === EXPLAINED && !thread.view().running);
 
-    // The editor asks for pricing: the agent writes it beside the conflict it leaves.
+    // The editor asks for pricing: the Code Agent writes it beside the conflict it leaves.
+    answerWithCodeRequest("Add a pricing block listing plans with their price.");
     answerWithToolCall("write", { path: PRICING_FILE, content: PRICING });
     for (let ended = 0; ended < END_OF_TURN_BUILD_FAILURES; ended++) answerNext("Done.");
     answerNext("I added pricing, but the hero still doesn't fit with Live's.");
@@ -320,6 +342,7 @@ describe("conflict markers", () => {
       draftId,
       await signIn(website.db, website.memberUser.id),
     );
+    answerWithCodeRequest("Change the accent color.");
     answerWithToolCall("write", { path: STYLES_FILE, content: CONFLICTED_STYLES });
     answerWithToolCall("build", {});
     let result: string | undefined;

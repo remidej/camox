@@ -6,7 +6,12 @@ import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 import { startDraft } from "../../../test/fixtures";
 import { pushToMain } from "../../../test/pushes";
 import { storeSdkBundle } from "../../../test/sdk-bundles";
-import { answerFrom, answerWithToolCall, forgetThreadModel } from "../../../test/thread-model";
+import {
+  answerFrom,
+  answerWithCodeRequest,
+  answerWithToolCall,
+  forgetThreadModel,
+} from "../../../test/thread-model";
 import { ask, connectDraftThread, signIn, websiteFixture } from "../../../test/threads";
 import { websiteLockfile } from "../../../test/website-lockfile";
 import { untarGzip } from "../../lib/tar";
@@ -87,12 +92,13 @@ async function draftOf(website: Website) {
   return { draftId, thread };
 }
 
-/** Has the agent write `files` and build them in one turn, returning what `build` answered. */
+/** Has the Code Agent write `files` and build them in one request, returning what `build` answered. */
 async function buildTurn(
   thread: Awaited<ReturnType<typeof draftOf>>["thread"],
   files: Record<string, string>,
   { keepOpen = false } = {},
 ) {
+  answerWithCodeRequest();
   for (const [path, content] of Object.entries(files)) {
     answerWithToolCall("write", { path, content });
   }

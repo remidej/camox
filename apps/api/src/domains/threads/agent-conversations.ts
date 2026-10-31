@@ -115,6 +115,11 @@ export class AgentConversations<Work> {
     });
   }
 
+  /** Whether the conversation of `key` started. */
+  async started(key: string): Promise<boolean> {
+    return (await this.#storage.get(`${this.#prefix}${key}`)) !== undefined;
+  }
+
   /** Whether `conversationId` is one of the kind's conversations. */
   async owns(conversationId: ConversationId): Promise<boolean> {
     this.#known ??= new Set(

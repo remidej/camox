@@ -98,13 +98,12 @@ import {
   artifactTool,
 } from "../domains/artifact-agent/tool";
 import { readArtifactField, writeArtifactField } from "../domains/artifact-sources/field";
-import { CODE_AGENT_INSTRUCTIONS } from "../domains/code-agent/prompt";
+import { CODE_AGENT_INSTRUCTIONS, CODE_REQUESTS } from "../domains/code-agent/prompt";
 import { type CodeCall, type CodeOutcome, codeTool } from "../domains/code-agent/tool";
 import { type CheckedLanding, type Landing, landPush } from "../domains/code-pushes/land";
 import { resolvePath } from "../domains/code/env";
 import { CODE_ROOT, lazyEnv, mainCopyFs, mainCopyFsEnv } from "../domains/code/main-copy";
 import { PLATFORM_SKILLS_SECTION } from "../domains/code/platform-skills";
-import { codeInstructions } from "../domains/code/prompt";
 import { remoteEnv } from "../domains/code/remote-env";
 import { CODE_WRITES, codeReadingTools, codeWritingTools } from "../domains/code/tools";
 import { writeLine } from "../domains/code/write-line";
@@ -231,6 +230,12 @@ const artifactKey = ({ block, item, field, locale }: ArtifactTarget) =>
  * `CODE_AGENT_KEY`: one per draft thread, for as long as the thread lasts.
  */
 const CODE_AGENT_PREFIX = "camox.code-agent:";
+
+/**
+ * The prefix of the keys holding the notes of member pushes that landed since the Code Agent's
+ * last request, followed by when each landed: its next request carries them.
+ */
+const CODE_AGENT_PUSH_PREFIX = "camox.code-agent-push:";
 const CODE_AGENT_KEY = "draft";
 
 /**
@@ -276,19 +281,23 @@ export const ENDED_KEY = "camox.ended";
  */
 const TURN_CHECK_MS = 1_000;
 
-/** What the model reads of a member's push: context, which it doesn't answer. */
-function pushNote({ pusher, subjects, outcome }: PushData) {
+/**
+ * What the model reads of a member's push: the thread's agent as context, which it doesn't
+ * answer, and the Code Agent before its next request, as the code it works on changed.
+ */
+function pushNote({ pusher, subjects, outcome }: PushData, reader: "agent" | "codeAgent") {
   const commits = subjects.map((subject) => `\n- ${subject}`).join("");
   const built = {
     built: "It built.",
     typeErrors: "It built, with type errors, which block publishing.",
     notPreviewed: "It built, but the preview can't show it.",
   }[outcome];
-  return (
+  const note =
     `Note from Camox: ${pusher.name} pushed commits to this draft's code from their own ` +
-    `checkout:${commits}\n\n${built} The draft's code is now as they pushed it: read it again ` +
-    "before changing it. This is context, not a request: don't answer it."
-  );
+    `checkout:${commits}\n\n${built} The draft's code is now as they pushed it`;
+  return reader === "codeAgent"
+    ? `${note}: read it again before changing it.`
+    : `${note}. This is context, not a request: don't answer it.`;
 }
 
 /**
@@ -511,7 +520,8 @@ Artifact Data and the content around it. What you read shows an artifact's title
 source. When the editor's message is only about an artifact, pass it on in their words, and let \
 the turn end on the answer with \`final\`.`
     : `This is the editor's own thread on Live, which you only read: you change nothing here. \
-Answer questions about the website yourself. For every request that would change anything, \
+Answer questions about the website yourself, about how it's built too: its Block Definitions, \
+their Block Settings and its Layouts describe it, and you don't read its code. For every request that would change anything, \
 content or code, call startDraft: it starts a draft where Camox's agent does the work, and ends \
 your turn, the editor seeing the draft's card. This thread then starts afresh from that card: \
 everything before it is gone, so the Brief must carry whatever the draft needs. One request, one \
@@ -626,7 +636,6 @@ export class Thread extends DurableObject<Bindings> {
     draftWithCode: () => this.#draftWithCode(),
     buildingSerially: (draftId, build) => this.#buildingSerially(draftId, build),
     showBuildStatus: (status) => this.#showBuildStatus(status),
-    mergeAfterTheTurn: (draftId) => this.#mergeAfterTheTurn(draftId),
     timeTurnRevision: (result, ids) => this.#timeTurnRevision(result, ids),
   });
 
@@ -660,18 +669,17 @@ export class Thread extends DurableObject<Bindings> {
         searchFontsTool(this.env),
       ];
       const look = lookTool((targets, invocation) => this.#look(targets, invocation));
+      // Only the Code Agent touches code: the thread's agent hands it code work with `code`.
+      const web = webTools(this.env, this.#model);
       const tools = live
         ? [
             ...content,
-            ...reading,
+            ...web,
             startDraftTool((invocation, handOff) => this.#startDraft(invocation, handOff)),
           ]
         : [
             ...content,
-            ...reading,
-            ...codeWritingTools(),
-            conflictsTool(() => this.#conflicts()),
-            buildTool((invocation) => this.#build(invocation)),
+            ...web,
             look,
             artifactTool((invocation, call, onActivity) =>
               this.#artifact(invocation, call, onActivity),
@@ -687,8 +695,7 @@ export class Thread extends DurableObject<Bindings> {
             render: async () => workplace(await this.#knownIdentity()),
             tag: false,
           },
-          { key: "code", render: () => codeInstructions, tag: false },
-          { key: "skills", render: () => PLATFORM_SKILLS_SECTION, tag: false },
+          ...(live ? [] : [{ key: "code", render: () => CODE_REQUESTS, tag: false }]),
         ],
         tools,
         // Once a script ends, failed or not, the studios hear what its writes touched.
@@ -705,37 +712,22 @@ export class Thread extends DurableObject<Bindings> {
               }
             },
           })),
-          // A code write lands in the draft's working copy, which the first one starts.
-          ...CODE_WRITES.map(({ name, paths }) =>
-            wrapTool({ name } as ToolRegistration, (tool) => ({
-              ...tool,
-              execute: async (args, api, context) => {
-                const env = await this.#writingEnv({ api, context }, paths(args));
-                return tool.execute(args, { ...api, env }, context);
-              },
-            })),
-          ),
         ],
-        // A turn doesn't end with code changes that don't build, and a round of tool calls
-        // ending on startDraft's card hands the messages sent meanwhile off with it, as one ending
-        // on an Artifact Agent's or the Code Agent's answer ends the turn. A failed model call is logged, and alerted
-        // when no retry can fix it.
+        // A turn's end merges the `main` that moved during it: the Code Agent built the turn's
+        // code changes. A round of tool calls ending on startDraft's card hands the messages sent
+        // meanwhile off with it, as one ending on an Artifact Agent's or the Code Agent's answer
+        // ends the turn. A failed model call is logged, and alerted when no retry can fix it.
         hooks: [
           hook(GenerationTask, {
             afterResponse: (message) => this.#onModelResponse(message),
             onYield: async (_answer, api, context) => {
-              await this.#recordTurnPage({ api, context });
-              const next = await this.#turnEnd.atTurnEnd({ api, context });
-              if (!next && api.conversationId === ROOT_CONVERSATION_ID) {
-                await this.#endTurnTiming(api, context);
-                await this.#landPushesAfterTheTurn();
-              }
-              return next;
+              await this.#endTurn(api, context);
+              return undefined;
             },
             afterTools: async (_assistant, results, api, context) => {
               await this.#handOffLateMessages({ api, context });
               if (await this.#endsOnHandedOffAnswer({ api, context }, results)) {
-                await this.#endTurnOnHandedOffAnswer(api, context);
+                await this.#endTurn(api, context);
               }
             },
           }),
@@ -861,7 +853,6 @@ export class Thread extends DurableObject<Bindings> {
       ? (await this.#knownIdentity())!.draftId!
       : await this.#codeAccess(invocation);
     await this.#merging;
-    await this.#turnEnd.noteCodeWrite(invocation);
     await this.#turnEnd.noteBase(invocation, draftId);
     await this.#warmSandbox(invocation, draftId);
     return this.#workingCopyEnv(draftId);
@@ -1117,9 +1108,10 @@ export class Thread extends DurableObject<Bindings> {
    * Hands code work to the draft thread's Code Agent, as the agent's `code` call asks: finds its
    * conversation, or starts it, sends it the call's request, acting for the member the run acts
    * for, or for Camox in its reconcile turn, and waits for its answer, which comes once its
-   * request's changes built, while `onActivity` hears what it's doing. The answer ends the turn
-   * when the call asked, it's the round's only call, and the turn changed no code of its own.
-   * Stopping the call stops the Code Agent. A call that runs again waits for the same request.
+   * request's changes built, while `onActivity` hears what it's doing. The request carries the
+   * member pushes that landed since the last one. The answer ends the turn when the call asked,
+   * and it's the round's only call. Stopping the call stops the Code Agent. A call that runs again
+   * waits for the same request.
    */
   async #code(
     invocation: ToolInvocation,
@@ -1136,16 +1128,20 @@ export class Thread extends DurableObject<Bindings> {
       operationIds,
       ...(reconciling && { reconciling }),
     };
+    // Member pushes that landed since its last request come with this one, in the order they
+    // landed.
+    const pushes = await this.ctx.storage.list<string>({ prefix: CODE_AGENT_PUSH_PREFIX });
     const asked = await this.#codeAgent.ask(
       invocation,
       conversationId,
       {
         requestId: `${CODE_TOOL}:${api.callId}`,
-        text: call.request,
+        text: [...pushes.values(), call.request].join("\n\n"),
         entry: { kind: CODE_REQUEST_ENTRY, data: request },
       },
       onActivity,
     );
+    await this.ctx.storage.delete([...pushes.keys()]);
     if ("gone" in asked) throw new Error("The Code Agent is gone");
     if ("unanswered" in asked) {
       throw new Error(
@@ -1230,9 +1226,9 @@ export class Thread extends DurableObject<Bindings> {
    * Hands an artifact's source to its Artifact Agent, as the agent's `artifact` call asks (ADR
    * 0035): finds the conversation of the artifact's Artifact Agent, or starts one, sends it the
    * call's request, acting for the member the run acts for, and waits for its answer, while
-   * `onActivity` hears what it's doing. The answer ends the turn when the call asked, it's the
-   * round's only call, and the turn changed no code, which its end would build and lint. Stopping
-   * the call stops the Artifact Agent. A call that runs again waits for the same request.
+   * `onActivity` hears what it's doing. The answer ends the turn when the call asked, and it's the
+   * round's only call. Stopping the call stops the Artifact Agent. A call that runs again waits for
+   * the same request.
    */
   async #artifact(
     invocation: ToolInvocation,
@@ -1276,15 +1272,12 @@ export class Thread extends DurableObject<Bindings> {
 
   /**
    * Whether the turn `invocation` is part of may end on its call's result: the call is its
-   * round's only one, and the turn changed no code.
+   * round's only one.
    */
   async #mayEndOnAnswer(invocation: ToolInvocation) {
     const { api, context } = invocation;
     const live = await api.snapshot(LiveDoc, api.conversationId, context);
-    if ((live?.tools?.length ?? 0) !== 1) return false;
-    const turn = await turnOf(invocation);
-    if (turn === undefined) return false;
-    return !(await this.#turnEnd.wroteCode(turn));
+    return (live?.tools?.length ?? 0) === 1;
   }
 
   /**
@@ -1306,12 +1299,12 @@ export class Thread extends DurableObject<Bindings> {
   }
 
   /**
-   * Ends the turn ending on an Artifact Agent's or the Code Agent's answer, as `onYield` ends the
-   * others, which Pi skips for a turn a tool ends: the turn changed no code of its own, and the
-   * Code Agent built its own, so there's nothing to build, but `main` may have moved, and pushes
-   * may be waiting.
+   * Ends the thread's agent's turn, as `onYield` does, or as a turn ending on an Artifact Agent's
+   * or the Code Agent's answer does, which Pi skips `onYield` for: the agent wrote no code, and
+   * the Code Agent built its own, so there's nothing to build, but `main` may have moved, and
+   * pushes may be waiting.
    */
-  async #endTurnOnHandedOffAnswer(api: HookApi, context: InConversation["context"]) {
+  async #endTurn(api: HookApi, context: InConversation["context"]) {
     await this.#recordTurnPage({ api, context });
     const draftId = await this.#draftWithCode();
     if (draftId) await this.#mergeAfterTheTurn(draftId);
@@ -1447,10 +1440,18 @@ export class Thread extends DurableObject<Bindings> {
       {
         type: "write",
         ...(push.result.revision && { requestId: `${PUSH_ENTRY}:${push.result.revision}` }),
-        entry: { kind: PUSH_ENTRY, data, model: [userMessage(pushNote(data))] },
+        entry: { kind: PUSH_ENTRY, data, model: [userMessage(pushNote(data, "agent"))] },
       },
       BACKGROUND,
     );
+    // A Code Agent that started reads the code it knew changed: one that hasn't reads it afresh.
+    if (await this.#codeAgent.started(CODE_AGENT_KEY)) {
+      const landedAt = String(Date.now()).padStart(16, "0");
+      await this.ctx.storage.put(
+        `${CODE_AGENT_PUSH_PREFIX}${landedAt}:${crypto.randomUUID()}`,
+        pushNote(data, "codeAgent"),
+      );
+    }
   }
 
   /**
@@ -1614,7 +1615,10 @@ export class Thread extends DurableObject<Bindings> {
     }
   }
 
-  /** Records in the transcript where the end of the turn's build stands, for editors to see. */
+  /**
+   * Records in the thread's transcript where the end of a Code Agent request's build stands, for
+   * editors to see while `code` waits for it.
+   */
   async #showBuildStatus(status: BuildStatus) {
     const root = await (await this.harness.pi()).conversation(ROOT_CONVERSATION_ID, BACKGROUND);
     await root?.submit(

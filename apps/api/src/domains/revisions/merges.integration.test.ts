@@ -17,6 +17,7 @@ import { publishSkills, skillsOf } from "../../../test/skills";
 import {
   answerFrom,
   answerNext,
+  answerWithCodeRequest,
   answerWithToolCall,
   forgetThreadModel,
   holdNextToolCall,
@@ -69,12 +70,13 @@ const reviewer = ({ db, memberUser }: Website, draftId: string) => ({
 const previewOf = (website: Website, draftId: string) =>
   call(router.drafts.previewPublish, { projectId: website.project.id }, reviewer(website, draftId));
 
-/** A draft whose agent added a pricing block, which built at the end of its turn. */
+/** A draft whose Code Agent added a pricing block, which built at the end of its request. */
 async function draftWithPricing() {
   const website = await websiteWithCode();
   const token = await signIn(website.db, website.memberUser.id);
   const draftId = await startDraft(website.db, website.project.id, website.memberUser.id);
   const thread = await connectDraftThread(website.project.id, draftId, token);
+  answerWithCodeRequest();
   answerWithToolCall("write", { path: PRICING_FILE, content: PRICING });
   answerNext("I added a pricing section.");
   await ask(thread, "Add a pricing section");
@@ -117,11 +119,12 @@ describe("merging Live's code into a draft", () => {
     const { website, token, draftId } = await draftWithPricing();
     const repo = website.project.uuid;
     const thread = await connectDraftThread(website.project.id, draftId, token);
+    answerWithCodeRequest();
     const write = holdNextToolCall("write", { path: FAQ_FILE, content: FAQ });
     answerNext("I added an FAQ.");
     const calls = threadModelCalls();
     thread.send({ type: "send", operationId: crypto.randomUUID(), text: "Add an FAQ" });
-    await vi.waitFor(() => expect(threadModelCalls()).toBe(calls + 1));
+    await vi.waitFor(() => expect(threadModelCalls()).toBe(calls + 2));
     const builtBefore = (await fakes.revisionBuilds(draftId)).length;
 
     await pushToMain(repo, mainWith({ [HERO_FILE]: NEW_HERO }));
@@ -139,10 +142,11 @@ describe("merging Live's code into a draft", () => {
     expect(lastAnswer(thread.view())).toBe("I added an FAQ.");
   });
 
-  it("gives the draft's agent the skills of the camox version an Upgrade's merge moved it to", async () => {
+  it("gives the draft's Code Agent the skills of the camox version an Upgrade's merge moved it to", async () => {
     const { website, token, draftId } = await draftWithPricing();
     const thread = await connectDraftThread(website.project.id, draftId, token);
     const read = async () => {
+      answerWithCodeRequest();
       answerWithToolCall("read", { path: ".camox/skills/camox/SKILL.md" });
       answerFrom(({ lastToolResult }) => lastToolResult);
       return lastAnswer(await ask(thread, "Read the camox skill", { keepOpen: true }));

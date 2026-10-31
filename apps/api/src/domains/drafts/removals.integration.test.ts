@@ -13,7 +13,12 @@ import {
   type TestDefinitionSet,
 } from "../../../test/fixtures";
 import { pushToMain } from "../../../test/pushes";
-import { answerFrom, answerWithToolCall, forgetThreadModel } from "../../../test/thread-model";
+import {
+  answerFrom,
+  answerWithCodeRequest,
+  answerWithToolCall,
+  forgetThreadModel,
+} from "../../../test/thread-model";
 import {
   ask,
   connectDraftThread,
@@ -124,12 +129,13 @@ async function websiteWithCode(live: Code = {}) {
   return { website, token };
 }
 
-/** A draft whose agent changed the code and built it into a revision giving `code`. */
+/** A draft whose Code Agent changed the code and built it into a revision giving `code`. */
 async function draftWithCode(website: Website, token: string, code: Code) {
   const marker = crypto.randomUUID();
   await fakes.defineBuildsOf(marker, definitionSetWith(website, code));
   const draftId = await startDraft(website.db, website.project.id, website.memberUser.id);
   const thread = await connectDraftThread(website.project.id, draftId, token);
+  answerWithCodeRequest();
   answerWithToolCall("write", {
     path: "src/blocks/text.tsx",
     content: `export const text = "changed"; // ${marker}\n`,

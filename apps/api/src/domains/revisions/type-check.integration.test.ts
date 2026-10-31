@@ -14,6 +14,7 @@ import {
 import {
   answerFrom,
   answerNext,
+  answerWithCodeRequest,
   answerWithToolCall,
   answerWithToolCallFrom,
   forgetThreadModel,
@@ -50,12 +51,13 @@ const reviewer = ({ db, memberUser }: Website, draftId: string) => ({
 const previewOf = (website: Website, draftId: string) =>
   call(router.drafts.previewPublish, { projectId: website.project.id }, reviewer(website, draftId));
 
-/** A draft whose agent added a pricing section that built, with its thread open. */
+/** A draft whose Code Agent added a pricing section that built, with its thread open. */
 async function draftWithPricing() {
   const website = await websiteWithCode();
   const token = await signIn(website.db, website.memberUser.id);
   const draftId = await startDraft(website.db, website.project.id, website.memberUser.id);
   const thread = await connectDraftThread(website.project.id, draftId, token);
+  answerWithCodeRequest();
   answerWithToolCall("write", { path: PRICING_FILE, content: PRICING });
   answerNext("I added a pricing section.");
   await ask(thread, "Add a pricing section", { keepOpen: true });
@@ -74,12 +76,13 @@ const NOT_A_STRING: FakeTypeError = {
 };
 
 /**
- * Has the agent write `content` to `path` and build it, then end its turn without fixing anything
- * each time the end of the turn sends it back, until it explains. Returns what `build` answered,
+ * Has the Code Agent write `content` to `path` and build it, then answer without fixing anything
+ * each time the end of its request sends it back, until it explains. Returns what `build` answered,
  * what the agent was last told, and the thread.
  */
 async function keepTypeErrors(thread: ThreadClient, content: string, path = PRICING_FILE) {
   let result: string | undefined;
+  answerWithCodeRequest();
   answerWithToolCall("write", { path, content });
   answerWithToolCall("build", {});
   answerFrom(({ lastToolResult }) => {
@@ -132,6 +135,7 @@ describe("a revision's type check", () => {
     const before = (await previewOf(website, draft.id)).code!.revision;
     await fakes.holdTypeChecks(draft.id);
     try {
+      answerWithCodeRequest();
       answerWithToolCall("write", { path: PRICING_FILE, content: `${PRICING}// Yearly plans\n` });
       answerNext("I added yearly plans.");
       thread.send({ type: "send", operationId: crypto.randomUUID(), text: "Add yearly plans" });
@@ -148,9 +152,10 @@ describe("a revision's type check", () => {
     thread.close();
   });
 
-  it("hands the agent the type errors as its turn ends, and it fixes them", async () => {
+  it("hands the Code Agent the type errors as its request ends, and it fixes them", async () => {
     const { website, draft, thread } = await draftWithPricing();
     const marker = await typeErrorsMarker([NOT_A_STRING]);
+    answerWithCodeRequest();
     answerWithToolCall("write", { path: PRICING_FILE, content: mistyped(marker) });
     answerNext("I changed the plans.");
     let told = "";

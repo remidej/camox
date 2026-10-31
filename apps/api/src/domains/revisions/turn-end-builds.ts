@@ -20,12 +20,9 @@ export type InConversation = {
 };
 
 /**
- * The prefix of the keys recording that a turn changed code, followed by its turn (`turnOf`):
- * the end of such a turn builds and lints, so an Artifact Agent's answer can't end it.
+ * The prefix of the keys counting a turn's end-of-turn builds that failed in a row, followed by
+ * its turn (`turnOf`).
  */
-const TURN_WROTE_CODE_PREFIX = "camox.turn-wrote-code:";
-
-/** The prefix of the keys counting a turn's end-of-turn builds that failed in a row, as above. */
 const TURN_BUILD_FAILURES_PREFIX = "camox.turn-build-failures:";
 
 /**
@@ -59,8 +56,6 @@ export type TurnEndThread = {
   buildingSerially: <T>(draftId: string, build: () => Promise<T>) => Promise<T>;
   /** Records in the transcript where the end of the turn's build stands, for editors to see. */
   showBuildStatus: (status: BuildStatus) => Promise<void>;
-  /** Merges the `main` that moved during the turn ending. */
-  mergeAfterTheTurn: (draftId: string) => Promise<void>;
   /** Counts a revision a build in the turn going left, for its timing logs. */
   timeTurnRevision: (
     result: BuildResult,
@@ -81,21 +76,6 @@ export class TurnEndBuilds {
 
   constructor(thread: TurnEndThread) {
     this.#thread = thread;
-  }
-
-  /**
-   * Notes that the turn of `invocation` changed code, before the write lands: its end builds and
-   * lints, which an Artifact Agent's answer ending it would skip.
-   */
-  async noteCodeWrite(invocation: InConversation) {
-    const turn = await turnOf(invocation);
-    if (turn !== undefined)
-      await this.#thread.storage.put(`${TURN_WROTE_CODE_PREFIX}${turn}`, true);
-  }
-
-  /** Whether the turn `turn` changed code. */
-  async wroteCode(turn: string) {
-    return (await this.#thread.storage.get(`${TURN_WROTE_CODE_PREFIX}${turn}`)) !== undefined;
   }
 
   /**
@@ -141,15 +121,9 @@ export class TurnEndBuilds {
     const failures = `${TURN_BUILD_FAILURES_PREFIX}${turn}`;
     const failedInARow = (await thread.storage.get<number>(failures)) ?? 0;
     const baseKey = `${TURN_BASE_PREFIX}${turn}`;
-    const wroteKey = `${TURN_WROTE_CODE_PREFIX}${turn}`;
-    // Live's code merges once the thread's turn ends, never between a Code Agent's requests.
-    const merge = async () => {
-      if (api.conversationId === ROOT_CONVERSATION_ID) await thread.mergeAfterTheTurn(draftId);
-    };
     // The agent was told to explain the errors it couldn't fix, and did: its turn ends.
     if (failedInARow >= END_OF_TURN_BUILD_FAILURES) {
-      await thread.storage.delete([failures, baseKey, wroteKey]);
-      await merge();
+      await thread.storage.delete([failures, baseKey]);
       return undefined;
     }
     const base = await thread.storage.get<string>(baseKey);
@@ -192,8 +166,7 @@ export class TurnEndBuilds {
       await thread.showBuildStatus("fixing");
       return { continue: fixLint(built.result) };
     }
-    await thread.storage.delete([failures, baseKey, wroteKey]);
-    await merge();
+    await thread.storage.delete([failures, baseKey]);
     return undefined;
   }
 }
