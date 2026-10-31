@@ -29,7 +29,12 @@ vi.mock("../../lib/thread-model", async () => {
 // No platform skills, so the tree shows only what the camox version main installs mounts.
 vi.mock("./platform-skills", async () => {
   const { skillsSection } = await import("./skills");
-  return { PLATFORM_SKILLS: {}, PLATFORM_SKILLS_SECTION: skillsSection({}) };
+  return {
+    PLATFORM_SKILLS: {},
+    CODE_AGENT_SKILLS: {},
+    CODE_AGENT_SKILLS_SECTION: skillsSection({}),
+    THREAD_AGENT_SKILLS_SECTION: undefined,
+  };
 });
 
 afterEach(async () => {

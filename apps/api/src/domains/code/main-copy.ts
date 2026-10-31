@@ -3,7 +3,7 @@ import { type ExecutionEnv, FileError } from "@earendil-works/pi-durable/env";
 import { MemoryFs } from "../../lib/memory-fs";
 import { camoxVersionInLockfile } from "../releases/lockfile";
 import { codeEnv } from "./env";
-import { PLATFORM_SKILLS } from "./platform-skills";
+import { CODE_AGENT_SKILLS } from "./platform-skills";
 import { type SkillFiles, SKILLS_ROOT, skillsAt } from "./skills";
 
 /** A file of a project's code: its content, or where a symlink points. */
@@ -59,10 +59,10 @@ async function writeSkills(fs: MemoryFs, files: SkillFiles) {
 }
 
 /**
- * Mounts under `SKILLS_ROOT` the platform's skills, and those of the `camox` version the lockfile
- * in `fs` installs, from `skills`, in place of any mounted before. Returns the version mounted,
- * which is the lockfile's even when `skills` has none for it, or undefined when they couldn't be
- * read, to try again.
+ * Mounts under `SKILLS_ROOT` the Code Agent's platform skills, and those of the `camox` version
+ * the lockfile in `fs` installs, from `skills`, in place of any mounted before. Returns the version
+ * mounted, which is the lockfile's even when `skills` has none for it, or undefined when they
+ * couldn't be read, to try again.
  */
 export async function mountSkills(fs: MemoryFs, skills: R2Bucket) {
   const version = await lockedCamoxVersion(fs);
@@ -73,7 +73,7 @@ export async function mountSkills(fs: MemoryFs, skills: R2Bucket) {
   for (const { path, kind } of mounted) {
     await (kind === "dir" ? fs.promises.rmdir(path) : fs.promises.unlink(path));
   }
-  await writeSkills(fs, PLATFORM_SKILLS);
+  await writeSkills(fs, CODE_AGENT_SKILLS);
   if (!version) return version;
   let files: SkillFiles | null;
   try {

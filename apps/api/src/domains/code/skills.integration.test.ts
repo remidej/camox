@@ -26,15 +26,26 @@ vi.mock("../../lib/thread-model", async () => {
   return { threadModel: testThreadModel };
 });
 
-// A platform skill of the tests' own, as apps/api/skills would ship one.
-const COPYWRITING = vi.hoisted(() => ({
-  "copywriting/SKILL.md":
-    "---\nname: copywriting\ndescription: Use when writing headlines & page copy.\n---\n\n# Copywriting\n\nRead [Headlines](references/headlines.md).\n",
-  "copywriting/references/headlines.md": "# Headlines\n\nLead with the benefit.\n",
+// Platform skills of the tests' own, one per agent, as apps/api/skills would ship them.
+const { COPYWRITING, PAGE_RHYTHM } = vi.hoisted(() => ({
+  COPYWRITING: {
+    "copywriting/SKILL.md":
+      "---\nname: copywriting\ndescription: Use when writing headlines & page copy.\n---\n\n# Copywriting\n\nRead [Headlines](references/headlines.md).\n",
+    "copywriting/references/headlines.md": "# Headlines\n\nLead with the benefit.\n",
+  },
+  PAGE_RHYTHM: {
+    "page-rhythm/SKILL.md":
+      "---\nname: page-rhythm\ndescription: Use when composing a page.\n---\n\n# Page rhythm\n\nAlternate light & dark blocks.\n",
+  },
 }));
 vi.mock("./platform-skills", async () => {
-  const { skillsSection } = await import("./skills");
-  return { PLATFORM_SKILLS: COPYWRITING, PLATFORM_SKILLS_SECTION: skillsSection(COPYWRITING) };
+  const { inlinedSkillsSection, skillsSection } = await import("./skills");
+  return {
+    PLATFORM_SKILLS: { ...COPYWRITING, ...PAGE_RHYTHM },
+    CODE_AGENT_SKILLS: COPYWRITING,
+    CODE_AGENT_SKILLS_SECTION: skillsSection(COPYWRITING),
+    THREAD_AGENT_SKILLS_SECTION: inlinedSkillsSection(PAGE_RHYTHM),
+  };
 });
 
 afterEach(async () => {
@@ -58,6 +69,17 @@ async function listedSkills(thread: ThreadClient, message: string) {
   });
   await ask(thread, message, { keepOpen: true });
   return instructions.slice(instructions.indexOf("The following skills"));
+}
+
+/** The instructions the thread's agent answers `message` with. */
+async function threadAgentInstructions(thread: ThreadClient, message: string) {
+  let instructions = "";
+  answerFrom((request) => {
+    instructions = request.instructions;
+    return "Noted.";
+  });
+  await ask(thread, message, { keepOpen: true });
+  return instructions;
 }
 
 /** Has the Code Agent read `path`, and returns what it read, without a last newline. */
@@ -94,6 +116,29 @@ describe("the platform's skills", () => {
     expect(await read(thread, "/.camox/skills/camox/SKILL.md")).toBe(
       skillsOf("1.0.0")["camox/SKILL.md"].trimEnd(),
     );
+    thread.close();
+  });
+
+  it("are the Code Agent's or the thread's agent's, which follows its own in its instructions", async () => {
+    const website = await websiteWithCode();
+    const thread = await draftThreadOf(website);
+
+    const instructions = await threadAgentInstructions(thread, "Add a section to the home page");
+    expect(instructions).toContain(
+      [
+        "<skill>",
+        "<name>page-rhythm</name>",
+        "<description>Use when composing a page.</description>",
+        "",
+        "# Page rhythm",
+        "",
+        "Alternate light & dark blocks.",
+        "</skill>",
+      ].join("\n"),
+    );
+    expect(instructions).not.toContain("copywriting");
+    expect(await listedSkills(thread, "Add a hero block")).not.toContain("page-rhythm");
+    expect(await read(thread, "/.camox/skills/page-rhythm/SKILL.md")).toContain("ENOENT");
     thread.close();
   });
 
