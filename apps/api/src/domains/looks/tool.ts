@@ -10,7 +10,9 @@ import {
   LOOK_MAX_DELAY_MS,
   type Looked,
   type Looker,
+  LOOKS_AT,
   type LookTarget,
+  type LookTargetKind,
 } from "./look";
 
 const SIZE = Type.Union(
@@ -59,11 +61,6 @@ const pageTarget = (pages: string) =>
     ),
     ...CAPTURE_OPTIONS,
   });
-
-const ANY_PAGE = pageTarget(
-  "a curated page, such as `/pricing`, a Singleton Layout's page, or a page of a Derived " +
-    "Layout, such as `/blog/my-post`",
-);
 
 /**
  * A Block Definition's block, placed nowhere, captured alone in the site's shell: up to two
@@ -128,50 +125,78 @@ const LAYOUT_DEFINITION_TARGET = Type.Object({
   ...CAPTURE_OPTIONS,
 });
 
-const DEFINITIONS = {
-  schemas: [BLOCK_DEFINITION_TARGET, LAYOUT_DEFINITION_TARGET],
-  described:
-    "a Block Definition, captured alone, with overrides to try its variants and edge cases; " +
-    "or a curated Layout Definition, captured alone at its first screen around a placeholder " +
-    "for page content, with overrides for its blocks",
-};
+/**
+ * A target the model is offered: its schema, and how the tool's description lists it.
+ */
+type Offered = { schema: TSchema; described: string };
 
-const AFTER_BUILD =
-  "code shows as the draft's preview has it, so after code changes call `build` first";
+/** The pages `pages` names, as a target: each page at its first screen, or one block on it. */
+const pages = (pages: string, examples: string, onSuch: string): Offered => ({
+  schema: pageTarget(`${pages}, such as ${examples}`),
+  described:
+    `${pages}, captured at its first screen; one block on ${onSuch}, captured with the page ` +
+    "around it",
+});
+
+const LAYOUT_PAGES = "a page of a Singleton or Derived Layout";
 
 /**
- * The targets each agent can look at (`Looker`), as the model is offered them: their schemas,
- * how the description lists them, and when code changes show.
+ * The targets each kind offers. The Code Agent's pages leave out curated Layouts' pages, which
+ * the thread's agent composes.
  */
-const TARGETS: Record<Looker, { schemas: TSchema[]; described: string; code: string }> = {
-  thread: {
-    schemas: [ANY_PAGE],
+const OFFERED: Record<LookTargetKind, Offered> = {
+  page: pages(
+    `a page, curated or ${LAYOUT_PAGES.slice(2)}`,
+    "`/pricing` or `/blog/my-post`",
+    "a page",
+  ),
+  blockDefinition: {
+    schema: BLOCK_DEFINITION_TARGET,
     described:
-      "a page, curated or of a Singleton or Derived Layout, captured at its first screen; or " +
-      "one block on a page, captured with the page around it",
-    code: "code shows as the draft's preview has it, once the Code Agent built it",
+      "a Block Definition, captured alone, with overrides to try its variants and edge cases",
   },
-  code: {
-    schemas: [
-      pageTarget(
-        "a page of a Singleton or Derived Layout, such as `/blog/my-post`, never a curated " +
-          "Layout's page",
-      ),
-      ...DEFINITIONS.schemas,
-    ],
+  layoutDefinition: {
+    schema: LAYOUT_DEFINITION_TARGET,
     described:
-      "a page of a Singleton or Derived Layout, captured at its first screen; one block on " +
-      `such a page, captured with the page around it; ${DEFINITIONS.described}`,
-    code: AFTER_BUILD,
-  },
-  artifact: {
-    schemas: [ANY_PAGE, ...DEFINITIONS.schemas],
-    described:
-      "a page, curated or of a Singleton or Derived Layout, captured at its first screen; one " +
-      `block on a page, captured with the page around it; ${DEFINITIONS.described}`,
-    code: AFTER_BUILD,
+      "a curated Layout Definition, captured alone at its first screen around a placeholder " +
+      "for page content, with overrides for its blocks",
   },
 };
+
+const CODE_AGENT_PAGES = pages(LAYOUT_PAGES, "`/blog/my-post`", "such a page");
+
+/** The key a target of `kind` is named by. */
+const KEYS: Record<LookTargetKind, string> = {
+  page: "path",
+  blockDefinition: "blockDefinition",
+  layoutDefinition: "layoutDefinition",
+};
+
+/**
+ * What `looker`'s `look` offers, from the kinds of target it can use: their schemas, how its
+ * description lists them, and when code changes show. A kind it can't use parses by its key alone,
+ * so that target fails alone, saying why, while the description never mentions it.
+ */
+function targetsOf(looker: Looker) {
+  const { kinds } = LOOKS_AT[looker];
+  const offered = (kind: LookTargetKind) =>
+    looker === "code" && kind === "page" ? CODE_AGENT_PAGES : OFFERED[kind];
+  const kept = kinds.map(offered);
+  const described = kept.map(({ described }) => described);
+  return {
+    schemas: (Object.keys(KEYS) as LookTargetKind[]).map((kind) =>
+      kinds.includes(kind) ? offered(kind).schema : Type.Object({ [KEYS[kind]]: Type.String() }),
+    ),
+    described:
+      described.length > 1
+        ? `${described.slice(0, -1).join("; ")}; or ${described.at(-1)}`
+        : described[0]!,
+    code:
+      looker === "thread"
+        ? "code shows as the draft's preview has it, once the Code Agent built it"
+        : "code shows as the draft's preview has it, so after code changes call `build` first",
+  };
+}
 
 /**
  * What one result says beside its image, as a line of JSON: the target it captured, at which
@@ -211,7 +236,7 @@ export const lookTool = (
   looker: Looker,
   look: (targets: LookTarget[], invocation: ToolInvocation) => Promise<Looked[]>,
 ): ToolRegistration => {
-  const { schemas, described, code } = TARGETS[looker];
+  const { schemas, described, code } = targetsOf(looker);
   return defineTool({
     name: LOOK_TOOL,
     description:

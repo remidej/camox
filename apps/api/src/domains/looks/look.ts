@@ -102,12 +102,46 @@ export type LookTarget = (
 export type Looked = { target: LookTarget; size: LookSize } & Captured;
 
 /**
- * Which agent looks, each at the targets of its job: the thread's agent at pages and Placements;
- * the Code Agent at Block and Layout Definitions and the pages and Placements of Singleton and
- * Derived Layouts, never a curated Layout's pages, which the thread's agent composes; an Artifact
- * Agent at any target.
+ * Which agent looks, each at the targets of its job (`LOOKS_AT`): the thread's agent, the Code
+ * Agent or an Artifact Agent.
  */
 export type Looker = "thread" | "code" | "artifact";
+
+/** The kinds of target `look` captures: a page or a Placement on one, or a Definition alone. */
+export type LookTargetKind = "page" | "blockDefinition" | "layoutDefinition";
+
+/**
+ * The kinds of target each agent can look at, and why it can't look at the others, which then
+ * fail alone. The Code Agent never sees a curated Layout's pages, which the thread's agent
+ * composes: `resolve` refuses those apart.
+ */
+export const LOOKS_AT: Record<Looker, { kinds: readonly LookTargetKind[]; otherwise?: string }> = {
+  thread: {
+    kinds: ["page"],
+    otherwise:
+      "is the Code Agent's to look at, as it writes the code. Look at a page that uses it, " +
+      "or have the Code Agent check it with your `code` request.",
+  },
+  code: { kinds: ["page", "blockDefinition", "layoutDefinition"] },
+  artifact: {
+    kinds: ["page", "blockDefinition"],
+    otherwise: "isn't a target you can look at: look at a page of that Layout instead.",
+  },
+};
+
+const NAMED: Record<LookTargetKind, string> = {
+  page: "A page",
+  blockDefinition: "A Block Definition",
+  layoutDefinition: "A Layout Definition",
+};
+
+/** Which kind of target `target` is. */
+const kindOf = (target: LookTarget): LookTargetKind =>
+  "layoutDefinition" in target
+    ? "layoutDefinition"
+    : "blockDefinition" in target
+      ? "blockDefinition"
+      : "page";
 
 /**
  * Where a `look` runs: the thread's draft, with what its spans are logged with, and who looks.
@@ -206,9 +240,10 @@ function delayRefused({ delay }: LookTarget): { error: string } | undefined {
 }
 
 /**
- * What `target` is captured as: the lightweight document of its page, once it's in the draft,
- * and for a Placement, its block's element there; or of its Block Definition's block, once the
- * draft has the definition and its schemas accept the overrides.
+ * What `target` is captured as, once it's a kind of target its looker can use: the lightweight
+ * document of its page, once it's in the draft, and for a Placement, its block's element there; or
+ * of its Block or Layout Definition, once the draft has the definition and its schemas accept the
+ * overrides.
  */
 async function resolve(
   env: Bindings,
@@ -217,6 +252,9 @@ async function resolve(
   origin: string,
   target: LookTarget,
 ): Promise<Resolved> {
+  const kind = kindOf(target);
+  const looksAt = LOOKS_AT[where.looker];
+  if (!looksAt.kinds.includes(kind)) return { error: `${NAMED[kind]} ${looksAt.otherwise}` };
   const url = new URL(LOOK_DOCUMENT_PATH, origin);
   url.searchParams.set(DRAFT_SEARCH_PARAM, where.draftId);
   if ("layoutDefinition" in target) {
