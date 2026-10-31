@@ -335,6 +335,14 @@ function useSessionState(authClient: CamoxAuthClient, track: boolean) {
   return React.useSyncExternalStore(track ? subscribe : noSubscription, getSnapshot, getSnapshot);
 }
 
+/** The id of the member signed in, as the session the client holds says: null without one. */
+export function signedInUserId(authClient: CamoxAuthClient): string | null {
+  const session = authClient.$store.atoms.session.value as {
+    data?: { user?: { id?: string } } | null;
+  };
+  return session.data?.user?.id ?? null;
+}
+
 export function useAuthState() {
   const {
     authClient,

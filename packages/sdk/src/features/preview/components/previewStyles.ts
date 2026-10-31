@@ -22,14 +22,25 @@ const siteStylesheetsOf = (head: HTMLHeadElement) =>
       !element.hasAttribute("data-precedence"),
   );
 
+/** The attributes of a site document's root that say how its page reads: its language and direction. */
+const ROOT_ATTRIBUTES = ["lang", "dir"] as const;
+
 /**
  * Gives a frame's document the site stylesheets of `html`, a site document: the ones it no
- * longer has go, and its new ones are added, the rest of the frame left as it is.
+ * longer has go, and its new ones are added, the rest of the frame left as it is. Its root takes
+ * the document's language and direction, as a page in another locale has its own.
  */
 export function restyle(frame: Window, html: string) {
   const doc = frame.document;
   const { DOMParser } = frame as Window & typeof globalThis;
-  const wanted = siteStylesheetsOf(new DOMParser().parseFromString(html, "text/html").head);
+  const parsed = new DOMParser().parseFromString(html, "text/html");
+  for (const name of ROOT_ATTRIBUTES) {
+    const value = parsed.documentElement.getAttribute(name);
+    if (value === null) doc.documentElement.removeAttribute(name);
+    else if (doc.documentElement.getAttribute(name) !== value)
+      doc.documentElement.setAttribute(name, value);
+  }
+  const wanted = siteStylesheetsOf(parsed.head);
   const held = siteStylesheetsOf(doc.head);
   const wantedMarkup = new Set(wanted.map((element) => element.outerHTML));
   const heldMarkup = new Set(held.map((element) => element.outerHTML));

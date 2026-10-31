@@ -6,6 +6,7 @@ import {
   createCanvasDocument,
   observeCanvasDocument,
   pauseCanvasDocument,
+  refreshCanvasDocument,
 } from "./canvasFrameDocument";
 import type { CanvasFrameMode } from "./canvasFrameMode";
 import { useCanvasFrameInput } from "./useCanvasFrameInput";
@@ -45,10 +46,17 @@ export function useCanvasFrame({
   const [failure, setFailure] = React.useState<Error | null>(null);
   const live = mode === "live";
   const resting = mode === "resting";
+  /** The frame's window, once its document loaded and its content took over. */
+  const frameWindow = React.useRef<Window | null>(null);
   React.useEffect(() => {
     try {
+      const built = createCanvasDocument(previewDocument, href);
+      // A loaded frame takes another draft or locale's document in place, keeping its page
+      // until the next one renders, rather than going blank while it loads again.
+      if (frameWindow.current && previewDocument)
+        return refreshCanvasDocument(frameWindow.current, built);
       // oxlint-disable-next-line react/set-state-in-effect -- the document copies host styles, so it is built after mount
-      setSrcDoc(createCanvasDocument(previewDocument, href));
+      setSrcDoc(built);
     } catch (error) {
       setFailure(toError(error));
     }
@@ -89,6 +97,7 @@ export function useCanvasFrame({
         if (!root) throw new Error("The page preview document has no content root.");
         if (root === mount) return;
         root.replaceChildren();
+        frameWindow.current = root.ownerDocument.defaultView;
         setMount(root);
         setIframe(loaded);
       } catch (error) {

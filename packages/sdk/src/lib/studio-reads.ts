@@ -10,6 +10,7 @@ import {
   type QueryClient,
   useQueries,
   useQuery,
+  useQueryClient,
   type UseQueryResult,
   useSuspenseQuery,
 } from "@tanstack/react-query";
@@ -38,6 +39,7 @@ import type {
   Project,
 } from "./queries";
 import { ViewLocaleContext } from "./view-locale-context";
+import { useSwitchHold } from "./view-switch";
 
 /**
  * The studio's reads (ADR 0011): every query the studio caches is one entry here, which owns its
@@ -821,7 +823,7 @@ export function useStudioCache(): StudioCache {
 
 /**
  * The draft and locale the caller's render shows, which its reads name: the read hooks re-render
- * after a move to another draft, and a locale switch mounts the page afresh.
+ * after a move to another draft or locale, reading its keys.
  */
 function useShownTarget(): InDraft {
   return { in: useCurrentDraftId(), locale: React.useContext(ViewLocaleContext)?.locale };
@@ -862,8 +864,16 @@ export function useReadQuery<T, S = T>(
 ): UseQueryResult<S> {
   const shown = useShownTarget();
   const cache = useStudioCache();
+  const queryClient = useQueryClient();
   const inDraft = locale ? { ...shown, locale } : shown;
-  return useQuery({ ...cache.options(read, inDraft), enabled, select });
+  const options = cache.options(read, inDraft);
+  const result = useQuery({ ...options, enabled, select });
+  // A switch to another view waits for the read rather than show it loading.
+  const hold = useSwitchHold(() =>
+    enabled !== false && result.isPending ? queryClient.fetchQuery(options) : null,
+  );
+  if (hold) throw hold;
+  return result;
 }
 
 /** Several reads' queries at once, without suspending. */
@@ -879,5 +889,18 @@ export function useReadQueries<T, C>(
 ) {
   const inDraft = useShownTarget();
   const cache = useStudioCache();
-  return useQueries({ queries: list.map((read) => cache.options(read, inDraft)), combine });
+  const queryClient = useQueryClient();
+  const queries = list.map((read) => cache.options(read, inDraft));
+  const combined = useQueries({ queries, combine });
+  // A switch to another view waits for the reads rather than show them loading.
+  const hold = useSwitchHold(() => {
+    const loading = queries.filter(
+      ({ queryKey }) => (queryClient.getQueryState(queryKey)?.status ?? "pending") === "pending",
+    );
+    return loading.length
+      ? Promise.all(loading.map((options) => queryClient.fetchQuery(options)))
+      : null;
+  });
+  if (hold) throw hold;
+  return combined;
 }

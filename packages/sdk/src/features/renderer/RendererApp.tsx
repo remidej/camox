@@ -6,6 +6,7 @@ import type { CamoxApp } from "../../core/createApp";
 import { ContentEditsContext } from "../../core/editing/contentEdits";
 import { ArtifactsRunContext, ArtifactStudioContext } from "../../core/hooks/useArtifactHost";
 import { EditableSurfaceContext } from "../../core/hooks/useIsEditable";
+import { parseLocalePath } from "../../lib/locale-path";
 import { reads, useRead } from "../../lib/studio-reads";
 import { ViewLocaleContext } from "../../lib/view-locale-context";
 import { CanvasWorkspaceContext } from "../canvas/canvasZoom";
@@ -41,11 +42,7 @@ export function RendererApp({
   projectUuid: string;
   runtimeBasePath: string;
 }) {
-  const frames = React.useSyncExternalStore(
-    connection.subscribe,
-    connection.frames,
-    connection.frames,
-  );
+  const frames = useFrames(connection);
   const thumbnails = React.useSyncExternalStore(
     connection.subscribe,
     connection.thumbnails,
@@ -80,6 +77,20 @@ export function RendererApp({
       </StudioNoticeContext>
     </ContentEditsContext>
   );
+}
+
+/**
+ * The frames the studio gives the renderer to fill. Each change renders in a transition, so a
+ * frame switching to another page or locale keeps showing the last one until the next loads.
+ */
+function useFrames(connection: StudioConnection) {
+  const [frames, setFrames] = React.useState(connection.frames);
+  React.useEffect(() => {
+    const follow = () => React.startTransition(() => setFrames(connection.frames()));
+    follow();
+    return connection.subscribe(follow);
+  }, [connection]);
+  return frames;
 }
 
 /** A block's thumbnail, rendered by the draft's code into its frame: nothing for a block it lacks. */
@@ -190,6 +201,10 @@ function RendererFrameContent({
   const left = useLeftInSlot(slot);
   const frameElement = (frameWindow?.frameElement as HTMLIFrameElement | null) ?? null;
   const location = React.useMemo(() => locationOf(target.href), [target.href]);
+  // The page another locale has of it is the same page: the frame keeps it mounted, and swaps.
+  const page = target.locale
+    ? parseLocalePath(target.pathname, target.locale.locales).path
+    : target.pathname;
   // The studio follows the page's navigations, unless its frame never navigates.
   const navigate = React.useCallback(
     ({ to }: { to: string }) => connection.send({ type: "navigate", frameId, to }),
@@ -231,8 +246,16 @@ function RendererFrameContent({
               <ArtifactsRunContext value={target.artifactsRun}>
                 <ArtifactStudioContext value={target.artifactStudio}>
                   <React.Activity mode={target.resting ? "hidden" : "visible"}>
-                    <FrameErrorBoundary key={target.pathname} onError={failed} left={left}>
-                      <React.Suspense fallback={<div role="status">Loading page…</div>}>
+                    <FrameErrorBoundary
+                      key={page}
+                      pathname={target.pathname}
+                      onError={failed}
+                      left={left}
+                    >
+                      {/* Another renderer's page shows until this one's replaces it. */}
+                      <React.Suspense
+                        fallback={left.length ? null : <div role="status">Loading page…</div>}
+                      >
                         <FramePage
                           camoxApp={camoxApp}
                           codeLoaded={codeLoaded}
@@ -324,12 +347,27 @@ const ERROR_STYLE: React.CSSProperties = {
  * the studio. The studio and every other frame keep working.
  */
 class FrameErrorBoundary extends React.Component<
-  { children: React.ReactNode; onError: (message: string) => void; left: ChildNode[] },
-  { error: string | null }
+  {
+    children: React.ReactNode;
+    /** The page shown: showing another tries again. */
+    pathname: string;
+    onError: (message: string) => void;
+    left: ChildNode[];
+  },
+  { error: string | null; pathname: string }
 > {
-  state: { error: string | null } = { error: null };
+  state: { error: string | null; pathname: string } = {
+    error: null,
+    pathname: this.props.pathname,
+  };
   static getDerivedStateFromError(error: unknown) {
     return { error: messageOf(error) };
+  }
+  static getDerivedStateFromProps(
+    props: { pathname: string },
+    state: { error: string | null; pathname: string },
+  ) {
+    return props.pathname === state.pathname ? null : { error: null, pathname: props.pathname };
   }
   componentDidCatch(error: unknown) {
     this.props.onError(messageOf(error));

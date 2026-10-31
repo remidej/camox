@@ -5,7 +5,7 @@ import type { CamoxApp } from "../../core/createApp";
 import { CompleteBlockEditingRuntimeProvider } from "../../core/editing/CompleteBlockEditingRuntime";
 import { getDraftReadClient } from "../../lib/api-client";
 import { createDraftScope, DraftScopeContext, followUrl } from "../../lib/draft-scope";
-import { createStudioCache, StudioCacheContext } from "../../lib/studio-reads";
+import { createStudioCache, reads, StudioCacheContext } from "../../lib/studio-reads";
 import { CoreCamoxProvider } from "../provider/CoreCamoxProvider";
 import { STUDIO_HANDLE_KEY, type StudioHandle } from "../renderer/protocol";
 import { RendererApp } from "../renderer/RendererApp";
@@ -26,7 +26,8 @@ export async function startRendererWithApp(camoxApp: CamoxApp) {
     return;
   }
   const input = readHydrationData<RendererDocumentInput>();
-  if (!input.apiUrl || !input.authenticationUrl || !input.projectUuid) {
+  const { projectUuid, runtimeBasePath } = input;
+  if (!input.apiUrl || !input.authenticationUrl || !projectUuid) {
     console.error("Camox: the renderer document is missing its API or project.");
     return;
   }
@@ -46,7 +47,26 @@ export async function startRendererWithApp(camoxApp: CamoxApp) {
     scope: draftScope,
     api: getDraftReadClient,
   });
-  const connection = connectToStudio(handle, { queryClient, studioCache, draftScope, camoxApp });
+  const connection = connectToStudio(handle, {
+    queryClient,
+    studioCache,
+    draftScope,
+    camoxApp,
+    // What a frame suspends on: the page's read, and the site's code.
+    prepareFrame: ({ pathname, derivedLayoutId, locale }) =>
+      Promise.all([
+        studioCache.ensure(
+          reads.canvasFrame({
+            projectUuid,
+            runtimeBasePath,
+            pathname,
+            ...(derivedLayoutId && { derivedLayoutId }),
+          }),
+          { locale },
+        ),
+        codeLoaded,
+      ]),
+  });
 
   const container = document.createElement("div");
   document.body.append(container);
@@ -59,7 +79,7 @@ export async function startRendererWithApp(camoxApp: CamoxApp) {
             apiUrl={input.apiUrl}
             authenticationUrl={input.authenticationUrl}
             camoxApp={camoxApp}
-            projectUuid={input.projectUuid}
+            projectUuid={projectUuid}
             initialAuthenticated
           >
             <CompleteBlockEditingRuntimeProvider>
@@ -67,8 +87,8 @@ export async function startRendererWithApp(camoxApp: CamoxApp) {
                 connection={connection}
                 camoxApp={camoxApp}
                 codeLoaded={codeLoaded}
-                projectUuid={input.projectUuid}
-                runtimeBasePath={input.runtimeBasePath}
+                projectUuid={projectUuid}
+                runtimeBasePath={runtimeBasePath}
               />
             </CompleteBlockEditingRuntimeProvider>
           </CoreCamoxProvider>

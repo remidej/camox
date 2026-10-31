@@ -7,11 +7,12 @@ import { Window } from "happy-dom";
 import * as React from "react";
 
 import { createApp } from "../../core/createApp";
-import { createDraftScope } from "../../lib/draft-scope";
+import { createDraftScope, useCurrentDraftId } from "../../lib/draft-scope";
 import { StudioScopeProvider } from "../../lib/draft-scope.fixtures";
 import { type LocaleView, parseLocalePath } from "../../lib/locale-path";
 import { useLocalePath } from "../../lib/view-locale";
 import { useViewLocale } from "../../lib/view-locale-context";
+import { type NextView, useViewPreparer, useViewShown } from "../../lib/view-switch";
 import { Link, useNavigate } from "../navigation/navigation";
 import type { DraftNotice } from "../routes/pageRuntime";
 import { PageNavigationProvider } from "./pageNavigation";
@@ -31,7 +32,13 @@ const ended: EndedDraft = {
  * A page runtime whose `/_camox/data` endpoint reads the draft the request names, like the real
  * runtime for a member: an ended draft is refused and Live is read instead.
  */
-async function openPage(t: test.TestContext, url: string, initial: Partial<PageRenderInput> = {}) {
+async function openPage(
+  t: test.TestContext,
+  url: string,
+  initial: Partial<PageRenderInput> = {},
+  /** What the studio gets ready for each switch, which shows once it settles. */
+  prepare: (next: NextView) => Promise<unknown> = async () => {},
+) {
   const window = new Window({ url });
   Object.assign(globalThis, {
     React,
@@ -90,10 +97,21 @@ async function openPage(t: test.TestContext, url: string, initial: Partial<PageR
 
   let navigate!: ReturnType<typeof useNavigate>;
   let mounts = 0;
-  let shown!: { locale: string; path: string };
+  let shown!: { locale: string; path: string; draft: string | null };
+  let viewShown!: () => Promise<void>;
   function Workspace() {
     navigate = useNavigate();
-    shown = { locale: useViewLocale().locale.tag, path: useLocalePath() };
+    viewShown = useViewShown();
+    useViewPreparer(prepare);
+    const rendered = {
+      locale: useViewLocale().locale.tag,
+      path: useLocalePath(),
+      draft: useCurrentDraftId(),
+    };
+    // What the page shows is what committed: a switch renders ahead in the background.
+    React.useLayoutEffect(() => {
+      shown = rendered;
+    });
     React.useEffect(() => {
       mounts++;
     }, []);
@@ -140,6 +158,7 @@ async function openPage(t: test.TestContext, url: string, initial: Partial<PageR
       React.act(async () => {
         await navigate(options);
       }),
+    viewShown: () => viewShown(),
     draftInUrl: () => new URL(window.location.href).searchParams.get("camox-draft"),
     back: async (href: string) => {
       // Happy DOM doesn't traverse history: reproduce the browser's URL update and popstate.
@@ -200,17 +219,19 @@ void test("switching drafts reads the page from the new draft, and Back returns 
   assert.equal(page.dataRequests.length, 1, "the same page is read again from the draft");
   assert.equal(page.dataRequests[0]!.searchParams.get("camox-draft"), "d2");
   assert.equal(page.draftScope.current(), "d2");
-  assert.equal(page.mounts(), 2, "the page is shown afresh in the draft");
+  assert.equal(page.shown().draft, "d2", "the page shows the draft");
+  assert.equal(page.mounts(), 1, "the page stays mounted, so it never shows a loading state");
 
   await page.back("/about");
 
   assert.equal(page.dataRequests.length, 2);
   assert.equal(page.dataRequests[1]!.searchParams.get("camox-draft"), null);
   assert.equal(page.draftScope.current(), null, "Back returns to Live");
-  assert.equal(page.mounts(), 3);
+  assert.equal(page.shown().draft, null);
+  assert.equal(page.mounts(), 1);
 });
 
-void test("a page under a locale's prefix is shown afresh in that locale, and its links keep it", async (t) => {
+void test("a page under a locale's prefix shows in that locale, and its links keep it", async (t) => {
   const page = await openPage(t, "https://site.test/about?camox-draft=d1", { draftId: "d1" });
 
   await page.navigate({ to: "/de/preise" });
@@ -218,13 +239,13 @@ void test("a page under a locale's prefix is shown afresh in that locale, and it
   assert.equal(page.window.location.pathname, "/de/preise");
   assert.equal(page.draftInUrl(), "d1", "the draft composes with the locale's prefix");
   assert.equal(page.draftScope.locale().tag, "de");
-  assert.deepEqual(page.shown(), { locale: "de", path: "/preise" });
-  assert.equal(page.mounts(), 2, "the page is shown afresh in the locale");
+  assert.deepEqual(page.shown(), { locale: "de", path: "/preise", draft: "d1" });
+  assert.equal(page.mounts(), 1, "the page stays mounted, so it never shows a loading state");
 
   await page.navigate({ to: "/de/kontakt" });
 
-  assert.equal(page.mounts(), 2, "navigating within the locale keeps the page mounted");
-  assert.deepEqual(page.shown(), { locale: "de", path: "/kontakt" });
+  assert.equal(page.mounts(), 1);
+  assert.deepEqual(page.shown(), { locale: "de", path: "/kontakt", draft: "d1" });
 });
 
 void test("navigating within a draft keeps the page mounted", async (t) => {
@@ -263,7 +284,7 @@ void test("a visitor's draft param goes without a notice", async (t) => {
   assert.deepEqual(page.notices, []);
 });
 
-void test("a draft that ended switches the page to Live in place, read afresh", async (t) => {
+void test("a draft that ended switches the page to Live in place, read again", async (t) => {
   const page = await openPage(t, "https://site.test/about?camox-draft=d1", { draftId: "d1" });
   const entries = page.window.history.length;
 
@@ -275,6 +296,31 @@ void test("a draft that ended switches the page to Live in place, read afresh", 
   assert.equal(page.window.history.length, entries, "the draft's entry is replaced");
   assert.equal(page.dataRequests.length, 1);
   assert.equal(page.dataRequests[0]!.searchParams.get("camox-draft"), null, "read from Live");
-  assert.equal(page.mounts(), 2, "the page is shown afresh on Live");
+  assert.equal(page.shown().draft, null, "the page shows Live");
+  assert.equal(page.mounts(), 1, "the page stays mounted, so it never shows a loading state");
   assert.deepEqual(page.notices, [{ reason: "ended", ...ended }]);
+});
+
+void test("a switch keeps showing the last view until the next one is ready, then shows it", async (t) => {
+  let ready!: () => void;
+  const prepared: NextView[] = [];
+  const page = await openPage(t, "https://site.test/about", {}, (next) => {
+    prepared.push(next);
+    return new Promise<void>((resolve) => (ready = resolve));
+  });
+  let shown = false;
+
+  await page.navigate({ to: page.window.location.href, draft: "d2" });
+  void page.viewShown().then(() => (shown = true));
+
+  assert.deepEqual(prepared, [{ pathname: "/about", draftId: "d2", locale: EN }]);
+  assert.equal(page.draftScope.current(), "d2", "reads and writes already go to the draft");
+  assert.equal(page.shown().draft, null, "the page still shows Live");
+  assert.equal(shown, false);
+
+  await React.act(async () => ready());
+
+  assert.equal(page.shown().draft, "d2");
+  assert.equal(shown, true);
+  assert.equal(page.mounts(), 1);
 });

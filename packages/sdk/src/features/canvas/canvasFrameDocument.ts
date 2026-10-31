@@ -1,5 +1,5 @@
 import { PREVIEW_PAUSED_ATTRIBUTE } from "../../core/lib/previewPaused";
-import { EMPTY_PREVIEW_DOCUMENT, isSiteStyle } from "../preview/components/previewStyles";
+import { EMPTY_PREVIEW_DOCUMENT, isSiteStyle, restyle } from "../preview/components/previewStyles";
 
 /** Freezes CSS animations, including ones that start while the frame is paused. */
 const PAUSED_ANIMATIONS_STYLE = `html[${PREVIEW_PAUSED_ATTRIBUTE}] *, html[${PREVIEW_PAUSED_ATTRIBUTE}] *::before, html[${PREVIEW_PAUSED_ATTRIBUTE}] *::after { animation-play-state: paused !important; }`;
@@ -193,6 +193,36 @@ export function createCanvasDocument(previewDocument: string | undefined, href: 
   const paused = studioStyle(doc, PAUSED_ANIMATIONS_STYLE);
   doc.head.appendChild(paused);
   return `<!doctype html>${doc.documentElement.outerHTML}`;
+}
+
+/**
+ * Brings the document a Canvas frame loaded up to `canvasDocument`, which `createCanvasDocument`
+ * built for the same frame since, without loading it again: the frame keeps showing its page
+ * while another draft or locale's takes its place. Its links resolve against the new base, and
+ * it takes the new stylesheets, language and direction.
+ */
+export function refreshCanvasDocument(frame: Window, canvasDocument: string) {
+  const doc = frame.document;
+  const next = new DOMParser().parseFromString(canvasDocument, "text/html");
+  const href = next.querySelector("base")?.getAttribute("href");
+  const base = doc.querySelector("base");
+  if (href && base && base.getAttribute("href") !== href) base.setAttribute("href", href);
+  // The server-resolved theme attributes, but not what the Canvas writes on the frame itself.
+  syncAttributes(doc.documentElement, next.documentElement);
+  syncAttributes(doc.body, next.body);
+  restyle(frame, canvasDocument);
+}
+
+/** Attributes of a Canvas frame's root and body the Canvas writes while it shows the frame. */
+const CANVAS_ATTRIBUTES = new Set(["style", PREVIEW_PAUSED_ATTRIBUTE]);
+
+/** Gives `element` the attributes of `from`, but those the Canvas writes. */
+function syncAttributes(element: Element, from: Element) {
+  for (const name of element.getAttributeNames())
+    if (!CANVAS_ATTRIBUTES.has(name) && !from.hasAttribute(name)) element.removeAttribute(name);
+  for (const { name, value } of from.attributes)
+    if (!CANVAS_ATTRIBUTES.has(name) && element.getAttribute(name) !== value)
+      element.setAttribute(name, value);
 }
 
 /**

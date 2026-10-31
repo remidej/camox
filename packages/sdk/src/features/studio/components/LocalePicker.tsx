@@ -53,6 +53,7 @@ import type { ShownRecordPage } from "../../preview/pageRecord";
 import { type LocaleOption, localeLabel, localeOptions } from "../localeOptions";
 import { pathInLocale } from "../localeSwitch";
 import { studioStore } from "../studioStore";
+import { useSwitchView } from "../viewSwitch";
 
 /**
  * The studio's languages (GLOSSARY: Locale): the one viewed, the others to switch to, and adding
@@ -113,7 +114,7 @@ export function LocalePicker({
             value={viewed.tag}
             onValueChange={(tag) => {
               const next = locales.find((locale) => locale.tag === tag);
-              if (next) void switchTo(next);
+              if (next) switchTo(next);
             }}
           >
             <DropdownMenuGroup>
@@ -159,7 +160,7 @@ export function LocalePicker({
             projectId={projectId}
             locales={locales}
             open={dialog === "add"}
-            onAdded={(added) => void switchTo(added)}
+            onAdded={(added) => switchTo(added)}
           />
           {!viewed.isDefault && (
             <RemoveLocaleDialog
@@ -168,7 +169,7 @@ export function LocalePicker({
               open={dialog === "remove"}
               onRemoved={() => {
                 const fallback = locales.find((locale) => locale.isDefault);
-                if (fallback) void switchTo(fallback);
+                if (fallback) switchTo(fallback);
               }}
             />
           )}
@@ -205,9 +206,8 @@ function useSwitchLocale(recordPage: ShownRecordPage | undefined) {
   const search = useLocation({ select: (location) => location.search });
   const destinations = usePageDestinations();
 
-  return React.useCallback(
+  const switchTo = React.useCallback(
     async (target: LocaleView) => {
-      if (target.tag === view.locale.tag && target.isDefault === view.locale.isDefault) return;
       // A locale whose pages can't be read leaves nothing to match: the switch goes home.
       const pagesIn = (locale: LocaleView) =>
         cache.ensure(reads.pageList({ projectUuid }), { locale }).catch(() => []);
@@ -230,6 +230,18 @@ function useSwitchLocale(recordPage: ShownRecordPage | undefined) {
       await navigate({ to: `${localizedPath(next, target)}${search}` });
     },
     [cache, destinations, navigate, path, projectUuid, recordPage, search, view.locale],
+  );
+  const switchView = useSwitchView();
+  return React.useCallback(
+    (target: LocaleView) => {
+      if (target.tag === view.locale.tag && target.isDefault === view.locale.isDefault) return;
+      const label = localeLabel(target.tag);
+      switchView(() => switchTo(target), {
+        loading: `Switching to ${label}…`,
+        success: `You're now viewing ${label}.`,
+      });
+    },
+    [switchTo, switchView, view.locale],
   );
 }
 

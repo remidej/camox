@@ -123,6 +123,11 @@ export interface TitledPage {
 export type RendererQuestion =
   /** What a new block of `blockType` starts with. */
   | { type: "initialBundle"; blockType: string }
+  /**
+   * Gets the page at `pathname` in `locale` ready to show, in the renderer's draft, without
+   * showing it: a switch to another view shows it once it is.
+   */
+  | { type: "prepareFrame"; pathname: string; derivedLayoutId?: string; locale: LocaleView }
   /** The title the curated layout `layoutId` gives `page`, in `locale`. */
   | {
       type: "pageTitle";
@@ -142,6 +147,7 @@ export interface InitialBundle {
 /** What the renderer answers each question with: `null` when the draft's code doesn't know it. */
 export interface RendererAnswers {
   initialBundle: InitialBundle | null;
+  prepareFrame: null;
   pageTitle: string | null;
 }
 

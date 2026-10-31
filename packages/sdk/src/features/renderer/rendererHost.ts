@@ -82,6 +82,11 @@ export interface RendererHost {
   /** Has the renderer stop rendering the frame. */
   hide(frameId: string): void;
   /**
+   * Stops talking to the renderer connected, as another renderer document is loading to take its
+   * place: what the studio sends and asks from here on waits for that one.
+   */
+  replacing(): void;
+  /**
    * Asks the renderer what only the draft's code knows. Settles once a renderer answers: the one
    * connected, or else the next to connect.
    */
@@ -276,6 +281,11 @@ export function createRendererHost({
     hide(frameId) {
       if (!frames.delete(frameId)) return;
       post({ type: "frameEnd", frameId });
+    },
+    replacing() {
+      // The pages it rendered stay in their slots until the next renderer's replace them.
+      renderer = null;
+      welcomed = false;
     },
     ask(question) {
       return new Promise((resolve, reject) => {
