@@ -1286,7 +1286,8 @@ export function createEditableBlock<
       "CAMOX_HOVER_FIELD_END",
       { fieldId },
     );
-    const overlayState = useOverlayState(isHovered || isHoveredFromSidebar);
+    const isFocused = useFieldSelection(blockId, fieldName, "Artifact", itemId);
+    const overlayState = useOverlayState(isHovered || isHoveredFromSidebar, isFocused);
 
     const selectField = () => {
       selectTarget(

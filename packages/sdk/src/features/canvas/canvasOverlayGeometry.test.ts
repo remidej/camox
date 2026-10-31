@@ -435,3 +435,36 @@ void test("a sidebar-hovered repeater highlights every item in its group", async
     await page.window.happyDOM.close();
   }
 });
+
+void test("items registered by the renderer's own copy of the SDK are highlighted", async () => {
+  // The renderer document renders the page with a separate copy of every SDK module.
+  const copy = new URL("../preview/repeatableItemTargets.ts?renderer", import.meta.url).href;
+  const renderer: typeof import("../preview/repeatableItemTargets") = await import(copy);
+  assert.notEqual(renderer.registerRepeatableItem, registerRepeatableItem);
+  const page = fixture();
+  page.document.body.innerHTML = `<ul data-camox-block-id="links"><li id="item"></li></ul>`;
+  const element = page.document.getElementById("item")! as unknown as Element;
+  const fragment = fakeFragment([element], () => [
+    new page.window.DOMRect(0, 0, 100, 20) as unknown as DOMRect,
+  ]);
+  const registration = renderer.registerRepeatableItem(page.document as unknown as Document, {
+    ...idle,
+    fragment,
+    blockId: "1",
+    itemId: "7",
+    nesting: 0,
+  });
+  const stop = page.start();
+  try {
+    await page.flush();
+    registration.update({ ...idle, hovered: true, focused: true });
+    await page.flush();
+    const item = page.targets.find((target) => target.item);
+    assert.equal(item?.hovered, true);
+    assert.equal(item?.focused, true);
+  } finally {
+    stop();
+    registration.unregister();
+    await page.window.happyDOM.close();
+  }
+});
