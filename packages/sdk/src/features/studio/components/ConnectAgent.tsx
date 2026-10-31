@@ -1,4 +1,3 @@
-import { Avatar, AvatarFallback, AvatarGroup } from "@camox/ui/avatar";
 import { Button } from "@camox/ui/button";
 import {
   Dialog,
@@ -14,8 +13,7 @@ import { AuthContext } from "../../../lib/auth";
 import { CLIENT_LOGO_PATHS } from "./clientLogoPaths";
 
 /**
- * Common AI apps that take a remote MCP server, with their guide to adding one. In the logo row
- * each one overlaps the one before it, so the last is on top.
+ * Common AI apps that take a remote MCP server, with their guide to adding one.
  */
 const CLIENTS = [
   {
@@ -80,30 +78,17 @@ function GrokBotLogo({ className }: LogoProps) {
 }
 
 /**
- * Under the Chat widget's composer, what invites a member to connect their own AI to Camox as a
- * Connected Agent (ADR 0030): the logos of common AI apps, opening a dialog with the link to
- * Camox's MCP server and each app's guide to adding an MCP server.
+ * In the navbar, what invites a member to connect their own agent to Camox as a Connected Agent
+ * (ADR 0030): a button opening a dialog with the link to Camox's MCP server and each common AI
+ * app's guide to adding an MCP server.
  */
 export function ConnectAgent() {
   const [open, setOpen] = React.useState(false);
   return (
     <>
-      <button
-        type="button"
-        onClick={() => setOpen(true)}
-        className="hover:bg-muted text-muted-foreground hover:text-foreground mx-2 mb-2 flex items-center gap-2.5 rounded-md px-2 py-1.5 text-sm transition-colors"
-      >
-        <AvatarGroup>
-          {CLIENTS.map((client) => (
-            <Avatar key={client.name} size="sm">
-              <AvatarFallback className="bg-background text-foreground">
-                <client.Logo className="size-3.5" />
-              </AvatarFallback>
-            </Avatar>
-          ))}
-        </AvatarGroup>
-        Connect your AI
-      </button>
+      <Button type="button" variant="outline" onClick={() => setOpen(true)}>
+        Connect your agent
+      </Button>
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent>
           <ConnectAgentContent />
@@ -130,10 +115,9 @@ function ConnectAgentContent() {
   return (
     <>
       <DialogHeader>
-        <DialogTitle>Connect your AI to Camox's MCP server</DialogTitle>
+        <DialogTitle>Connect your agent</DialogTitle>
         <DialogDescription>
-          Add this URL to your AI as a remote MCP server, then sign in to Camox. Your AI can then
-          ask Camox's agent for changes, with what it knows about your business.
+          Add this URL to your agent as an MCP server. It acts as you, but can't publish.
         </DialogDescription>
       </DialogHeader>
       <div className="flex flex-col gap-2">
@@ -150,7 +134,7 @@ function ConnectAgentContent() {
         </Button>
       </div>
       <div className="flex flex-col gap-2">
-        <p className="text-muted-foreground text-xs font-medium">How to add an MCP server in</p>
+        <p className="text-muted-foreground text-xs font-medium">How to add it in</p>
         <ul className="grid grid-cols-2 gap-1">
           {CLIENTS.map((client) => (
             <li key={client.name}>
@@ -168,9 +152,6 @@ function ConnectAgentContent() {
           ))}
         </ul>
       </div>
-      <p className="text-muted-foreground text-xs">
-        It acts as you, with your permissions. It can't publish: you review and publish here.
-      </p>
     </>
   );
 }

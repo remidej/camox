@@ -1,5 +1,4 @@
 import { Avatar, AvatarFallback, AvatarImage } from "@camox/ui/avatar";
-import { Button } from "@camox/ui/button";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -32,9 +31,11 @@ export const UserButton = () => {
 
   if (!isAuthenticated || isLoading) {
     return (
-      <Button variant="outline" size="icon">
-        <User className="h-4 w-4" />
-      </Button>
+      <Avatar>
+        <AvatarFallback>
+          <User className="size-4" />
+        </AvatarFallback>
+      </Avatar>
     );
   }
 
@@ -76,8 +77,14 @@ function AuthenticatedUserButton({
 
   return (
     <DropdownMenu>
-      <DropdownMenuTrigger render={<Button variant="outline" size="icon" />}>
-        <User className="text-muted-foreground" />
+      <DropdownMenuTrigger
+        aria-label="Account"
+        className="focus-visible:ring-ring/50 rounded-full outline-none focus-visible:ring-3"
+      >
+        <Avatar>
+          {userImage && <AvatarImage src={userImage} alt={userName} />}
+          <AvatarFallback>{userInitials}</AvatarFallback>
+        </Avatar>
       </DropdownMenuTrigger>
       <DropdownMenuContent className="w-72" align="end">
         <DropdownMenuGroup>

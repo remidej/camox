@@ -16,7 +16,8 @@ import type { Action } from "../../provider/actionsStore";
 import { actionsStore } from "../../provider/actionsStore";
 import { STUDIO_BASE_PATH, STUDIO_CONTENT_PATH, STUDIO_SETTINGS_PATH } from "../routes";
 import { studioStore, type WebsiteLocation } from "../studioStore";
-import { DraftPicker, PendingChanges } from "./DraftsControl";
+import { ConnectAgent } from "./ConnectAgent";
+import { DraftPicker } from "./DraftsControl";
 import { LocalePicker } from "./LocalePicker";
 import { ProjectMenu } from "./ProjectMenu";
 import { UserButton } from "./UserButton";
@@ -137,7 +138,7 @@ const Navbar = ({
         </ul>
       </div>
       <div className="flex items-center gap-2">
-        <PendingChanges />
+        <ConnectAgent />
         <UserButton />
       </div>
     </nav>
