@@ -11,20 +11,21 @@ export type AgentModel = {
 };
 
 /**
- * The model a thread's agent runs on, the one its Code Agent runs on, set apart so either can
- * change alone, the smaller one its `web_fetch` reads pages with, and the models Pi resolves them
- * against.
+ * The model a thread's agent runs on, the ones its Code Agent and its Artifact Agents run on, set
+ * apart so each can change alone, the smaller one its `web_fetch` reads pages with, and the models
+ * Pi resolves them against.
  */
 export type ThreadModel = AgentModel & {
   models: Models;
   codeAgent: AgentModel;
+  artifactAgent: AgentModel;
   pageReader: { provider: string; id: string };
 };
 
 /**
- * Claude Opus 5.5 at medium effort, for the thread's agent and its Code Agent alike, and Claude
- * Haiku 5.5 to read pages, through pi-ai's
- * OpenRouter provider with the API's OpenRouter key. Integration tests replace this module with
+ * Claude Opus 5.5 at medium effort, for the thread's agent, its Code Agent and its Artifact Agents
+ * alike, and Claude Haiku 5.5 to read pages, through pi-ai's OpenRouter provider with the API's
+ * OpenRouter key. Integration tests replace this module with
  * pi-ai's fake provider (`test/thread-model.ts`).
  */
 export const threadModel = (env: Bindings): ThreadModel => {
@@ -42,6 +43,10 @@ export const threadModel = (env: Bindings): ThreadModel => {
     model: { provider: "openrouter", id: "anthropic/claude-opus-5.5" },
     thinkingLevel: "medium",
     codeAgent: {
+      model: { provider: "openrouter", id: "anthropic/claude-opus-5.5" },
+      thinkingLevel: "medium",
+    },
+    artifactAgent: {
       model: { provider: "openrouter", id: "anthropic/claude-opus-5.5" },
       thinkingLevel: "medium",
     },

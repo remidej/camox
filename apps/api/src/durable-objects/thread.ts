@@ -91,6 +91,7 @@ import { createDb } from "../db";
 import { agentServiceContext } from "../domains/_shared/service-context";
 import type { AiUsageRecord } from "../domains/ai-usage/schema";
 import { artifactEnv, artifactWriteOf } from "../domains/artifact-agent/env";
+import { artifactHistory } from "../domains/artifact-agent/history";
 import { ARTIFACT_AGENT_INSTRUCTIONS, artifactRequest } from "../domains/artifact-agent/prompt";
 import {
   type ArtifactCall,
@@ -274,6 +275,12 @@ type UsageStep = { turn: string | null; step: number; key: string };
  * it's written once they're over, with the size of their results.
  */
 const PENDING_STEP_PREFIX = "camox.pending-step:";
+
+/**
+ * The prefix of the key holding, per Artifact Agent conversation, when the messages its history
+ * leaves its copies of the artifact's source and screenshots out of start (`artifactHistory`).
+ */
+const ARTIFACT_PRUNED_PREFIX = "camox.artifact-pruned:";
 
 /**
  * The key timing the turn going, for its timing logs: when the editor's message that started it
@@ -641,13 +648,13 @@ export class Thread extends DurableObject<Bindings> {
   readonly #reportedScripts = new Set<string>();
 
   /**
-   * The draft thread's Artifact Agents, one conversation per artifact (ADR 0035), on the thread's
-   * model, with their extension once Pi opened.
+   * The draft thread's Artifact Agents, one conversation per artifact (ADR 0035), on a model of
+   * their own, with their extension once Pi opened.
    */
   readonly #artifactAgents = new AgentConversationsWithWork<ArtifactWork>({
     storage: this.ctx.storage,
     pi: () => this.harness.pi(),
-    model: () => this.#model,
+    model: () => this.#model.artifactAgent,
     prefix: ARTIFACT_AGENT_PREFIX,
     workPrefix: ARTIFACT_WORK_PREFIX,
     unavailable: "Artifacts are written in a draft",
@@ -1097,8 +1104,9 @@ export class Thread extends DurableObject<Bindings> {
    * every artifact; `content`'s block, page and block type reads, which it calls itself, with no
    * code mode; the thread's reading tools and `look`; and `write` and `edit`, which change its
    * artifact's source alone (`#artifactAgentEnv`). A write's warnings follow its result, and a
-   * refused write fails with the reason, which Pi's `edit` would leave out. A failed model call
-   * is logged and alerted, as the thread's agent's.
+   * refused write fails with the reason, which Pi's `edit` would leave out. Once its cached prompt
+   * expired, its history leaves out its earlier copies of the source and screenshots
+   * (`artifactHistory`). A failed model call is logged and alerted, as the thread's agent's.
    */
   #artifactAgentExtension(
     content: ToolRegistration[],
@@ -1135,6 +1143,15 @@ export class Thread extends DurableObject<Bindings> {
       ),
       hooks: [
         hook(GenerationTask, {
+          beforeRequest: async ({ messages }, api) => {
+            const key = `${ARTIFACT_PRUNED_PREFIX}${api.conversationId}`;
+            const prunedBefore = await this.ctx.storage.get<number>(key);
+            const history = artifactHistory(messages, { prunedBefore, now: Date.now() });
+            if (history.prunedBefore !== undefined && history.prunedBefore !== prunedBefore) {
+              await this.ctx.storage.put(key, history.prunedBefore);
+            }
+            return { messages: history.messages };
+          },
           afterResponse: async (message, api, context) => {
             await this.#onModelResponse(message);
             await this.#recordStep(message, { api, context });
