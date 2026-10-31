@@ -47,7 +47,8 @@ Then [check](#4-check).
 
 - **Spend boldness in one place.** One element is the memorable thing; everything around it stays quiet and disciplined.
 - **Typography carries the personality.** Set a clear type scale with deliberate weights and spacing, and use a headline's type treatment as part of the design. Keep lines under 80 characters; serif body text gets slightly more line height than sans-serif.
-- **Motion draws attention once.** One orchestrated moment, such as a page-load sequence or one reveal, lands better than effects on every section. Motion answering a visitor's action (opening, expanding, confirming) shows what changed.
+- **Structure is information.** Borders and dividers each encode something about the content: draw them where the content has that structure.
+- **Motion draws attention once.** One orchestrated moment, such as a page-load sequence or one reveal, lands better than effects on every block. Motion answering a visitor's action (opening, expanding, confirming) shows what changed.
 
 ## Defaults
 
@@ -57,5 +58,5 @@ Generated websites cluster around these looks. Each is legitimate when the subje
 2. A near-black background with one acid-green or vermilion accent.
 3. A broadsheet layout: hairline rules, square corners, dense newspaper columns.
 4. The SaaS-card kit: content chopped into identical rounded cards, one radius on everything, the same soft grey shadow under each, gradient washes as decoration.
-5. Template chrome: an uppercase eyebrow above every heading; one word of a headline accented in another color or italic; meta strings joined with middle dots (`A · B · C`); `→` after link and button text; monospace for small labels; a big number with a small label as the hero.
-6. A fade-and-slide-up entrance on every section, and a hover lift on every card.
+5. Template chrome: uppercase eyebrows; monospace for small labels; a big number with a small label as the hero.
+6. A fade-and-slide-up entrance on every block, and a hover lift on every card.

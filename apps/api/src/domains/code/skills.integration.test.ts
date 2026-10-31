@@ -26,28 +26,6 @@ vi.mock("../../lib/thread-model", async () => {
   return { threadModel: testThreadModel };
 });
 
-// Platform skills of the tests' own, one per agent, as apps/api/skills would ship them.
-const { COPYWRITING, PAGE_RHYTHM } = vi.hoisted(() => ({
-  COPYWRITING: {
-    "copywriting/SKILL.md":
-      "---\nname: copywriting\ndescription: Use when writing headlines & page copy.\n---\n\n# Copywriting\n\nRead [Headlines](references/headlines.md).\n",
-    "copywriting/references/headlines.md": "# Headlines\n\nLead with the benefit.\n",
-  },
-  PAGE_RHYTHM: {
-    "page-rhythm/SKILL.md":
-      "---\nname: page-rhythm\ndescription: Use when composing a page.\n---\n\n# Page rhythm\n\nAlternate light & dark blocks.\n",
-  },
-}));
-vi.mock("./platform-skills", async () => {
-  const { inlinedSkillsSection, skillsSection } = await import("./skills");
-  return {
-    PLATFORM_SKILLS: { ...COPYWRITING, ...PAGE_RHYTHM },
-    CODE_AGENT_SKILLS: COPYWRITING,
-    CODE_AGENT_SKILLS_SECTION: skillsSection(COPYWRITING),
-    THREAD_AGENT_SKILLS_SECTION: inlinedSkillsSection(PAGE_RHYTHM),
-  };
-});
-
 afterEach(async () => {
   await abortAllDurableObjects();
   forgetThreadModel();
@@ -91,27 +69,17 @@ async function read(thread: ThreadClient, path: string) {
 }
 
 describe("the platform's skills", () => {
-  it("are listed by their frontmatter, and read beside the camox version's", async () => {
+  it("give the Code Agent the design skill, listed by its frontmatter and read beside the camox version's", async () => {
     const website = await websiteWithCode();
     const thread = await draftThreadOf(website);
 
-    expect(await listedSkills(thread, "Rewrite the hero")).toBe(
-      [
-        "The following skills provide specialized instructions for specific tasks.",
-        "Use the read tool to load a skill's file when the task matches its description.",
-        "When a skill file references a relative path, resolve it against the skill directory (parent of SKILL.md / dirname of the path) and use that absolute path in tool commands.",
-        "",
-        "<available_skills>",
-        "  <skill>",
-        "    <name>copywriting</name>",
-        "    <description>Use when writing headlines &amp; page copy.</description>",
-        "    <location>/.camox/skills/copywriting/SKILL.md</location>",
-        "  </skill>",
-        "</available_skills>",
-      ].join("\n"),
+    const listed = await listedSkills(thread, "Rewrite the hero");
+    expect(listed).toMatch(
+      /<name>website-design<\/name>\n {4}<description>.+<\/description>\n {4}<location>\/\.camox\/skills\/website-design\/SKILL\.md<\/location>/,
     );
-    expect(await read(thread, "/.camox/skills/copywriting/references/headlines.md")).toBe(
-      COPYWRITING["copywriting/references/headlines.md"].trimEnd(),
+    expect(listed).not.toContain("page-composition");
+    expect(await read(thread, "/.camox/skills/website-design/SKILL.md")).toMatch(
+      /^---\nname: website-design\n/,
     );
     expect(await read(thread, "/.camox/skills/camox/SKILL.md")).toBe(
       skillsOf("1.0.0")["camox/SKILL.md"].trimEnd(),
@@ -119,26 +87,16 @@ describe("the platform's skills", () => {
     thread.close();
   });
 
-  it("are the Code Agent's or the thread's agent's, which follows its own in its instructions", async () => {
+  it("give the thread's agent the page composition skill, whole in its instructions, which the Code Agent never reads", async () => {
     const website = await websiteWithCode();
     const thread = await draftThreadOf(website);
 
-    const instructions = await threadAgentInstructions(thread, "Add a section to the home page");
-    expect(instructions).toContain(
-      [
-        "<skill>",
-        "<name>page-rhythm</name>",
-        "<description>Use when composing a page.</description>",
-        "",
-        "# Page rhythm",
-        "",
-        "Alternate light & dark blocks.",
-        "</skill>",
-      ].join("\n"),
+    const instructions = await threadAgentInstructions(thread, "Add a block to the home page");
+    expect(instructions).toMatch(
+      /<skill>\n<name>page-composition<\/name>\n<description>.+<\/description>\n\n# Page composition\n/,
     );
-    expect(instructions).not.toContain("copywriting");
-    expect(await listedSkills(thread, "Add a hero block")).not.toContain("page-rhythm");
-    expect(await read(thread, "/.camox/skills/page-rhythm/SKILL.md")).toContain("ENOENT");
+    expect(instructions).not.toContain("website-design");
+    expect(await read(thread, "/.camox/skills/page-composition/SKILL.md")).toContain("ENOENT");
     thread.close();
   });
 
@@ -147,8 +105,8 @@ describe("the platform's skills", () => {
     await pushToMain(website.project.uuid, { "src/blocks/hero.tsx": HERO });
     const thread = await draftThreadOf(website);
 
-    expect(await read(thread, "/.camox/skills/copywriting/SKILL.md")).toBe(
-      COPYWRITING["copywriting/SKILL.md"].trimEnd(),
+    expect(await read(thread, "/.camox/skills/website-design/SKILL.md")).toMatch(
+      /^---\nname: website-design\n/,
     );
     thread.close();
   });
