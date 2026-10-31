@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.68.0](https://github.com/remidej/camox/compare/camox-v0.67.0...camox-v0.68.0) (2026-10-31)
+
+
+### Changes
+
+* **agents:** add a ship skill that lands threads' PRs and sees the deploy through ([#791](https://github.com/remidej/camox/issues/791)) ([ee2f8de](https://github.com/remidej/camox/commit/ee2f8de32c46856da6a2b5536018235c40d4e14c))
+* **api:** leave stale artifact sources out of an expired Artifact Agent history ([#792](https://github.com/remidej/camox/issues/792)) ([dc75289](https://github.com/remidej/camox/commit/dc752893160948e7e255917431c050a56138c560))
+* **art:** pad logo files so their centre is the logo's visual centre ([#786](https://github.com/remidej/camox/issues/786)) ([f12b0d8](https://github.com/remidej/camox/commit/f12b0d8325db8579394cc7d7cbcae57e64559ab1))
+* **sdk:** highlight selected artifacts, and repeaters and their items again ([#790](https://github.com/remidej/camox/issues/790)) ([5586705](https://github.com/remidej/camox/commit/55867053dfcacc842c929ec4f23941f0fbfc6f34))
+* **studio:** one draft bar for every draft, and Connect your agent in the navbar ([#789](https://github.com/remidej/camox/issues/789)) ([4c86759](https://github.com/remidej/camox/commit/4c86759ff37af798b5956449e60a999694f9cc40))
+
 ## [0.67.0](https://github.com/remidej/camox/compare/camox-v0.66.0...camox-v0.67.0) (2026-10-31)
 
 
