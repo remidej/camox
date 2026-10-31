@@ -36,7 +36,6 @@ import {
 import * as React from "react";
 
 import { getDraftReadClient } from "@/lib/api-client";
-import { useDraftScope } from "@/lib/draft-scope";
 import { draftMutations, type DraftSummary, patrolMutations } from "@/lib/queries";
 import { cn } from "@/lib/utils";
 
@@ -47,6 +46,7 @@ import { askAgentMessage, findingSentence, fixLabel } from "../findingSentence";
 import { localeLabel } from "../localeOptions";
 import { type CanvasTarget, useShowInCanvas } from "../showInCanvas";
 import { studioStore } from "../studioStore";
+import { useLeaveDraft } from "../viewSwitch";
 
 type Subject = PublishPreview["changes"][number];
 type Problem = PublishPreview["blockers"][number];
@@ -734,17 +734,6 @@ function DraftOverview({ projectId, preview }: { projectId: number; preview: Pub
       <p className="text-muted-foreground text-sm">Summarizing this draft…</p>
     </div>
   );
-}
-
-/** Switches the studio to Live once its draft ended here, replacing the draft's URL entry. */
-export function useLeaveDraft() {
-  const draftScope = useDraftScope();
-  return (ended: EndedDraft | null, { discarded = false }: { discarded?: boolean } = {}) => {
-    draftScope.leave(ended);
-    if (!ended) return;
-    const what = discarded ? "Changes discarded" : `Draft ${ended.outcome}`;
-    toast.success(`${what}. You're now viewing Live.`);
-  };
 }
 
 /**

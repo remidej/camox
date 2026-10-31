@@ -112,9 +112,8 @@ function mockApi(
     if (path === "drafts/previewPublish") return previewWith({ status: "none" });
     if (path === "locales/list") return json([{ tag: "en", isDefault: true }]);
     if (path === "drafts/delete") {
-      return json({
-        ended: { draftId: spring, outcome: "deleted", endedBy: remi, endedAt: Date.now() },
-      });
+      const draftId = request.headers.get("x-camox-draft") ?? spring;
+      return json({ ended: { draftId, outcome: "deleted", endedBy: remi, endedAt: Date.now() } });
     }
     return json({});
   });
@@ -568,7 +567,7 @@ void test("Publish… opens the draft's review", async (t) => {
 
 void test("Discard asks to discard the changes, then discards them and returns to Live", async (t) => {
   const calls = mockApi(t);
-  const shown = t.mock.method(toast, "success", () => "toast");
+  const shown = t.mock.method(toast, "promise", () => ({ unwrap: async () => {} }));
   await render(t, adas);
 
   await click(barButton("Discard"));
@@ -583,7 +582,7 @@ void test("Discard asks to discard the changes, then discards them and returns t
 
   assert.equal(calls.filter((call) => call.path === "drafts/delete").length, 1);
   assert.deepEqual(
-    shown.mock.calls.map((call) => call.arguments[0]),
+    shown.mock.calls.map((call) => (call.arguments[1] as { success?: unknown }).success),
     ["Changes discarded. You're now viewing Live."],
   );
 });

@@ -7,6 +7,7 @@ import { useDraftScope } from "../../lib/draft-scope";
 import { RevisionsContext } from "../../lib/revisions";
 import { useStudioCache } from "../../lib/studio-reads";
 import { ViewLocaleContext } from "../../lib/view-locale-context";
+import { useViewPreparer } from "../../lib/view-switch";
 import { CanvasWorkspaceContext } from "../canvas/canvasZoom";
 import { useLocation, useNavigate } from "../navigation/navigation";
 import { PreviewEditingOwnerContext } from "../preview/previewSelection";
@@ -110,13 +111,39 @@ export function RendererFramesProvider({
     [draftScope, runtimeBasePath],
   );
   const [source, setSource] = React.useState(documentUrl);
+  const loaded = React.useRef(source);
+  /**
+   * Loads the renderer document of the draft the scope names, unless it is the one loaded and
+   * the load isn't `always`. From then on, the host waits for that renderer.
+   */
+  const reload = React.useCallback(
+    (always = false) => {
+      const next = documentUrl();
+      if (next === loaded.current && !always) return;
+      loaded.current = next;
+      host?.replacing();
+      setSource(next);
+    },
+    [documentUrl, host],
+  );
   React.useEffect(
     () =>
       draftScope.subscribe(({ move }) => {
-        if (move !== "started") setSource(documentUrl());
+        if (move !== "started") reload();
       }),
-    [draftScope, documentUrl],
+    [draftScope, reload],
   );
+  // A switch to another view shows once the renderer that will show it has its page ready: the
+  // next draft's, or for another locale, the one loaded.
+  useViewPreparer((next) => {
+    if (!host) return Promise.resolve();
+    return host.ask({
+      type: "prepareFrame",
+      pathname: next.pathname,
+      ...(next.derivedLayoutId && { derivedLayoutId: next.derivedLayoutId }),
+      locale: next.locale,
+    });
+  });
   // How many revisions of the draft shown loaded since: each one loads another renderer document.
   const [loads, setLoads] = React.useState(0);
   const revisions = React.use(RevisionsContext);
@@ -125,10 +152,10 @@ export function RendererFramesProvider({
       revisions?.subscribe(({ draftId }) => {
         if (draftId !== draftScope.current()) return;
         // A draft a first write started still shows Live's renderer, until its first revision.
-        setSource(documentUrl());
+        reload(true);
         setLoads((count) => count + 1);
       }),
-    [revisions, draftScope, documentUrl],
+    [revisions, draftScope, reload],
   );
   const connect = React.useCallback(
     (frame: (HTMLIFrameElement & { [STUDIO_HANDLE_KEY]?: StudioHandle }) | null) => {

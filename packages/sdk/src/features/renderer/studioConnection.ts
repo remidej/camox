@@ -20,6 +20,7 @@ import {
   type MirroredStore,
   type RendererFrameTarget,
   type RendererMessage,
+  type RendererQuestion,
   type StoreEventMessage,
   type StoreMessage,
   type StudioHandle,
@@ -89,11 +90,14 @@ export function connectToStudio(
     studioCache,
     draftScope,
     camoxApp,
+    prepareFrame,
   }: {
     queryClient: QueryClient;
     studioCache: StudioCache;
     draftScope: DraftScope;
     camoxApp?: CamoxApp;
+    /** Loads what the page a frame would show needs, settling once it could show it at once. */
+    prepareFrame?: (frame: Extract<RendererQuestion, { type: "prepareFrame" }>) => Promise<unknown>;
   },
 ): StudioConnection {
   let welcomed = false;
@@ -174,6 +178,13 @@ export function connectToStudio(
         return;
       case "ask": {
         const { askId, question } = message;
+        if (question.type === "prepareFrame") {
+          // A page that can't load is as ready as it gets: the frame shows how it failed.
+          void (prepareFrame?.(question) ?? Promise.resolve())
+            .catch(() => {})
+            .then(() => studio({ type: "answer", askId, value: null }));
+          return;
+        }
         if (!camoxApp) {
           studio({ type: "answer", askId, error: "The renderer has no code to answer with." });
           return;

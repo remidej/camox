@@ -248,7 +248,8 @@ export const DraftScopeContext = React.createContext<DraftScope | null>(null);
 /**
  * The draft scope the studio is in, for handlers and effects. Render code reads the draft it
  * views from `useCurrentDraftId`: the scope object never changes, so a memoized render reading
- * `current()` from it would keep showing the draft of its first render.
+ * `current()` from it would keep showing the draft of its first render, and while a switch to
+ * another draft loads, `current()` already names the next one.
  */
 export function useDraftScope(): DraftScope {
   const scope = React.useContext(DraftScopeContext);
@@ -256,21 +257,34 @@ export function useDraftScope(): DraftScope {
   return scope;
 }
 
+/**
+ * The draft the page runtime's committed render shows, or null for Live: undefined outside it.
+ * A switch to another draft renders in a transition, so until it commits the studio keeps
+ * showing the draft it was in, while the scope already reads and writes the next one.
+ */
+export const ShownDraftContext = React.createContext<string | null | undefined>(undefined);
+
 const noScope = () => null;
 const noSubscription = () => () => {};
 
+/** The draft the render shows: the committed one in the page runtime, the scope's elsewhere. */
+function useShownDraft(scope: DraftScope | null): string | null {
+  const shown = React.use(ShownDraftContext);
+  const current = scope?.current ?? noScope;
+  const followed = shown === undefined && scope ? scope.subscribe : noSubscription;
+  const draftId = React.useSyncExternalStore(followed, current, current);
+  return shown === undefined ? draftId : shown;
+}
+
 /** The draft the studio is in, or null for Live. The caller re-renders after every move. */
 export function useCurrentDraftId(): string | null {
-  const scope = useDraftScope();
-  return React.useSyncExternalStore(scope.subscribe, scope.current, scope.current);
+  return useShownDraft(useDraftScope());
 }
 
 /** The draft scope and the draft it views, outside the studio too, where there is none. */
 export function useOptionalDraftScope(): { scope: DraftScope | null; draftId: string | null } {
   const scope = React.useContext(DraftScopeContext);
-  const current = scope?.current ?? noScope;
-  const draftId = React.useSyncExternalStore(scope?.subscribe ?? noSubscription, current, current);
-  return { scope, draftId };
+  return { scope, draftId: useShownDraft(scope) };
 }
 
 /**

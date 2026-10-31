@@ -25,7 +25,8 @@ import type { Action } from "../../provider/actionsStore";
 import { actionsStore } from "../../provider/actionsStore";
 import { draftLabel, plural, timeAgo } from "../draftLabel";
 import { studioStore } from "../studioStore";
-import { DeleteDraftDialog, ReviewDraftSheet, useLeaveDraft } from "./ReviewDraftSheet";
+import { useLeaveDraft, useSwitchView } from "../viewSwitch";
+import { DeleteDraftDialog, ReviewDraftSheet } from "./ReviewDraftSheet";
 
 const LIVE = "live";
 const SWITCH_TO_DRAFT_ID = "switch-to-draft";
@@ -64,6 +65,7 @@ export function DraftPicker({ disabled = false }: { disabled?: boolean }) {
   const { draftScope, draftId, projectId, list, current } = useDrafts();
   const navigate = useNavigate();
   const leaveDraft = useLeaveDraft();
+  const switchView = useSwitchView();
   const review = useSelector(studioStore, (state) => state.context.reviewDraftSheet);
   const deleting = useSelector(studioStore, (state) => state.context.isDeleteDraftDialogOpen);
 
@@ -90,9 +92,14 @@ export function DraftPicker({ disabled = false }: { disabled?: boolean }) {
   const switchTo = React.useCallback(
     (next: string | null) => {
       if (next === draftId) return;
-      void navigate({ to: window.location.href, draft: next });
+      const target = next ? drafts.find((draft) => draft.id === next) : undefined;
+      const label = next ? (target ? draftLabel(target) : "the draft") : "Live";
+      switchView(() => navigate({ to: window.location.href, draft: next }), {
+        loading: `Switching to ${label}…`,
+        success: `You're now viewing ${label}.`,
+      });
     },
-    [draftId, navigate],
+    [draftId, drafts, navigate, switchView],
   );
 
   useDraftsActions({

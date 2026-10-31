@@ -24,6 +24,9 @@ export async function answerFromCode(
       const block = await blockOfCode(camoxApp, question.blockType);
       return block?._internal.getInitialBundle() ?? null;
     }
+    // The renderer's connection prepares frames: no definition knows anything of them.
+    case "prepareFrame":
+      return null;
     case "pageTitle": {
       const layout = camoxApp.getLayoutById(question.layoutId);
       if (!layout) return null;

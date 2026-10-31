@@ -4,7 +4,7 @@ import * as React from "react";
 import type { ActiveHeadEntry, UseHeadInput } from "unhead/types";
 
 import type { CamoxApp } from "../../core/createApp";
-import { draftNamedBy, DraftScopeContext } from "../../lib/draft-scope";
+import { draftNamedBy, DraftScopeContext, ShownDraftContext } from "../../lib/draft-scope";
 import type { LocaleView } from "../../lib/locale-path";
 import { reads } from "../../lib/studio-reads";
 import {
@@ -12,6 +12,14 @@ import {
   type ViewLocale,
   ViewLocaleContext,
 } from "../../lib/view-locale-context";
+import {
+  type NextView,
+  SWITCH_WAIT_MS,
+  type ViewPreparer,
+  type ViewSwitches,
+  ViewSwitchDeadlineContext,
+  ViewSwitchesContext,
+} from "../../lib/view-switch";
 import { NavigationProvider, type NavigateOptions } from "../navigation/navigation";
 import { sendPageView } from "./analytics";
 import { createPrefetchCache, listenForLinkIntent } from "./linkPrefetch";
@@ -81,19 +89,37 @@ export function PageNavigationProvider({
 }) {
   const draftScope = React.useContext(DraftScopeContext);
   if (!draftScope) throw new Error("PageNavigationProvider needs a DraftScopeContext provider");
-  // Provenance belongs to the committed location, not the payload or browser history. Each
-  // switch to another draft starts a new generation, which mounts the page afresh so every query
-  // reads that draft's keys.
-  const [{ input, source, generation }, setLocation] = React.useState<{
+  // Provenance belongs to the committed location, not the payload or browser history. A switch
+  // to another draft or locale renders in a transition that keeps showing the last view until
+  // the next one is ready (`switched`), then shows it at once.
+  const [{ input, source, switched, navigation }, setLocation] = React.useState<{
     input: PageRenderInput;
     source?: NavigateOptions["source"];
-    generation: number;
+    switched?: ViewSwitch;
+    /** The navigation this location comes from, counting from the first. */
+    navigation: number;
   }>(() => {
     // Before anything reads the draft, follow what the server rendered: in the browser, a draft
     // it couldn't show leaves the URL.
     draftScope.adopt(initialInput);
-    return { input: initialInput, generation: 0 };
+    return { input: initialInput, navigation: 0 };
   });
+  const [preparers] = React.useState(() => new Set<ViewPreparer>());
+  /** The navigations awaiting their commit, by the navigation they wait for. */
+  const [commits] = React.useState(() => new Map<number, () => void>());
+  const navigations = React.useRef(0);
+  /** The last navigation started, settling once it shows. */
+  const lastShown = React.useRef<Promise<void>>(Promise.resolve());
+  const switches = React.useMemo<ViewSwitches>(
+    () => ({
+      prepare(preparer) {
+        preparers.add(preparer);
+        return () => void preparers.delete(preparer);
+      },
+      shown: () => lastShown.current,
+    }),
+    [preparers],
+  );
   const current = React.useRef(initialInput);
   const [requests] = React.useState(createNavigationRequestTracker);
   // A visitor's page scrolls the window. A member's shows in a Studio frame, which takes part
@@ -126,6 +152,31 @@ export function PageNavigationProvider({
   /** The path of the page navigated to, read out once it shows. */
   const pendingAnnouncement = React.useRef<string | null>(null);
   const announcer = React.useRef<ReturnType<typeof createRouteAnnouncer> | null>(null);
+
+  /**
+   * Starts getting the view `next` shows ready, beside the reads its render waits for. The
+   * switch waits for it, but never longer than {@link SWITCH_WAIT_MS}.
+   */
+  const prepareSwitch = React.useCallback(
+    (next: PageRenderInput): ViewSwitch => {
+      const view: NextView = {
+        pathname: next.pathname,
+        ...(next.derived && { derivedLayoutId: next.derived.layoutId }),
+        draftId: next.draftId ?? null,
+        locale: next.locale,
+      };
+      const deadline = Date.now() + SWITCH_WAIT_MS;
+      const prepared = Promise.all(
+        [...preparers].map((prepare) => Promise.resolve(prepare(view)).catch(() => {})),
+      );
+      const ready = Promise.race([
+        prepared.then(() => {}),
+        new Promise<void>((resolve) => setTimeout(resolve, SWITCH_WAIT_MS)),
+      ]);
+      return { deadline, ready };
+    },
+    [preparers],
+  );
 
   /** Reads the page at `pathname` from `draft`, once the blocks a visitor's window shows can render. */
   const loadPage = React.useCallback(
@@ -166,8 +217,9 @@ export function PageNavigationProvider({
       draft,
       pop = false,
       refresh = false,
-    }: NavigateOptions & { pop?: boolean; refresh?: boolean }) => {
+    }: NavigateOptions & { pop?: boolean; refresh?: boolean }): Promise<void> => {
       const request = requests.begin();
+      const id = ++navigations.current;
       // Every navigation keeps the viewed draft unless it switches drafts. History traversal
       // already restored the URL it goes to.
       const href = pop ? to : draftScope.hrefFor(to, { from: window.location.href, draft });
@@ -189,6 +241,16 @@ export function PageNavigationProvider({
         return;
       }
 
+      // Settles once the page navigated to shows, or another navigation took over. The navigation
+      // itself settles once it's under way: awaiting the commit inside a batch would never end.
+      lastShown.current = new Promise<void>((resolve) => commits.set(id, resolve));
+      const settle = () => {
+        for (const [waiting, resolve] of commits) {
+          if (waiting > id) continue;
+          commits.delete(waiting);
+          resolve();
+        }
+      };
       try {
         let next = current.current;
         const targetDraft = draftNamedBy(target.url.href);
@@ -201,8 +263,8 @@ export function PageNavigationProvider({
           next = await ((!refresh && prefetched.take(prefetchKey(target.pathname, targetDraft))) ||
             loadPage(target.pathname, targetDraft, request.signal));
         }
-        if (!request.isCurrent()) return;
-        // Another draft or locale shows other keys: the page mounts afresh to read them.
+        if (!request.isCurrent()) return settle();
+        // Another draft or locale shows other keys: the next view reads them in the background.
         const switching =
           (next.draftId ?? null) !== (current.current.draftId ?? null) ||
           !sameLocale(next.locale, current.current.locale);
@@ -229,6 +291,7 @@ export function PageNavigationProvider({
         pendingAnnouncement.current = fetched && !refresh ? next.pathname : null;
         // The page couldn't show the draft, so it showed Live: the URL drops the draft too.
         if (fetched) draftScope.adopt(next);
+        const switched = switching ? prepareSwitch(next) : undefined;
         hydrate(
           queryClient,
           (switching
@@ -263,13 +326,15 @@ export function PageNavigationProvider({
         // frame renders with its own `<html lang>`.
         if (ownsWindow) document.documentElement.lang = next.locale.tag;
         React.startTransition(() =>
-          setLocation((location) => ({
+          setLocation({
             input: next,
             source: pop ? undefined : source,
-            generation: location.generation + (switching ? 1 : 0),
-          })),
+            switched,
+            navigation: id,
+          }),
         );
       } catch {
+        settle();
         if (!request.isCurrent()) return;
         if (pop) window.location.reload();
         else if (replace) window.location.replace(target.url.href);
@@ -278,12 +343,14 @@ export function PageNavigationProvider({
     },
     [
       analytics,
+      commits,
       draftScope,
       initialInput.runtimeBasePath,
       loadPage,
       ownsWindow,
       position,
       prefetched,
+      prepareSwitch,
       queryClient,
       requests,
       restoration,
@@ -368,6 +435,17 @@ export function PageNavigationProvider({
 
   // The next page has rendered, in the window or the Studio frame showing it: scroll it before
   // the browser paints it, then read out its name.
+  // The location committed: the navigation shows, and so does every one it took over from. A
+  // switch's render stops waiting for reads from here on.
+  React.useLayoutEffect(() => {
+    for (const [waiting, resolve] of commits) {
+      if (waiting > navigation) continue;
+      commits.delete(waiting);
+      resolve();
+    }
+    if (switched) setLocation((location) => ({ ...location, switched: undefined }));
+  }, [commits, navigation, switched]);
+
   React.useLayoutEffect(() => {
     const intent = takeScroll(input.href);
     const viewport = scroll.current?.viewport();
@@ -443,6 +521,7 @@ export function PageNavigationProvider({
     };
   }, [navigate, initialInput.runtimeBasePath, requests]);
 
+  const hydrated = React.useSyncExternalStore(noSubscription, isClient, isServer);
   const url = new URL(input.href);
   const viewLocale = useSameJson<ViewLocale>({ locale: input.locale, locales: input.locales });
   const alternates = useSameJson(input.alternates ?? null);
@@ -457,13 +536,39 @@ export function PageNavigationProvider({
       }}
       navigate={navigate}
     >
-      <ViewLocaleContext value={viewLocale}>
-        <PageAlternatesContext value={alternates}>
-          <PageViewportContext value={pageViewport}>
-            <React.Fragment key={generation}>{children(input)}</React.Fragment>
-          </PageViewportContext>
-        </PageAlternatesContext>
-      </ViewLocaleContext>
+      <ViewSwitchesContext value={switches}>
+        <ViewSwitchDeadlineContext value={switched?.deadline ?? null}>
+          <ShownDraftContext value={input.draftId ?? null}>
+            <ViewLocaleContext value={viewLocale}>
+              <PageAlternatesContext value={alternates}>
+                <PageViewportContext value={pageViewport}>{children(input)}</PageViewportContext>
+              </PageAlternatesContext>
+            </ViewLocaleContext>
+          </ShownDraftContext>
+        </ViewSwitchDeadlineContext>
+      </ViewSwitchesContext>
+      {/*
+        Mounted before any switch, so one that isn't ready holds its transition instead of
+        committing. Switches only follow hydration, which the server's markup has no gate for.
+      */}
+      {hydrated && (
+        <React.Suspense fallback={null}>
+          <SwitchGate ready={switched?.ready} />
+        </React.Suspense>
+      )}
     </NavigationProvider>
   );
+}
+
+const noSubscription = () => () => {};
+const isClient = () => true;
+const isServer = () => false;
+
+/** A switch to another view: when its render stops waiting for reads, and once it's ready. */
+type ViewSwitch = { deadline: number; ready: Promise<void> };
+
+/** Suspends the switch's render until the next view is ready. */
+function SwitchGate({ ready }: { ready?: Promise<void> }) {
+  if (ready) React.use(ready);
+  return null;
 }
