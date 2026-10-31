@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.69.0](https://github.com/remidej/camox/compare/camox-v0.68.0...camox-v0.69.0) (2026-10-31)
+
+
+### Changes
+
+* **sdk:** switch drafts and locales without a loading state ([#793](https://github.com/remidej/camox/issues/793)) ([bcf9ed9](https://github.com/remidej/camox/commit/bcf9ed91076ff27d411d20fdfdef293f75646c45))
+* **ui:** preview the favicon on light and dark backgrounds side by side ([#795](https://github.com/remidej/camox/issues/795)) ([82e589b](https://github.com/remidej/camox/commit/82e589b6f3d90461ace4620ba072d56c51cdae01))
+
 ## [0.68.0](https://github.com/remidej/camox/compare/camox-v0.67.0...camox-v0.68.0) (2026-10-31)
 
 
