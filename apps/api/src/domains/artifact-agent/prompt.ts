@@ -1,4 +1,5 @@
 import { SKILLS_ROOT } from "../code/skills";
+import { LOOK_ROUNDS } from "../looks/tool";
 import { ARTIFACT_PATH } from "./env";
 import type { ArtifactTarget } from "./tool";
 
@@ -32,8 +33,8 @@ shape of \`camox.data\` (\`dataSchema\`). getPage gives a page's path. Artifact 
 these return are left out: yours is the file.
 
 Call look to see the artifact on a page showing it, after you write or change it and before you \
-answer: check \`desktop\` and \`mobile\`, and what moves at a later moment with \`delay\`. Fix what \
-you see and look again, for about three rounds. Editors never see your screenshots.
+answer: check \`desktop\` and \`mobile\`, and what moves at a later moment with \`delay\`. \
+${LOOK_ROUNDS} Editors never see your screenshots.
 
 You can search the web with web_search and ask web_fetch about a page. web_fetch answers a \
 question about a page rather than showing it, so ask for everything you need from it at once. \

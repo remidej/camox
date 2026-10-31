@@ -198,6 +198,10 @@ function targetsOf(looker: Looker) {
   };
 }
 
+/** How many rounds of `look` and fixing an agent's instructions ask for, in their words. */
+export const LOOK_ROUNDS =
+  "Fix what you see and look again, for about three rounds of looking and fixing.";
+
 /**
  * What one result says beside its image, as a line of JSON: the target it captured, at which
  * size, and whether its image was cut, or why it failed.
