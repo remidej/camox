@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.68.0](https://github.com/remidej/camox/compare/camox-v0.67.0...camox-v0.68.0) (2026-10-31)
+
+
+### Changes
+
+* **art:** pad logo files so their centre is the logo's visual centre ([#786](https://github.com/remidej/camox/issues/786)) ([f12b0d8](https://github.com/remidej/camox/commit/f12b0d8325db8579394cc7d7cbcae57e64559ab1))
+* **studio:** one draft bar for every draft, and Connect your agent in the navbar ([#789](https://github.com/remidej/camox/issues/789)) ([4c86759](https://github.com/remidej/camox/commit/4c86759ff37af798b5956449e60a999694f9cc40))
+
 ## [0.67.0](https://github.com/remidej/camox/compare/camox-v0.66.0...camox-v0.67.0) (2026-10-31)
 
 
