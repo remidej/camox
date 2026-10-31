@@ -49,3 +49,7 @@ Lint problems are fixed in the turn that made them, as build and type errors are
 ## Amendment: the shell is the SDK Bundle
 
 The shell built once per SDK version is the SDK Bundle (ADR 0029). It is built once per resolution of its packages and the settings compiled into it, rather than per SDK version. Besides React and Camox, it holds the npm packages websites share with Camox.
+
+## Amendment: the Code Agent writes the code
+
+The line stays as it is, three layers included, but within Camox's agent only the Code Agent writes code (ADR 0037): the thread's agent hands code work to it, and has no code tools.
