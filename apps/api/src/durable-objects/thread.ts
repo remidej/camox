@@ -93,13 +93,12 @@ import { artifactEnv, artifactWriteOf } from "../domains/artifact-agent/env";
 import { ARTIFACT_AGENT_INSTRUCTIONS, artifactRequest } from "../domains/artifact-agent/prompt";
 import {
   type ArtifactCall,
-  type ArtifactOutcome,
   type ArtifactTarget,
   artifactTool,
 } from "../domains/artifact-agent/tool";
 import { readArtifactField, writeArtifactField } from "../domains/artifact-sources/field";
 import { CODE_AGENT_INSTRUCTIONS, CODE_REQUESTS } from "../domains/code-agent/prompt";
-import { type CodeCall, type CodeOutcome, codeTool } from "../domains/code-agent/tool";
+import { type CodeCall, codeTool } from "../domains/code-agent/tool";
 import { type CheckedLanding, type Landing, landPush } from "../domains/code-pushes/land";
 import { resolvePath } from "../domains/code/env";
 import { CODE_ROOT, lazyEnv, mainCopyFs, mainCopyFsEnv } from "../domains/code/main-copy";
@@ -124,7 +123,12 @@ import type { BuildResult } from "../domains/revisions/result";
 import { warmSandbox } from "../domains/revisions/sandbox";
 import { buildTool, conflictsTool } from "../domains/revisions/tool";
 import { type InConversation, turnOf, TurnEndBuilds } from "../domains/revisions/turn-end-builds";
-import { AgentConversations, BACKGROUND } from "../domains/threads/agent-conversations";
+import {
+  AgentConversations,
+  AgentConversationsWithWork,
+  BACKGROUND,
+} from "../domains/threads/agent-conversations";
+import type { HandOffOutcome } from "../domains/threads/hand-off";
 import { accountProblemOf, sendModelAccountAlert } from "../domains/threads/model-alert";
 import { draftCardsOf, startDraftFromLive } from "../domains/threads/service";
 import { type DraftHandOff, startDraftTool } from "../domains/threads/start-draft";
@@ -240,12 +244,6 @@ const CODE_AGENT_PREFIX = "camox.code-agent:";
  */
 const CODE_AGENT_PUSH_PREFIX = "camox.code-agent-push:";
 const CODE_AGENT_KEY = "draft";
-
-/**
- * The prefix of the keys that would hold what the Code Agent works on: the website's code, which
- * its environment finds without, so nothing is stored there.
- */
-const CODE_WORK_PREFIX = "camox.code-work:";
 
 /**
  * The prefix of the keys recording the page a turn's writes touched last, by the operation id of
@@ -609,26 +607,27 @@ export class Thread extends DurableObject<Bindings> {
    * The draft thread's Artifact Agents, one conversation per artifact (ADR 0035), on the thread's
    * model, with their extension once Pi opened.
    */
-  readonly #artifactAgents = new AgentConversations<ArtifactWork>({
+  readonly #artifactAgents = new AgentConversationsWithWork<ArtifactWork>({
     storage: this.ctx.storage,
     pi: () => this.harness.pi(),
     model: () => this.#model,
     prefix: ARTIFACT_AGENT_PREFIX,
     workPrefix: ARTIFACT_WORK_PREFIX,
     unavailable: "Artifacts are written in a draft",
+    names: { agent: "The Artifact Agent", work: "the artifact" },
   });
 
   /**
    * The draft thread's Code Agent, one conversation for the whole thread, on a model of its own,
    * with its extension once Pi opened.
    */
-  readonly #codeAgent = new AgentConversations<never>({
+  readonly #codeAgent = new AgentConversations({
     storage: this.ctx.storage,
     pi: () => this.harness.pi(),
     model: () => this.#model.codeAgent,
     prefix: CODE_AGENT_PREFIX,
-    workPrefix: CODE_WORK_PREFIX,
     unavailable: "The Code Agent works in a draft",
+    names: { agent: "The Code Agent", work: "the code" },
   });
 
   /** The builds and lints at the end of a turn that changed code, in any of its conversations. */
@@ -1136,7 +1135,7 @@ export class Thread extends DurableObject<Bindings> {
     invocation: ToolInvocation,
     call: CodeCall,
     onActivity: (activity: AgentActivity) => Promise<void>,
-  ): Promise<CodeOutcome> {
+  ): Promise<HandOffOutcome> {
     const { api, context } = invocation;
     const reconciling = await this.#reconciling(invocation);
     const member = reconciling ? CAMOX_ACTOR : (await this.#actor(invocation, "write")).userId;
@@ -1161,14 +1160,7 @@ export class Thread extends DurableObject<Bindings> {
       onActivity,
     );
     await this.ctx.storage.delete([...pushes.keys()]);
-    if ("gone" in asked) throw new Error("The Code Agent is gone");
-    if ("unanswered" in asked) {
-      throw new Error(
-        `The Code Agent didn't answer (${asked.unanswered}): check the code before trying again.`,
-      );
-    }
-    const { answer } = asked;
-    if (!answer) throw new Error("The Code Agent answered nothing: check the code.");
+    const answer = this.#codeAgent.answerOf(asked);
     return { answer, final: call.final && (await this.#mayEndOnAnswer(invocation)) };
   }
 
@@ -1253,7 +1245,7 @@ export class Thread extends DurableObject<Bindings> {
     invocation: ToolInvocation,
     call: ArtifactCall,
     onActivity: (activity: AgentActivity) => Promise<void>,
-  ): Promise<ArtifactOutcome> {
+  ): Promise<HandOffOutcome> {
     const { api, context } = invocation;
     const actor = await this.#actor(invocation, "write");
     const { block, item, field, locale } = call;
@@ -1278,14 +1270,7 @@ export class Thread extends DurableObject<Bindings> {
       },
       onActivity,
     );
-    if ("gone" in asked) throw new Error("The artifact's Artifact Agent is gone");
-    if ("unanswered" in asked) {
-      throw new Error(
-        `The Artifact Agent didn't answer (${asked.unanswered}): check the artifact before trying again.`,
-      );
-    }
-    const { answer } = asked;
-    if (!answer) throw new Error("The Artifact Agent answered nothing: check the artifact.");
+    const answer = this.#artifactAgents.answerOf(asked);
     return { answer, final: call.final && (await this.#mayEndOnAnswer(invocation)) };
   }
 

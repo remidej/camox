@@ -14,7 +14,7 @@ import {
 } from "@earendil-works/pi-durable";
 
 import { serialQueue } from "../../lib/serial-queue";
-import type { ThreadModel } from "../../lib/thread-model";
+import type { AgentModel } from "../../lib/thread-model";
 import type { ToolInvocation } from "./tools";
 
 /**
@@ -29,6 +29,16 @@ export const BACKGROUND: Parameters<Harness["close"]>[0] = Object.freeze({
 
 type Context = ToolInvocation["context"];
 
+/** How a kind of agent conversation is set up. */
+type AgentConversationsOptions = {
+  storage: DurableObjectStorage;
+  pi: () => Promise<Harness>;
+  model: () => AgentModel;
+  prefix: string;
+  unavailable: string;
+  names: AgentNames;
+};
+
 /** A request a tool call sends an agent conversation: Pi's request id, its text, and its entry. */
 export type AgentRequest = { requestId: string; text: string; entry: InputEntry };
 
@@ -41,14 +51,21 @@ export type AgentAnswer =
   /** It stopped without answering, for Pi's `reason`. */
   | { unanswered: string };
 
+/** How a kind of agent conversation is named in the errors its tool call fails with. */
+export type AgentNames = {
+  /** The agent, such as "The Code Agent". */
+  agent: string;
+  /** What to check when it didn't answer, such as "the code". */
+  work: string;
+};
+
 /**
- * One kind of agent conversation a thread runs beside its root conversation, as Artifact Agents
- * are (ADR 0035): each conversation is found by a key of the kind's own, started on first use
- * with the kind's extension and model, and outlives every request, which tool calls send it and
- * wait for. What it works on (`Work`) is stored by its conversation's id, for its environment to
- * read. Stopping the run stops them all.
+ * One kind of agent conversation a thread runs beside its root conversation, as the Code Agent
+ * and Artifact Agents are (ADR 0035): each conversation is found by a key of the kind's own,
+ * started on first use with the kind's extension and model, and outlives every request, which
+ * tool calls send it and wait for. Stopping the run stops them all.
  */
-export class AgentConversations<Work> {
+export class AgentConversations {
   /** The kind's extension, which the thread installs once Pi opened: none outside a draft. */
   extension: Extension | undefined;
 
@@ -58,30 +75,22 @@ export class AgentConversations<Work> {
   /** The ids of the kind's conversations, once listed. */
   #known: Set<ConversationId> | undefined;
 
-  readonly #storage: DurableObjectStorage;
+  protected readonly storage: DurableObjectStorage;
   readonly #pi: () => Promise<Harness>;
-  readonly #model: () => Pick<ThreadModel, "model" | "thinkingLevel">;
+  readonly #model: () => AgentModel;
   /** The prefix of the keys naming each conversation, followed by its key. */
   readonly #prefix: string;
-  /** The prefix of the keys holding what each conversation works on, followed by its id. */
-  readonly #workPrefix: string;
   /** Why a conversation can't start, when the thread didn't install the kind's extension. */
   readonly #unavailable: string;
+  readonly #names: AgentNames;
 
-  constructor(options: {
-    storage: DurableObjectStorage;
-    pi: () => Promise<Harness>;
-    model: () => Pick<ThreadModel, "model" | "thinkingLevel">;
-    prefix: string;
-    workPrefix: string;
-    unavailable: string;
-  }) {
-    this.#storage = options.storage;
+  constructor(options: AgentConversationsOptions) {
+    this.storage = options.storage;
     this.#pi = options.pi;
     this.#model = options.model;
     this.#prefix = options.prefix;
-    this.#workPrefix = options.workPrefix;
     this.#unavailable = options.unavailable;
+    this.#names = options.names;
   }
 
   /**
@@ -91,7 +100,7 @@ export class AgentConversations<Work> {
   async of(key: string, context: Context): Promise<ConversationId> {
     const storageKey = `${this.#prefix}${key}`;
     return this.#starting.run(async () => {
-      const known = await this.#storage.get<number>(storageKey);
+      const known = await this.storage.get<number>(storageKey);
       if (known !== undefined) return known as ConversationId;
       const extension = this.extension;
       if (!extension) throw new Error(this.#unavailable);
@@ -109,7 +118,7 @@ export class AgentConversations<Work> {
         },
         context,
       );
-      await this.#storage.put(storageKey, created.id);
+      await this.storage.put(storageKey, created.id);
       this.#known?.add(created.id);
       return created.id;
     });
@@ -117,27 +126,17 @@ export class AgentConversations<Work> {
 
   /** Whether the conversation of `key` started. */
   async started(key: string): Promise<boolean> {
-    return (await this.#storage.get(`${this.#prefix}${key}`)) !== undefined;
+    return (await this.storage.get(`${this.#prefix}${key}`)) !== undefined;
   }
 
   /** Whether `conversationId` is one of the kind's conversations. */
   async owns(conversationId: ConversationId): Promise<boolean> {
     this.#known ??= new Set(
-      [...(await this.#storage.list<number>({ prefix: this.#prefix })).values()].map(
+      [...(await this.storage.list<number>({ prefix: this.#prefix })).values()].map(
         (id) => id as ConversationId,
       ),
     );
     return this.#known.has(conversationId);
-  }
-
-  /** Stores what the conversation `conversationId` works on, for its environment to read. */
-  async setWork(conversationId: ConversationId, work: Work) {
-    await this.#storage.put(`${this.#workPrefix}${conversationId}`, work);
-  }
-
-  /** What the conversation `conversationId` works on, if a request stored it. */
-  async work(conversationId: ConversationId): Promise<Work | undefined> {
-    return this.#storage.get<Work>(`${this.#workPrefix}${conversationId}`);
   }
 
   /**
@@ -190,14 +189,54 @@ export class AgentConversations<Work> {
   }
 
   /**
+   * The answer `asked` holds, or the error the tool call that asked fails with: the conversation
+   * is gone, stopped without answering, or answered nothing.
+   */
+  answerOf(asked: AgentAnswer): string {
+    const { agent, work } = this.#names;
+    if ("gone" in asked) throw new Error(`${agent} is gone`);
+    if ("unanswered" in asked) {
+      throw new Error(
+        `${agent} didn't answer (${asked.unanswered}): check ${work} before trying again.`,
+      );
+    }
+    if (!asked.answer) throw new Error(`${agent} answered nothing: check ${work}.`);
+    return asked.answer;
+  }
+
+  /**
    * Stops the kind's conversations still working, which stopping the call waiting on one stops
    * already, should one outlive it.
    */
   async stop() {
-    const conversations = await this.#storage.list<number>({ prefix: this.#prefix });
+    const conversations = await this.storage.list<number>({ prefix: this.#prefix });
     const pi = await this.#pi();
     for (const id of conversations.values()) {
       await (await pi.conversation(id as ConversationId, BACKGROUND))?.abort(BACKGROUND);
     }
+  }
+}
+
+/**
+ * A kind of agent conversation that stores what each conversation works on (`Work`) by its id,
+ * for its environment to read, as Artifact Agents store their artifact.
+ */
+export class AgentConversationsWithWork<Work> extends AgentConversations {
+  /** The prefix of the keys holding what each conversation works on, followed by its id. */
+  readonly #workPrefix: string;
+
+  constructor(options: AgentConversationsOptions & { workPrefix: string }) {
+    super(options);
+    this.#workPrefix = options.workPrefix;
+  }
+
+  /** Stores what the conversation `conversationId` works on, for its environment to read. */
+  async setWork(conversationId: ConversationId, work: Work) {
+    await this.storage.put(`${this.#workPrefix}${conversationId}`, work);
+  }
+
+  /** What the conversation `conversationId` works on, if a request stored it. */
+  async work(conversationId: ConversationId): Promise<Work | undefined> {
+    return this.storage.get<Work>(`${this.#workPrefix}${conversationId}`);
   }
 }
