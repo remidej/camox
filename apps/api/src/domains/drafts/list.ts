@@ -5,9 +5,7 @@ import { z } from "zod";
 
 import { getAuthorizedProject, requireUser } from "../../authorization";
 import { decodeInput, InvalidInputError } from "../../lib/errors";
-import { record } from "../../lib/journal";
 import type { ServiceContext } from "../_shared/service-context";
-import { showDraftOnLive } from "../threads/service";
 import { listedChanges } from "../translations/review";
 import { translatingLocales } from "../translations/service";
 import { accessTo } from "./access";
@@ -17,8 +15,9 @@ import { drafts } from "./schema";
 import { draftIn, draftOf } from "./scope";
 import { startDraft } from "./service";
 
-// The drafts the studio's control lists and switches between (ADR 0011). An unnamed draft is
-// labelled on the client from its creator and creation date; that label is never stored.
+// The drafts the studio's control lists and switches between (ADR 0011). A draft its overview
+// hasn't named yet is labelled on the client from its creator and creation date; that label is
+// never stored.
 
 export type { Person };
 
@@ -49,14 +48,7 @@ export type DraftList = {
 
 export const listInput = z.object({ projectId: z.number() });
 export const getInput = z.object({ projectId: z.number() });
-export const renameInput = z.object({
-  projectId: z.number(),
-  name: z.string().max(200).nullable(),
-});
-export const createInput = z.object({
-  projectId: z.number(),
-  name: z.string().max(200).nullable().optional(),
-});
+export const createInput = z.object({ projectId: z.number() });
 
 const summarize = Effect.fn("drafts.summarize")(function* (
   { env, db }: Pick<ServiceContext, "env" | "db">,
@@ -131,20 +123,20 @@ export const listDrafts = Effect.fn("drafts.list")(function* (
 });
 
 /**
- * Creates an empty regular draft in the project, by the caller and named or not, for surfaces
- * that open a draft before its first change. The studio starts drafts with its first write
- * instead (ADR 0011). A blank name leaves the draft unnamed, like renaming it to nothing.
+ * Creates an empty regular draft in the project, by the caller and unnamed until its overview
+ * names it, for surfaces that open a draft before its first change. The studio starts drafts
+ * with its first write instead (ADR 0011).
  */
 export const createDraft = Effect.fn("drafts.create")(function* (
   ctx: ServiceContext,
   rawInput: z.input<typeof createInput>,
 ) {
-  const { projectId, name } = yield* decodeInput(createInput, rawInput);
+  const { projectId } = yield* decodeInput(createInput, rawInput);
   const user = yield* requireUser(ctx);
   yield* getAuthorizedProject(ctx.db, projectId, user.id);
 
   const id = generateUuidv7();
-  yield* startDraft(ctx.db, { id, projectId, createdBy: user.id, name: name?.trim() || null });
+  yield* startDraft(ctx.db, { id, projectId, createdBy: user.id, name: null });
   const draft = yield* Effect.promise(() =>
     ctx.db.select().from(drafts).where(eq(drafts.id, id)).get(),
   );
@@ -152,7 +144,7 @@ export const createDraft = Effect.fn("drafts.create")(function* (
   return summary!;
 });
 
-/** The draft the request names, which getting and renaming need. */
+/** The draft the request names. */
 const requireDraft = Effect.fn("drafts.requireNamedDraft")(function* (
   ctx: ServiceContext,
   projectId: number,
@@ -173,25 +165,5 @@ export const getDraft = Effect.fn("drafts.get")(function* (
   const { projectId } = yield* decodeInput(getInput, rawInput);
   const draft = yield* requireDraft(ctx, projectId);
   const [summary] = yield* summarize(ctx, [draft]);
-  return summary!;
-});
-
-/**
- * Names the regular draft the request names, for every member. Any member can rename any
- * regular draft. A blank name clears it, so the draft shows its computed label again.
- */
-export const renameDraft = Effect.fn("drafts.rename")(function* (
-  ctx: ServiceContext,
-  rawInput: z.input<typeof renameInput>,
-) {
-  const { projectId, name } = yield* decodeInput(renameInput, rawInput);
-  const draft = yield* requireDraft(ctx, projectId);
-  const trimmed = name?.trim() || null;
-  yield* Effect.promise(() =>
-    ctx.db.update(drafts).set({ name: trimmed }).where(eq(drafts.id, draft.id)),
-  );
-  yield* record(ctx.db, { kind: "drafts", projectId });
-  yield* showDraftOnLive(ctx, draft.liveThreadId);
-  const [summary] = yield* summarize(ctx, [{ ...draft, name: trimmed }]);
   return summary!;
 });

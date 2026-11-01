@@ -124,6 +124,11 @@ export type OverviewLocaleEdits = {
 export type DraftOverviewRequest = {
   /** The draft's name, or null while it has none. */
   draftName: string | null;
+  /**
+   * What the draft was started for, when someone asked for it: its first name was given for
+   * this request, which may ask for more than the draft changes yet.
+   */
+  openingRequest: string | null;
   /** Hand edits in other locales; what Camox translated is left out. */
   localeEdits: readonly OverviewLocaleEdits[];
 } & (
@@ -133,10 +138,16 @@ export type DraftOverviewRequest = {
 );
 
 /**
- * A Draft Overview: a short name to keep the draft under, a one-sentence headline and bullets
- * covering every change.
+ * A Draft Overview: a one-sentence headline and bullets covering every change, with whether the
+ * draft's name still fits it and the name it should have: its own when it fits, a new one when
+ * it's obsolete or the draft has none.
  */
-export type DraftOverview = { name: string; headline: string; bullets: string[] };
+export type DraftOverview = {
+  nameVerdict: "fits" | "obsolete";
+  name: string;
+  headline: string;
+  bullets: string[];
+};
 
 /**
  * The model that writes generated values (ADR 0012), translations (ADR 0015) and Draft

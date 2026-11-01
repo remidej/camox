@@ -16,6 +16,9 @@ export const drafts = sqliteTable(
     projectId: int("project_id")
       .notNull()
       .references(() => projects.id, { onDelete: "cascade" }),
+    // Camox owns the name: a Live thread's hand-off or a Connected Agent starts the draft named,
+    // and its overview names it, or renames it once the name no longer fits (`overview-job.ts`).
+    // Null until then, for a draft started by editing on Live.
     name: text(),
     // The creating user's id. No foreign key, so a departed member's draft survives.
     createdBy: text("created_by").notNull(),
@@ -30,12 +33,14 @@ export const drafts = sqliteTable(
     // The Live thread whose agent started the draft with `startDraft`, handing it a request
     // (ADR 0025): null for a draft an editor started. No foreign key, as for `threadId`.
     liveThreadId: text("live_thread_id"),
+    // What the draft was started for, which its overview judges the name against: the editor's
+    // messages a Live thread handed off, or a Connected Agent's first message. Null for a draft
+    // started by editing on Live, by a push, or by Camox.
+    openingRequest: text("opening_request"),
     // The Draft Overview AI writes about the draft's changes (`overview.ts`). It describes the
     // draft rather than its content, so it's never a change, a conflict or published, and goes
     // with the draft.
     overviewHeadline: text("overview_headline"),
-    // A short name AI suggests for the draft, offered to an editor keeping an unnamed one.
-    overviewName: text("overview_name"),
     overviewBullets: text("overview_bullets", { mode: "json" }).$type<string[]>(),
     overviewRequestedAt: int("overview_requested_at"),
     // When the last request's job is due to run: after the debounce, or right away.
@@ -96,6 +101,9 @@ export const endedDrafts = sqliteTable(
     endedBy: text("ended_by").notNull(),
     endedAt: int("ended_at").notNull(),
     // The draft's last name, which a Live thread's card for it keeps showing (ADR 0025).
+    // Camox owns the name: a Live thread's hand-off or a Connected Agent starts the draft named,
+    // and its overview names it, or renames it once the name no longer fits (`overview-job.ts`).
+    // Null until then, for a draft started by editing on Live.
     name: text(),
   },
   (table) => [index("ended_drafts_project_idx").on(table.projectId)],

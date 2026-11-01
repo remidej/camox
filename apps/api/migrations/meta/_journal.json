@@ -407,6 +407,20 @@
       "when": 1793392933288,
       "tag": "0057_remove_proofreader",
       "breakpoints": true
+    },
+    {
+      "idx": 58,
+      "version": "6",
+      "when": 1793526488844,
+      "tag": "0058_draft_names_from_overview",
+      "breakpoints": true
+    },
+    {
+      "idx": 59,
+      "version": "6",
+      "when": 1793526489690,
+      "tag": "0059_draft_opening_request",
+      "breakpoints": true
     }
   ]
 }

@@ -2,6 +2,7 @@ import { START_DRAFT_TOOL, type StartedDraftCard } from "@camox/api-contract/thr
 import { Type } from "@earendil-works/pi-ai";
 import { defineTool, type ToolRegistration } from "@earendil-works/pi-durable";
 
+import { DRAFT_NAME_MAX_LENGTH, DRAFT_NAME_RULES } from "../drafts/name";
 import type { ToolInvocation } from "./tools";
 
 /** What the agent on Live hands `startDraft`: the draft's name, and the Brief for its thread. */
@@ -22,7 +23,7 @@ export const startDraftTool = (
     description:
       "Hand the editor's request off to a new draft, where Camox's agent makes the changes: call " +
       "it for every request that would change the website, since you change nothing on Live. " +
-      "`name` is the draft's name: a few words saying what it changes, in the editor's language. " +
+      `\`name\` is the draft's name, saying what it changes, in the editor's language. ${DRAFT_NAME_RULES} ` +
       "`brief` opens the draft's thread, shown to everyone in the draft as from Camox, ahead of " +
       "the editor's messages of this turn, word for word: the context the request depends on " +
       "that those messages leave out, such as what earlier messages settled or what you found " +
@@ -30,7 +31,7 @@ export const startDraftTool = (
       "it. Your turn ends with this call: the editor sees the draft's card, and nothing more. " +
       "This thread then starts afresh from that card, without the messages before it.",
     parameters: Type.Object({
-      name: Type.String({ minLength: 1, maxLength: 80 }),
+      name: Type.String({ minLength: 1, maxLength: DRAFT_NAME_MAX_LENGTH }),
       brief: Type.String({ minLength: 1 }),
     }),
     callers: ["model"],

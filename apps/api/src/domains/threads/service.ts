@@ -42,7 +42,7 @@ export const currentLiveThread = Effect.fn("currentLiveThread")(function* (
 
 /**
  * Starts the regular draft the agent on Live hands a request off to (`startDraft`), named
- * `name` and created by `editorId`, the editor whose message started the run, while they're
+ * `name` for the editor's `openingRequest` and created by `editorId`, the editor whose message started the run, while they're
  * still a member. It records its own thread's id, set aside here, and the Live thread that
  * started it, which ending the draft tells. Repeating it with the same ids changes nothing, and
  * an id that belonged to a draft that ended starts nothing: whether the draft is open.
@@ -56,9 +56,10 @@ export const startDraftFromLive = Effect.fn("startDraftFromLive")(function* (
     threadId: string;
     liveThreadId: string;
     name: string;
+    openingRequest: string;
   },
 ) {
-  const { projectId, editorId, draftId, threadId, liveThreadId, name } = start;
+  const { projectId, editorId, draftId, threadId, liveThreadId, name, openingRequest } = start;
   if (!(yield* isProjectMember(db, projectId, editorId))) {
     return yield* Effect.die(new Error("The editor who asked is no longer a member"));
   }
@@ -69,6 +70,7 @@ export const startDraftFromLive = Effect.fn("startDraftFromLive")(function* (
     name,
     threadId,
     liveThreadId,
+    openingRequest,
   });
   const draft = yield* Effect.promise(() =>
     db
@@ -134,7 +136,7 @@ const tellThread = (
 
 /**
  * Tells the Live thread that started a draft, if any, to show its card's draft as it stands now,
- * once it's renamed or ended. A Live thread that can't be reached shows it when next opened.
+ * once its overview renames it or it ends. A Live thread that can't be reached shows it when next opened.
  */
 export const showDraftOnLive = (
   ctx: Pick<ServiceContext, "env">,

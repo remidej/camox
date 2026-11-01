@@ -1,4 +1,7 @@
-/** What a draft shows as its name: computed for the viewer when unnamed, and never stored. */
+/**
+ * What a draft shows as its name: computed for the viewer until its overview names it, and
+ * never stored.
+ */
 type Labelled = {
   name: string | null;
   createdBy: { name: string };
@@ -8,7 +11,7 @@ type Labelled = {
 const dayFormat = new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric" });
 
 /**
- * A draft's name, or for an unnamed draft its creator and creation date formatted for the
+ * A draft's name, or for a draft not named yet its creator and creation date formatted for the
  * viewer, e.g. "Rémi, Oct 13".
  */
 export function draftLabel(draft: Labelled): string {

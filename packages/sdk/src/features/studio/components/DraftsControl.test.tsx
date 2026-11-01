@@ -224,11 +224,6 @@ async function search(text: string) {
 const sheetTitle = () =>
   window.document.querySelector('[role="dialog"] [data-slot="sheet-title"]')?.textContent ?? "";
 
-const nameInput = () =>
-  window.document.querySelector('[role="dialog"] input[aria-label="Draft name"]') as unknown as
-    | HTMLInputElement
-    | undefined;
-
 async function render(t: test.TestContext, at: string | null) {
   window.history.replaceState(null, "", at ? `/?${DRAFT_SEARCH_PARAM}=${at}` : "/");
   const navigations: { to: string; draft?: string | null }[] = [];
@@ -311,7 +306,7 @@ void test("on Live, reads Live, says the first edit starts a draft, and shows no
   assert.match(menu()?.textContent ?? "", /first edit starts a new draft/);
 });
 
-void test("in a named draft, the picker reads its name and the row its pending changes, to discard or publish", async (t) => {
+void test("in a named draft, the picker reads its name and the row its pending changes, to delete or publish", async (t) => {
   mockApi(t);
   await render(t, spring);
 
@@ -319,7 +314,7 @@ void test("in a named draft, the picker reads its name and the row its pending c
   assert.match(bar()?.textContent ?? "", /4 pending changes/);
   assert.deepEqual(
     barButtons().map((button) => button.textContent),
-    ["Discard", "Publish…"],
+    ["Delete", "Publish…"],
   );
 });
 
@@ -330,14 +325,14 @@ void test("in an unnamed draft, the picker reads its creator and date", async (t
   assert.equal(trigger().textContent, "Ada, Oct 13");
 });
 
-void test("a draft without changes can be discarded but has nothing to publish", async (t) => {
+void test("a draft without changes can be deleted but has nothing to publish", async (t) => {
   mockApi(t, (path) =>
     path === "drafts/get" ? json({ ...drafts[0], changeCount: 0 }) : undefined,
   );
   await render(t, spring);
 
   assert.match(bar()?.textContent ?? "", /No changes yet/);
-  assert.equal(barButton("Discard")?.disabled, false);
+  assert.equal(barButton("Delete")?.disabled, false);
   assert.equal(barButton("Publish…")?.disabled, true);
 });
 
@@ -421,7 +416,6 @@ void test("the palette's Review and publish opens the draft's review", async (t)
   assert.equal(palette(), null);
   assert.equal(sheetTitle(), "Spring campaign");
   assert.match(window.document.querySelector('[role="dialog"]')?.textContent ?? "", /Delete draft/);
-  assert.notEqual(window.document.activeElement, nameInput());
 });
 
 void test("the palette's Delete draft… asks for confirmation without deleting", async (t) => {
@@ -433,19 +427,6 @@ void test("the palette's Delete draft… asks for confirmation without deleting"
   const confirm = window.document.querySelector('[role="alertdialog"]');
   assert.match(confirm?.textContent ?? "", /Delete this draft\?/);
   assert.equal(calls.filter((call) => call.path === "drafts/delete").length, 0);
-});
-
-void test("the palette's Rename draft… opens the review with the draft's name focused and selected", async (t) => {
-  mockApi(t);
-  await render(t, spring);
-
-  await runCommand("Rename draft…");
-
-  const input = nameInput();
-  assert.equal(input?.value, "Spring campaign");
-  assert.equal(window.document.activeElement, input);
-  assert.equal(input?.selectionStart, 0);
-  assert.equal(input?.selectionEnd, "Spring campaign".length);
 });
 
 void test("the palette's Switch to Live leaves the draft for the same page", async (t) => {
@@ -489,7 +470,6 @@ void test("in a draft, the palette offers the draft's actions and switching", as
   assert.deepEqual(draftsCommands(), [
     "Review and publish",
     "Delete draft…",
-    "Rename draft…",
     "Switch to Live",
     "Switch to draft…",
   ]);
@@ -534,7 +514,7 @@ void test("in an unnamed draft, the row offers the same two buttons", async (t) 
   assert.match(bar()?.textContent ?? "", /1 pending change/);
   assert.deepEqual(
     barButtons().map((button) => button.textContent),
-    ["Discard", "Publish…"],
+    ["Delete", "Publish…"],
   );
 });
 
@@ -558,42 +538,27 @@ void test("Publish… opens the draft's review", async (t) => {
 
   await click(barButton("Publish…"));
 
-  // An unnamed draft's review discards its changes rather than deletes a draft.
-  assert.match(
-    window.document.querySelector('[role="dialog"]')?.textContent ?? "",
-    /Discard changes/,
-  );
+  assert.match(window.document.querySelector('[role="dialog"]')?.textContent ?? "", /Delete draft/);
 });
 
-void test("Discard asks to discard the changes, then discards them and returns to Live", async (t) => {
+void test("Delete asks to delete the draft, then deletes it and returns to Live", async (t) => {
   const calls = mockApi(t);
   const shown = t.mock.method(toast, "promise", () => ({ unwrap: async () => {} }));
   await render(t, adas);
 
-  await click(barButton("Discard"));
+  await click(barButton("Delete"));
   const confirm = window.document.querySelector('[role="alertdialog"]');
-  assert.match(confirm?.textContent ?? "", /Discard these changes\?/);
+  assert.match(confirm?.textContent ?? "", /Delete this draft\?/);
   assert.equal(calls.filter((call) => call.path === "drafts/delete").length, 0);
 
-  const discard = [...(confirm?.querySelectorAll("button") ?? [])].find(
-    (button) => button.textContent === "Discard changes",
+  const deleteButton = [...(confirm?.querySelectorAll("button") ?? [])].find(
+    (button) => button.textContent === "Delete draft",
   );
-  await click(discard);
+  await click(deleteButton);
 
   assert.equal(calls.filter((call) => call.path === "drafts/delete").length, 1);
   assert.deepEqual(
     shown.mock.calls.map((call) => (call.arguments[1] as { success?: unknown }).success),
-    ["Changes discarded. You're now viewing Live."],
+    ["Draft deleted. You're now viewing Live."],
   );
-});
-
-void test("in an unnamed draft, the palette discards and names rather than deletes and renames", async (t) => {
-  mockApi(t);
-  await render(t, adas);
-  await openPalette();
-
-  assert.ok(draftsCommands().includes("Discard changes…"));
-  assert.ok(draftsCommands().includes("Name draft…"));
-  assert.equal(draftsCommands().includes("Delete draft…"), false);
-  assert.equal(draftsCommands().includes("Rename draft…"), false);
 });

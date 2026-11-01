@@ -35,11 +35,10 @@ import {
 } from "lucide-react";
 import * as React from "react";
 
-import { getDraftReadClient } from "@/lib/api-client";
-import { draftMutations, type DraftSummary, patrolMutations } from "@/lib/queries";
+import { draftMutations, patrolMutations } from "@/lib/queries";
 import { cn } from "@/lib/utils";
 
-import { reads, useReadQuery, useStudioCache } from "../../../lib/studio-reads";
+import { reads, useReadQuery } from "../../../lib/studio-reads";
 import { previewStore } from "../../preview/previewStore";
 import { draftLabel, plural, timeAgo } from "../draftLabel";
 import { askAgentMessage, findingSentence, fixLabel } from "../findingSentence";
@@ -741,83 +740,6 @@ function DraftOverview({ projectId, preview }: { projectId: number; preview: Pub
 }
 
 /**
- * Renames a regular draft, whichever draft the studio views: the request names the draft it
- * renames. A blank name clears it, so the draft shows its computed label again.
- */
-export function useRenameDraft(projectId: number) {
-  const studioCache = useStudioCache();
-  return useMutation({
-    mutationFn: ({ draftId, name }: { draftId: string; name: string }) =>
-      getDraftReadClient(draftId).drafts.rename({ projectId, name }),
-    onSuccess: (renamed) => {
-      studioCache.set(reads.draft({ projectId, draftId: renamed.id }), renamed);
-      void studioCache.invalidate(reads.draftList({ projectId }));
-    },
-    onError: (error) => toast.error(error.message || "Could not rename the draft"),
-  });
-}
-
-/**
- * The draft's name in the review's header, renamed in place by any member (#203), like a page
- * nickname in the Canvas Inspector: a title whose border shows on hover or focus, without
- * moving the text. An unnamed draft shows its computed label until focused. Saves on Enter or
- * blur, and a blank name clears it; Escape puts the name back.
- */
-function DraftNameInput({
-  projectId,
-  draft,
-  ref,
-  className,
-}: {
-  projectId: number;
-  draft: DraftSummary;
-  ref: React.Ref<HTMLInputElement>;
-  className?: string;
-}) {
-  const rename = useRenameDraft(projectId);
-  const name = draft.name ?? "";
-
-  const save = (input: HTMLInputElement) => {
-    if ((input.value.trim() || null) === draft.name) {
-      input.value = name;
-      return;
-    }
-    rename.mutate(
-      { draftId: draft.id, name: input.value },
-      { onError: () => void (input.value = name) },
-    );
-  };
-  return (
-    <input
-      ref={ref}
-      // A new name, from here or elsewhere, resets what's typed.
-      key={name}
-      aria-label="Draft name"
-      defaultValue={name}
-      placeholder={draftLabel({ ...draft, name: null })}
-      title={draftLabel(draft)}
-      maxLength={200}
-      className={cn(
-        "hover:border-input focus-visible:border-ring focus-visible:ring-ring/50 placeholder:text-foreground focus:placeholder:text-muted-foreground -mx-1.5 h-8 w-full min-w-0 truncate rounded-md border border-transparent bg-transparent px-1.5 text-base font-medium transition-[color,box-shadow,border-color] outline-none hover:shadow-xs focus-visible:ring-3",
-        className,
-      )}
-      onBlur={(event) => save(event.currentTarget)}
-      onKeyDown={(event) => {
-        if (event.key === "Enter") {
-          event.preventDefault();
-          event.currentTarget.blur();
-        }
-        if (event.key !== "Escape") return;
-        // Cancels the rename only, not the whole review.
-        event.stopPropagation();
-        event.currentTarget.value = name;
-        event.currentTarget.blur();
-      }}
-    />
-  );
-}
-
-/**
  * Reviews a draft before publishing it whole, or deletes it (ADR 0009). Publishing sends back
  * the token of the preview shown; when Live changed since, nothing is published and the new
  * preview is shown. Once the draft ends, the studio switches to Live.
@@ -826,14 +748,11 @@ export function ReviewDraftSheet({
   projectId,
   draftId,
   open,
-  startRenaming = false,
   onOpenChange,
 }: {
   projectId: number;
   draftId: string;
   open: boolean;
-  /** Opens with the draft's name being edited, as if the member had clicked it. */
-  startRenaming?: boolean;
   onOpenChange: (open: boolean) => void;
 }) {
   const [confirmingDelete, setConfirmingDelete] = React.useState(false);
@@ -843,18 +762,6 @@ export function ReviewDraftSheet({
   const leaveDraft = useLeaveDraft();
   const showInCanvas = useShowInCanvas();
   const popup = React.useRef<HTMLDivElement>(null);
-  const nameInput = React.useRef<HTMLInputElement>(null);
-  /**
-   * Opened to rename, the name is focused and selected to type over. Otherwise the sheet itself
-   * is, so the name doesn't read as being edited.
-   */
-  const initialFocus = () => {
-    if (startRenaming && nameInput.current) {
-      nameInput.current.select();
-      return nameInput.current;
-    }
-    return popup.current;
-  };
 
   // The draft's summary follows its pending translations: the preview is read again as they
   // settle, so Publish becomes available once they're done.
@@ -866,11 +773,9 @@ export function ReviewDraftSheet({
     seenPending.current = pending;
   }, [pending, refetch]);
 
-  // Deleting a draft nobody named yet discards its changes.
-  const discard = draft.data?.name === null;
   const leave = (ended: EndedDraft | null) => {
     onOpenChange(false);
-    leaveDraft(ended, { discarded: discard });
+    leaveDraft(ended);
   };
 
   const publish = useMutation({
@@ -933,7 +838,7 @@ export function ReviewDraftSheet({
       <Sheet open={open} onOpenChange={onOpenChange}>
         <SheetContent
           ref={popup}
-          initialFocus={initialFocus}
+          initialFocus={popup}
           side="right"
           className="w-full gap-0 data-[side=right]:sm:max-w-lg"
         >
@@ -943,31 +848,21 @@ export function ReviewDraftSheet({
               <>
                 <SheetDescription className="flex min-w-0 items-center gap-1">
                   {draft.data && (
-                    <DraftNameInput
-                      ref={nameInput}
-                      projectId={projectId}
-                      draft={draft.data}
-                      className="placeholder:text-muted-foreground text-muted-foreground field-sizing-content h-6 w-auto max-w-full text-sm font-normal"
-                    />
-                  )}
-                  {draft.data && (
-                    <span className="shrink-0">
-                      · {draft.data.createdBy.name}, started {timeAgo(draft.data.createdAt)}
-                    </span>
+                    <>
+                      <span className="truncate">{draftLabel(draft.data)}</span>
+                      <span className="shrink-0">
+                        · {draft.data.createdBy.name}, started {timeAgo(draft.data.createdAt)}
+                      </span>
+                    </>
                   )}
                 </SheetDescription>
                 <SheetTitle className="text-lg leading-snug font-semibold">{headline}</SheetTitle>
               </>
             ) : (
               <>
-                {draft.data ? (
-                  <>
-                    <SheetTitle className="sr-only">{draftLabel(draft.data)}</SheetTitle>
-                    <DraftNameInput ref={nameInput} projectId={projectId} draft={draft.data} />
-                  </>
-                ) : (
-                  <SheetTitle className="text-base">Draft</SheetTitle>
-                )}
+                <SheetTitle className="truncate text-base">
+                  {draft.data ? draftLabel(draft.data) : "Draft"}
+                </SheetTitle>
                 <SheetDescription>
                   {draft.data
                     ? `${draft.data.createdBy.name} · started ${timeAgo(draft.data.createdAt)}`
@@ -1009,7 +904,7 @@ export function ReviewDraftSheet({
                 onClick={() => setConfirmingDelete(true)}
               >
                 <Trash2 />
-                {discard ? "Discard changes" : "Delete draft"}
+                Delete draft
               </Button>
               <Button
                 className="ml-auto"
@@ -1027,7 +922,6 @@ export function ReviewDraftSheet({
       <DeleteDraftDialog
         projectId={projectId}
         open={confirmingDelete}
-        discard={discard}
         onOpenChange={setConfirmingDelete}
         onDeleted={leave}
       />
@@ -1035,20 +929,15 @@ export function ReviewDraftSheet({
   );
 }
 
-/**
- * Asks before deleting the draft the studio is in, then deletes it. Deleting an unnamed draft
- * is discarding its changes: nobody kept them as a draft yet.
- */
+/** Asks before deleting the draft the studio is in, then deletes it. */
 export function DeleteDraftDialog({
   projectId,
   open,
-  discard = false,
   onOpenChange,
   onDeleted,
 }: {
   projectId: number;
   open: boolean;
-  discard?: boolean;
   onOpenChange: (open: boolean) => void;
   onDeleted: (ended: EndedDraft | null) => void;
 }) {
@@ -1070,12 +959,10 @@ export function DeleteDraftDialog({
     >
       <AlertDialogContent>
         <AlertDialogHeader>
-          <AlertDialogTitle>
-            {discard ? "Discard these changes?" : "Delete this draft?"}
-          </AlertDialogTitle>
+          <AlertDialogTitle>Delete this draft?</AlertDialogTitle>
           <AlertDialogDescription>
-            {discard ? "These changes are" : "Every change in this draft is"} deleted for everyone.
-            Live stays as it is. This can't be undone.
+            Every change in this draft is deleted for everyone. Live stays as it is. This can't be
+            undone.
           </AlertDialogDescription>
         </AlertDialogHeader>
         <AlertDialogFooter>
@@ -1088,7 +975,7 @@ export function DeleteDraftDialog({
             onClick={() => deleteDraft.mutate({ projectId })}
           >
             {deleteDraft.isPending ? <Spinner /> : null}
-            {discard ? "Discard changes" : "Delete draft"}
+            Delete draft
           </AlertDialogAction>
         </AlertDialogFooter>
       </AlertDialogContent>

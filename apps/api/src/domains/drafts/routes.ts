@@ -19,10 +19,6 @@ const get = authed
   .input(list.getInput)
   .handler(({ context, input }) => runService(list.getDraft(context, input)));
 
-const rename = authed
-  .input(list.renameInput)
-  .handler(({ context, input }) => runService(list.renameDraft(context, input)));
-
 const previewPublish = authed
   .input(publish.previewPublishInput)
   .handler(({ context, input }) => runService(publish.previewPublish(context, input)));
@@ -47,7 +43,6 @@ export const draftProcedures = {
   list: listDrafts,
   create,
   get,
-  rename,
   previewPublish,
   retryOverview,
   publish: publishDraft,

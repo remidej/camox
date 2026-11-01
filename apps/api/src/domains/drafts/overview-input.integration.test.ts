@@ -95,7 +95,12 @@ async function fixture() {
   };
   /** Runs the draft's overview job and returns what the model was asked. */
   const overviewRequest = async (draftId: string): Promise<DraftOverviewRequest> => {
-    answerNext("draftOverview", { name: "A name", headline: "A headline", bullets: [] });
+    answerNext("draftOverview", {
+      nameVerdict: "obsolete",
+      name: "A name",
+      headline: "A headline",
+      bullets: [],
+    });
     await runService(runOverviewJob(db, { kind: "overview", draftId }));
     const asked = modelCalls().filter((call) => call.method === "draftOverview");
     return asked.at(-1)!.request as DraftOverviewRequest;
@@ -307,7 +312,7 @@ describe("the overview's input size", () => {
   /** A draft's changes, as its preview lists them, each on its own page with a long name. */
   async function changesOnManyPages(locale: string, change: Change["change"]) {
     const { db, projectId, member } = await fixture();
-    const { id } = await call(router.drafts.create, { projectId, name: "Big" }, member());
+    const { id } = await call(router.drafts.create, { projectId }, member());
     const nickname = "Page ".repeat(60);
     // Even counted by place, the places alone take more than the input may.
     const count = Math.ceil(MAX_INPUT_LENGTH / nickname.length) + 1;
@@ -320,7 +325,15 @@ describe("the overview's input size", () => {
       change,
     }));
     const input = (defaultLocale: string) =>
-      runService(overviewInput(camoxContext(db), { id, projectId }, "Big", changes, defaultLocale));
+      runService(
+        overviewInput(
+          camoxContext(db),
+          { id, projectId },
+          { name: "Big", openingRequest: null },
+          changes,
+          defaultLocale,
+        ),
+      );
     return { count, input };
   }
 

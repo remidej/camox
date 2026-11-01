@@ -45,11 +45,11 @@ export function useLeaveDraft() {
   const draftScope = useDraftScope();
   const shown = useViewShown();
   return React.useCallback(
-    (ended: EndedDraft | null, { discarded = false }: { discarded?: boolean } = {}) => {
+    (ended: EndedDraft | null) => {
       if (ended && draftScope.current() !== ended.draftId) return;
       draftScope.leave(ended);
       if (!ended) return;
-      const what = discarded ? "Changes discarded" : `Draft ${ended.outcome}`;
+      const what = `Draft ${ended.outcome}`;
       toastSwitch(shown(), {
         loading: `${what}. Switching to Live…`,
         success: `${what}. You're now viewing Live.`,

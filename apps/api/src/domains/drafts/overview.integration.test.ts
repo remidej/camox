@@ -1,5 +1,6 @@
 import { DRAFT_CREATE_HEADER, DRAFT_HEADER } from "@camox/api-contract/drafts";
 import { generateUuidv7 } from "@camox/api-contract/ids";
+import { queryKeys } from "@camox/api-contract/query-keys";
 import { call } from "@orpc/server";
 import { and, eq } from "drizzle-orm";
 import { Effect } from "effect";
@@ -13,6 +14,8 @@ import {
   syncDefinitionSet,
 } from "../../../test/fixtures";
 import { answerNext, modelCalls, scheduledFor, scheduledOverviews } from "../../../test/generation";
+import { forgetSent, refreshes, sentTo } from "../../../test/project-rooms";
+import type { Database } from "../../db";
 import type { DraftOverview } from "../../lib/ai-model";
 import { Journal } from "../../lib/journal";
 import { AiCallError } from "../../lib/retry-ai-call";
@@ -25,7 +28,7 @@ import { runOverviewJob } from "./overview-job";
 import { drafts } from "./schema";
 
 // The Draft Overview: a headline and bullets AI writes about a draft's changes, stored on the
-// draft, shown at the top of its review, and never published.
+// draft, shown at the top of its review, and never published. Writing it names the draft.
 
 type Headers = Record<string, string>;
 const startingDraft = (id: string) => ({ [DRAFT_HEADER]: id, [DRAFT_CREATE_HEADER]: "1" });
@@ -95,11 +98,15 @@ async function fixture() {
   };
 }
 
+/** Names a draft for the request it was started for, as a Live thread's hand-off does. */
+const startedFor = (db: Database, draftId: string, name: string, openingRequest: string) =>
+  db.update(drafts).set({ name, openingRequest }).where(eq(drafts.id, draftId));
+
 describe("a draft's overview", () => {
   it("is none while the draft is empty, and pending with a job requested once it changes", async () => {
     const { projectId, member, createBlock, editTitle, preview, overviewJobs } = await fixture();
     const block = await createBlock("Live");
-    const { id: draft } = await call(router.drafts.create, { projectId, name: "Spring" }, member());
+    const { id: draft } = await call(router.drafts.create, { projectId }, member());
 
     expect((await preview(draft)).overview).toEqual({ status: "none" });
     expect(overviewJobs(draft)).toEqual([]);
@@ -139,14 +146,15 @@ describe("a draft's overview", () => {
     expect(overviewJobs(draft).at(-1)!.delayMs).toBeGreaterThan(seo!.delayMs);
   });
 
-  it("is ready once its job ran, with the model's name, headline and bullets, written from the draft's name and changes", async () => {
-    const { projectId, member, createBlock, editTitle, preview, runOverview } = await fixture();
+  it("is ready once its job ran, with the model's headline and bullets, written from the draft's name, request and changes", async () => {
+    const { db, createBlock, editTitle, preview, runOverview } = await fixture();
     const block = await createBlock("Live");
     const draft = generateUuidv7();
     await editTitle(block.id, "Mine", startingDraft(draft));
-    await call(router.drafts.rename, { projectId, name: "Spring" }, member(inDraft(draft)));
+    await startedFor(db, draft, "Spring", "Make the hero say it's spring");
 
     await runOverview(draft, {
+      nameVerdict: "fits",
       name: "New hero title",
       headline: "Retitles the homepage hero",
       bullets: ["Home: hero retitled"],
@@ -154,7 +162,6 @@ describe("a draft's overview", () => {
 
     expect((await preview(draft)).overview).toEqual({
       status: "ready",
-      name: "New hero title",
       headline: "Retitles the homepage hero",
       bullets: ["Home: hero retitled"],
       stale: false,
@@ -165,6 +172,7 @@ describe("a draft's overview", () => {
         method: "draftOverview",
         request: {
           draftName: "Spring",
+          openingRequest: "Make the hero say it's spring",
           changes: [
             {
               place: "Home (/)",
@@ -180,6 +188,64 @@ describe("a draft's overview", () => {
   });
 });
 
+describe("the overview names its draft", () => {
+  async function changedDraft() {
+    const f = await fixture();
+    const block = await f.createBlock("Live");
+    const draft = generateUuidv7();
+    await f.editTitle(block.id, "Mine", startingDraft(draft));
+    const name = async () =>
+      (await f.db.select({ name: drafts.name }).from(drafts).where(eq(drafts.id, draft)).get())!
+        .name;
+    const listed = async () =>
+      (await call(router.drafts.list, { projectId: f.projectId }, f.member())).drafts.map(
+        (listed) => listed.name,
+      );
+    const overview = (nameVerdict: DraftOverview["nameVerdict"], name: string) =>
+      f.runOverview(draft, { nameVerdict, name, headline: "Retitles the hero", bullets: [] });
+    return { ...f, draft, name, listed, overview };
+  }
+
+  it("names a draft started without a name, whatever the model's verdict", async () => {
+    const { name, listed, overview } = await changedDraft();
+
+    await overview("fits", " Hero title ");
+
+    expect(await name()).toBe("Hero title");
+    expect(await listed()).toEqual(["Hero title"]);
+  });
+
+  it("keeps a name the model finds still fits", async () => {
+    const { db, draft, name, overview } = await changedDraft();
+    await startedFor(db, draft, "Spring", "Make the hero say it's spring");
+
+    await overview("fits", "Spring hero");
+
+    expect(await name()).toBe("Spring");
+  });
+
+  it("renames the draft once the model finds its name obsolete, for every member", async () => {
+    const { db, projectId, draft, name, listed, overview } = await changedDraft();
+    await startedFor(db, draft, "Spring", "Make the hero say it's spring");
+    forgetSent(projectId);
+
+    await overview("obsolete", "Hero title");
+
+    expect(await name()).toBe("Hero title");
+    expect(await listed()).toEqual(["Hero title"]);
+    expect(refreshes(sentTo(projectId), null, [...queryKeys.drafts.list, projectId])).toBe(true);
+  });
+
+  it("keeps the name of a draft Camox opened", async () => {
+    const { db, draft, name, overview } = await changedDraft();
+    await db.update(drafts).set({ name: "Patrol", purpose: "patrol" }).where(eq(drafts.id, draft));
+
+    await overview("obsolete", "Hero title");
+
+    expect(await name()).toBe("Patrol");
+  });
+});
+
 describe("the overview stays current", () => {
   async function readyOverview() {
     const f = await fixture();
@@ -187,6 +253,7 @@ describe("the overview stays current", () => {
     const draft = generateUuidv7();
     await f.editTitle(block.id, "Mine", startingDraft(draft));
     await f.runOverview(draft, {
+      nameVerdict: "fits",
       name: "Hero title",
       headline: "Retitles the hero",
       bullets: ["Home: hero retitled"],
@@ -201,7 +268,6 @@ describe("the overview stays current", () => {
 
     expect((await preview(draft)).overview).toEqual({
       status: "ready",
-      name: "Hero title",
       headline: "Retitles the hero",
       bullets: ["Home: hero retitled"],
       stale: true,
@@ -245,6 +311,7 @@ describe("the overview stays current", () => {
     await editTitle(block.id, "Mine again", inDraft(draft));
     await preview(draft);
     await runOverview(draft, {
+      nameVerdict: "fits",
       name: "Hero title",
       headline: "Retitles the hero twice",
       bullets: ["Home: hero"],
@@ -271,6 +338,7 @@ describe("the overview stays current", () => {
     await preview(draft);
 
     await runOverview(draft, {
+      nameVerdict: "fits",
       name: "Hero title, again",
       headline: "Retitles the hero twice",
       bullets: ["Home: hero"],
@@ -278,7 +346,6 @@ describe("the overview stays current", () => {
 
     expect((await preview(draft)).overview).toEqual({
       status: "ready",
-      name: "Hero title, again",
       headline: "Retitles the hero twice",
       bullets: ["Home: hero"],
       stale: false,
@@ -307,7 +374,12 @@ describe("drafts no one reviews get no overview", () => {
     await editTitle(block.id, "Mine", startingDraft(draft));
     await call(router.drafts.delete, { projectId }, member(inDraft(draft)));
 
-    await runOverview(draft, { name: "Too late", headline: "Too late", bullets: [] });
+    await runOverview(draft, {
+      nameVerdict: "fits",
+      name: "Too late",
+      headline: "Too late",
+      bullets: [],
+    });
 
     expect(modelCalls().filter((call) => call.method === "draftOverview")).toEqual([]);
   });
@@ -322,6 +394,7 @@ describe("the overview isn't content", () => {
     const before = await preview(draft);
 
     await runOverview(draft, {
+      nameVerdict: "fits",
       name: "Hero title",
       headline: "Retitles the hero",
       bullets: ["Home: hero retitled"],

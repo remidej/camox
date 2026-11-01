@@ -139,27 +139,22 @@ let websiteLocales = multilingual;
 const homePathIn: Record<string, string> = { en: "/", de: "/startseite", fr: "/accueil" };
 
 /**
- * Answers the draft's own summary, its locales and renames; everything else goes to `respond`.
+ * Answers the draft's own summary and its locales; everything else goes to `respond`.
  */
 function mockApi(t: test.TestContext, respond: (path: string, calls: Call[]) => Response) {
   const calls: Call[] = [];
-  let name: string | null = null;
   drafted = {};
   websiteLocales = multilingual;
   t.mock.method(globalThis, "fetch", async (request: Request) => {
     const path = new URL(request.url).pathname.replace(/^\/rpc\//, "");
     const input = ((await request.json()) as { json: unknown }).json;
     calls.push({ path, input, draft: request.headers.get(DRAFT_HEADER) });
-    if (path === "drafts/get") return json({ ...draft, name, ...drafted });
+    if (path === "drafts/get") return json({ ...draft, ...drafted });
     if (path === "pages/listBySlug") {
       const locale = request.headers.get(LOCALE_HEADER) ?? "en";
       return json({ pages: [{ ...home, fullPath: homePathIn[locale] }] });
     }
     if (path === "locales/list") return json(websiteLocales);
-    if (path === "drafts/rename") {
-      name = (input as { name: string }).name.trim() || null;
-      return json({ ...draft, name });
-    }
     return respond(path, calls);
   });
   return calls;
@@ -338,17 +333,19 @@ void test("titles the review with the overview's headline, the draft's name and 
   }
 });
 
-void test("keeps the draft's name renamable above the headline", async (t) => {
+void test("shows the draft's name above the headline, without letting anyone rename it", async (t) => {
   mockApi(t, () =>
     json({
       ...emptyPreview,
       overview: { status: "ready", headline: "Retitles", bullets: [], stale: false },
     }),
   );
+  drafted = { name: "Spring launch" };
   const close = await openReview();
   try {
     assert.equal(sheetTitle(), "Retitles");
-    assert.ok(window.document.querySelector('input[aria-label="Draft name"]'));
+    assert.match(sheetDescription(), /^Spring launch/);
+    assert.equal(window.document.querySelector('[role="dialog"] input'), null);
   } finally {
     await close();
   }
@@ -643,13 +640,13 @@ void test("asks the agent about a finding in the draft's chat, leaving the revie
   try {
     await click(buttonNamed(/^Ask the agent$/));
 
-    const { agentAsk, reviewDraftSheet } = studioStore.getSnapshot().context;
+    const { agentAsk, isReviewDraftSheetOpen } = studioStore.getSnapshot().context;
     assert.equal(
       agentAsk?.text,
       "Link checker finding: “About us” in Footer links to About, a page that no longer exists " +
         "(in English, field “link”). Suggested fix: Remove the link.",
     );
-    assert.equal(reviewDraftSheet.open, false);
+    assert.equal(isReviewDraftSheetOpen, false);
   } finally {
     studioStore.trigger.takeAgentAsk();
     await close();
@@ -1375,59 +1372,11 @@ void test("deletes a named draft only after a second confirmation, then switches
 const dialogTitle = () =>
   window.document.querySelector('[role="dialog"] [data-slot="sheet-title"]')?.textContent ?? "";
 
-const nameInput = () =>
-  window.document.querySelector('input[aria-label="Draft name"]') as unknown as
-    | HTMLInputElement
-    | undefined;
-
-/** Focuses the name, types over it, then presses `key`. */
-async function typeName(value: string, key: "Enter" | "Escape") {
-  const input = nameInput();
-  assert.ok(input, "expected the name to be editable");
-  await React.act(async () => {
-    input.focus();
-    input.value = value;
-    input.dispatchEvent(
-      new window.KeyboardEvent("keydown", { key, bubbles: true, cancelable: true }) as never,
-    );
-    await new Promise((resolve) => setTimeout(resolve, 40));
-  });
-}
-
-void test("names an unnamed draft by its creator and creation date, and renames it in place from the header", async (t) => {
-  const calls = mockApi(t, () => json(emptyPreview));
+void test("titles an unnamed draft's review by its creator and creation date", async (t) => {
+  mockApi(t, () => json(emptyPreview));
   const close = await openReview();
   try {
     assert.equal(dialogTitle(), "Ada, Oct 13");
-    // Unnamed, the name field reads its computed label, and isn't being edited.
-    assert.equal(nameInput()?.value, "");
-    assert.equal(nameInput()?.placeholder, "Ada, Oct 13");
-    assert.notEqual(window.document.activeElement, nameInput());
-
-    await typeName("Spring campaign", "Enter");
-    await settle();
-
-    assert.deepEqual(
-      calls.filter((call) => call.path === "drafts/rename").map((call) => call.input),
-      [{ projectId: 1, name: "Spring campaign" }],
-    );
-    assert.equal(dialogTitle(), "Spring campaign");
-    assert.equal(nameInput()?.value, "Spring campaign");
-  } finally {
-    await close();
-  }
-});
-
-void test("leaves the name as it is when editing is cancelled", async (t) => {
-  const calls = mockApi(t, () => json(emptyPreview));
-  const close = await openReview();
-  try {
-    await typeName("Never mind", "Escape");
-    await settle();
-
-    assert.equal(calls.filter((call) => call.path === "drafts/rename").length, 0);
-    assert.equal(dialogTitle(), "Ada, Oct 13");
-    assert.equal(nameInput()?.value, "");
   } finally {
     await close();
   }
