@@ -3,6 +3,7 @@ import {
   PUBLISHING_DRAFT_HEADER,
   REVISION_CHANGED_ERROR,
 } from "@camox/api-contract/drafts";
+import { queryKeys } from "@camox/api-contract/query-keys";
 import { call } from "@orpc/server";
 import {
   abortAllDurableObjects,
@@ -15,7 +16,7 @@ import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 
 import { callSeedingLive, createRpcContext, runChecks, startDraft } from "../../../test/fixtures";
 import { watchScheduling } from "../../../test/generation";
-import { sentTo } from "../../../test/project-rooms";
+import { forgetSent, refreshes, sentTo } from "../../../test/project-rooms";
 import { deliverPushes, pushToMain } from "../../../test/pushes";
 import { sdkBundleFiles, storeSdkBundle } from "../../../test/sdk-bundles";
 import {
@@ -475,6 +476,35 @@ async function camoxOnMain(repo: string) {
 }
 
 describe("publishing a draft with code", () => {
+  it("counts the draft's code as one change in its summary, beside the content it changes", async () => {
+    const { website, token } = await websiteWithCode();
+    const { draftId: codeOnly, thread } = await draftWithThread(website, token);
+    forgetSent(website.project.id);
+    answerWithCodeRequest();
+    answerWithToolCall("write", {
+      path: "src/blocks/text.tsx",
+      content: `export const text = "new";\n`,
+    });
+    answerFrom(() => "Changed it.");
+    await ask(thread, "Change the text block's code");
+    expect(
+      refreshes(sentTo(website.project.id), null, [...queryKeys.drafts.list, website.project.id]),
+    ).toBe(true);
+    const { draftId: withContent } = await draftAddingPricing(website, token);
+    const summaryOf = (draftId: string) =>
+      call(
+        router.drafts.get,
+        { projectId: website.project.id },
+        { context: memberContext(website, draftId) },
+      );
+
+    expect((await previewOf(website, codeOnly)).changes).toEqual([]);
+    expect((await summaryOf(codeOnly)).changeCount).toBe(1);
+    expect((await summaryOf(withContent)).changeCount).toBe(
+      (await previewOf(website, withContent)).changes.length + 1,
+    );
+  });
+
   it("puts the previewed build, the draft's definitions and content on Live, and its tree on main", async () => {
     const { website, token } = await websiteWithCode();
     const { draftId, file } = await draftAddingPricing(website, token);

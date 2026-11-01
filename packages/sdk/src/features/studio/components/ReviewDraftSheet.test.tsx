@@ -434,6 +434,24 @@ void test("says an empty draft has no changes, with no overview", async (t) => {
   }
 });
 
+void test("says a draft changing only code changes the website's code", async (t) => {
+  mockApi(t, () =>
+    json({
+      ...emptyPreview,
+      changes: [],
+      overview: { status: "none" },
+      code: builtCode,
+    }),
+  );
+  const close = await openReview();
+  try {
+    assert.match(dialogText(), /This draft changes the website's code/);
+    assert.doesNotMatch(dialogText(), /no changes/);
+  } finally {
+    await close();
+  }
+});
+
 void test("shows no overview for a catch-up draft's changes, which get none", async (t) => {
   mockApi(t, () => json({ ...emptyPreview, overview: { status: "none" } }));
   const close = await openReview();

@@ -678,7 +678,11 @@ function DraftOverview({ projectId, preview }: { projectId: number; preview: Pub
   });
 
   if (changes.length === 0) {
-    return <p className="text-muted-foreground text-sm">This draft has no changes.</p>;
+    return (
+      <p className="text-muted-foreground text-sm">
+        {preview.code ? "This draft changes the website's code." : "This draft has no changes."}
+      </p>
+    );
   }
   if (overview.status === "ready") {
     return (

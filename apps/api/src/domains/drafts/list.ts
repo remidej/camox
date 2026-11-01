@@ -29,7 +29,10 @@ export type DraftSummary = {
   createdAt: number;
   /** When the draft last stored a change, or null while it stores nothing. */
   lastChangedAt: number | null;
-  /** How many entities the draft changes: the length of its publish preview's changes. */
+  /**
+   * How many changes the draft has: the entities its publish preview lists, and its code as one
+   * more once the agent changed it, as publishing ships it.
+   */
   changeCount: number;
   /** The tags of the locales the draft has pending translations into (ADR 0015). */
   translatingLocales: string[];
@@ -56,20 +59,27 @@ export const createInput = z.object({
 });
 
 const summarize = Effect.fn("drafts.summarize")(function* (
-  db: ServiceContext["db"],
+  { env, db }: Pick<ServiceContext, "env" | "db">,
   rows: (typeof drafts.$inferSelect)[],
 ) {
+  const withCode = yield* Effect.promise(() =>
+    Promise.all(rows.map((row) => env.DRAFT_CODE.getByName(row.id).held())),
+  );
   const activity = yield* overlay.activityOf(
     db,
     rows.map((row) => row.id),
   );
-  // As many changes as the draft's review lists, which leaves out what Camox wrote.
+  // As many changes as the draft's review lists, which leaves out what Camox wrote, and its code.
   const changeCounts = new Map<string, number>();
-  for (const row of rows) {
-    if (!activity.has(row.id)) continue;
+  for (const [index, row] of rows.entries()) {
+    const code = withCode[index] ? 1 : 0;
+    if (!activity.has(row.id)) {
+      changeCounts.set(row.id, code);
+      continue;
+    }
     const scope = draftOf(row);
     const listed = yield* listedChanges(db, scope, yield* overlay.changesOf(db, scope));
-    changeCounts.set(row.id, listed.length);
+    changeCounts.set(row.id, listed.length + code);
   }
   const people = yield* peopleNamed(
     db,
@@ -104,7 +114,7 @@ export const listDrafts = Effect.fn("drafts.list")(function* (
   const rows = yield* Effect.promise(() =>
     ctx.db.select().from(drafts).where(eq(drafts.projectId, projectId)),
   );
-  const summaries = yield* summarize(ctx.db, rows);
+  const summaries = yield* summarize(ctx, rows);
   summaries.sort((a, b) => (b.lastChangedAt ?? b.createdAt) - (a.lastChangedAt ?? a.createdAt));
 
   const latest = yield* overlay.latestLivePublish(ctx.db, projectId);
@@ -138,7 +148,7 @@ export const createDraft = Effect.fn("drafts.create")(function* (
   const draft = yield* Effect.promise(() =>
     ctx.db.select().from(drafts).where(eq(drafts.id, id)).get(),
   );
-  const [summary] = yield* summarize(ctx.db, [draft!]);
+  const [summary] = yield* summarize(ctx, [draft!]);
   return summary!;
 });
 
@@ -162,7 +172,7 @@ export const getDraft = Effect.fn("drafts.get")(function* (
 ) {
   const { projectId } = yield* decodeInput(getInput, rawInput);
   const draft = yield* requireDraft(ctx, projectId);
-  const [summary] = yield* summarize(ctx.db, [draft]);
+  const [summary] = yield* summarize(ctx, [draft]);
   return summary!;
 });
 
@@ -182,6 +192,6 @@ export const renameDraft = Effect.fn("drafts.rename")(function* (
   );
   yield* record(ctx.db, { kind: "drafts", projectId });
   yield* showDraftOnLive(ctx, draft.liveThreadId);
-  const [summary] = yield* summarize(ctx.db, [{ ...draft, name: trimmed }]);
+  const [summary] = yield* summarize(ctx, [{ ...draft, name: trimmed }]);
   return summary!;
 });
