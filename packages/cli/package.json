@@ -1,6 +1,6 @@
 {
   "name": "@camox/cli",
-  "version": "0.69.0",
+  "version": "0.70.0",
   "license": "MIT",
   "bin": {
     "camox": "./dist/index.mjs"
