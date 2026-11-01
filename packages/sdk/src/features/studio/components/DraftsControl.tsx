@@ -66,7 +66,7 @@ export function DraftPicker({ disabled = false }: { disabled?: boolean }) {
   const navigate = useNavigate();
   const leaveDraft = useLeaveDraft();
   const switchView = useSwitchView();
-  const review = useSelector(studioStore, (state) => state.context.reviewDraftSheet);
+  const reviewing = useSelector(studioStore, (state) => state.context.isReviewDraftSheetOpen);
   const deleting = useSelector(studioStore, (state) => state.context.isDeleteDraftDialogOpen);
 
   React.useEffect(
@@ -105,7 +105,6 @@ export function DraftPicker({ disabled = false }: { disabled?: boolean }) {
   useDraftsActions({
     enabled: !!projectId,
     draftId,
-    unnamed: current?.name === null,
     drafts,
     switchTo,
   });
@@ -169,8 +168,7 @@ export function DraftPicker({ disabled = false }: { disabled?: boolean }) {
           <ReviewDraftSheet
             projectId={projectId}
             draftId={draftId}
-            open={review.open}
-            startRenaming={review.startRenaming}
+            open={reviewing}
             onOpenChange={(open) => {
               if (!open) studioStore.send({ type: "closeReviewDraftSheet" });
             }}
@@ -178,11 +176,10 @@ export function DraftPicker({ disabled = false }: { disabled?: boolean }) {
           <DeleteDraftDialog
             projectId={projectId}
             open={deleting}
-            discard={current?.name === null}
             onOpenChange={(open) => {
               if (!open) studioStore.send({ type: "closeDeleteDraftDialog" });
             }}
-            onDeleted={(ended) => leaveDraft(ended, { discarded: current?.name === null })}
+            onDeleted={leaveDraft}
           />
         </>
       )}
@@ -197,14 +194,11 @@ export function DraftPicker({ disabled = false }: { disabled?: boolean }) {
 function useDraftsActions({
   enabled,
   draftId,
-  unnamed,
   drafts,
   switchTo,
 }: {
   enabled: boolean;
   draftId: string | null;
-  /** Whether the current draft is unnamed, whose deletion discards its changes. */
-  unnamed: boolean;
   drafts: DraftSummary[];
   switchTo: (next: string | null) => void;
 }) {
@@ -222,21 +216,11 @@ function useDraftsActions({
       },
       {
         id: "delete-draft",
-        label: unnamed ? "Discard changes…" : "Delete draft…",
-        aliases: unnamed
-          ? ["Delete draft", "Throw away changes", "Revert changes"]
-          : ["Discard changes", "Throw away changes", "Revert changes"],
+        label: "Delete draft…",
+        aliases: ["Discard changes", "Throw away changes", "Revert changes"],
         groupLabel: "Drafts",
         checkIfAvailable: () => inDraft,
         execute: () => studioStore.send({ type: "openDeleteDraftDialog" }),
-      },
-      {
-        id: "rename-draft",
-        label: unnamed ? "Name draft…" : "Rename draft…",
-        aliases: unnamed ? ["Rename draft", "Save draft"] : ["Name draft"],
-        groupLabel: "Drafts",
-        checkIfAvailable: () => inDraft,
-        execute: () => studioStore.send({ type: "openReviewDraftSheet", startRenaming: true }),
       },
       {
         id: "switch-to-live",
@@ -270,7 +254,7 @@ function useDraftsActions({
     return () => {
       actionsStore.send({ type: "unregisterManyActions", ids: actions.map((a) => a.id) });
     };
-  }, [enabled, draftId, unnamed, drafts, switchTo]);
+  }, [enabled, draftId, drafts, switchTo]);
 }
 
 /** Who published Live last and when: a member, a release, or nobody yet. */

@@ -4,7 +4,7 @@ interface StudioContext {
   isCommandPaletteOpen: boolean;
   commandPalettePages: string[];
   /** The current draft's review, opened by its Publish… button or the command palette. */
-  reviewDraftSheet: { open: boolean; startRenaming: boolean };
+  isReviewDraftSheetOpen: boolean;
   isDeleteDraftDialogOpen: boolean;
   /** The locale picker's dialog open: adding a locale, or removing the one viewed. */
   localeDialog: "add" | "remove" | null;
@@ -34,7 +34,7 @@ export const studioStore = createStore({
   context: {
     isCommandPaletteOpen: false,
     commandPalettePages: [],
-    reviewDraftSheet: { open: false, startRenaming: false },
+    isReviewDraftSheetOpen: false,
     isDeleteDraftDialogOpen: false,
     localeDialog: null,
     websiteLocation: null,
@@ -74,14 +74,11 @@ export const studioStore = createStore({
         commandPalettePages: context.commandPalettePages.slice(0, -1),
       };
     },
-    openReviewDraftSheet: (context, event: { startRenaming?: boolean }) => {
-      return {
-        ...context,
-        reviewDraftSheet: { open: true, startRenaming: event.startRenaming ?? false },
-      };
+    openReviewDraftSheet: (context) => {
+      return { ...context, isReviewDraftSheetOpen: true };
     },
     closeReviewDraftSheet: (context) => {
-      return { ...context, reviewDraftSheet: { open: false, startRenaming: false } };
+      return { ...context, isReviewDraftSheetOpen: false };
     },
     openDeleteDraftDialog: (context) => {
       return { ...context, isDeleteDraftDialogOpen: true };
@@ -99,7 +96,7 @@ export const studioStore = createStore({
     askAgent: (context, event: { text: string }) => {
       return {
         ...context,
-        reviewDraftSheet: { open: false, startRenaming: false },
+        isReviewDraftSheetOpen: false,
         agentAsk: { text: event.text, id: context.agentAsks + 1 },
         agentAsks: context.agentAsks + 1,
       };

@@ -105,6 +105,7 @@ describe("an AI call's attribution", () => {
     const draft = await startDraft();
 
     answerNext("draftOverview", {
+      nameVerdict: "obsolete",
       name: "Hero title",
       headline: "Retitles the hero",
       bullets: ["Hero retitled"],

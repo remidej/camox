@@ -308,7 +308,12 @@ describe("the SEO manager", () => {
       return runService(runOverviewJob(db, { kind: "overview", draftId: draft }));
     };
 
-    await overview({ name: "Pricing", headline: "Renames Pricing", bullets: ["Pricing: renamed"] });
+    await overview({
+      nameVerdict: "obsolete",
+      name: "Pricing",
+      headline: "Renames Pricing",
+      bullets: ["Pricing: renamed"],
+    });
     await overview(new AiCallError({ cause: "Model unavailable" }));
 
     for (const patroller of await patrol()) {

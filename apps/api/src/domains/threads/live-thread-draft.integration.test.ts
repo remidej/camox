@@ -372,7 +372,8 @@ describe("the agent on Live hearing that a draft it started ended", () => {
     const teammate = await addMember(website.db, website.project.organizationId);
     const { draftId, handingOff } = await handedOffDraft(website, token);
     await writeOverview(website, draftId, {
-      name: "Price rise",
+      nameVerdict: "fits",
+      name: "New prices",
       headline: "Plans cost $12",
       bullets: ["The pricing page's price rose from $9 to $12"],
     });
@@ -487,14 +488,16 @@ async function writeOverview(website: Website, draftId: string, overview: DraftO
   await runService(runOverviewJob(website.db, { kind: "overview", draftId }));
 }
 describe("a Live thread's card for a draft it started", () => {
-  it("shows the draft's new name once it's renamed, on the Live thread already open and on the next", async () => {
+  it("shows the draft's new name once its overview renames it, on the Live thread already open and on the next", async () => {
     const website = await websiteFixture({ pricing: "Plans start at $9." });
     const token = await signIn(website.db, website.memberUser.id);
     const live = await connectLiveThread(website.project.id, token);
     handOff("New prices");
+    answerWithScript(RAISE_PRICE);
     answerNext("Raised the price.");
     await ask(live, "Raise the price to $12", { keepOpen: true });
     const [draft] = await draftsOf(website);
+    await until(async () => (await pagesOf(website, draft!.id))["/pricing"]![0]!.includes("$12"));
 
     await renameDraft(website, draft!.id, "Prices for 2027");
 
@@ -545,9 +548,11 @@ describe("a Live thread's card for a draft it started", () => {
     const token = await signIn(website.db, website.memberUser.id);
     const live = await connectLiveThread(website.project.id, token);
     handOff("New prices");
+    answerWithScript(RAISE_PRICE);
     answerNext("Raised the price.");
     await ask(live, "Raise the price to $12", { keepOpen: true });
     const [draft] = await draftsOf(website);
+    await until(async () => (await pagesOf(website, draft!.id))["/pricing"]![0]!.includes("$12"));
     await renameDraft(website, draft!.id, "Prices for 2027");
 
     await deleteDraft(website, draft!.id);
@@ -571,6 +576,7 @@ describe("a Live thread's card for a draft it started", () => {
     const website = await websiteFixture({ pricing: "Plans start at $9." });
     const token = await signIn(website.db, website.memberUser.id);
     handOff("New prices");
+    answerWithScript(RAISE_PRICE);
     answerNext("Raised the price.");
     await ask(await connectLiveThread(website.project.id, token), "Raise the price to $12");
     const [draft] = await draftsOf(website);
@@ -606,11 +612,12 @@ const cardOf = (view: ThreadView) => {
   return message?.from === "draft" ? message : undefined;
 };
 
-/** Renames a draft as the fixture member does from the studio. */
+/** Renames a draft as its overview does, finding its name obsolete: the draft has to change something. */
 function renameDraft(website: Website, draftId: string, name: string) {
-  return call(
-    draftProcedures.rename,
-    { projectId: website.project.id, name },
-    inDraft(website, draftId, website.memberUser),
-  );
+  return writeOverview(website, draftId, {
+    nameVerdict: "obsolete",
+    name,
+    headline: "Plans cost $12",
+    bullets: ["The pricing page's price rose from $9 to $12"],
+  });
 }

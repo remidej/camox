@@ -8,6 +8,7 @@ import type {
 } from "../../lib/ai-model";
 import type { ServiceContext } from "../_shared/service-context";
 import { differingFields, fieldValuesOf } from "./field-values";
+import { OPENING_REQUEST_MAX_LENGTH } from "./name";
 import type * as overlay from "./overlay";
 import type { Change } from "./publish";
 import type { DraftScope } from "./scope";
@@ -197,7 +198,8 @@ function fitted(requestKeeping: (kept: number) => DraftOverviewRequest, most: nu
 }
 
 /**
- * What the model reads to write a draft's overview, from the changes its preview lists (which
+ * What the model reads to write a draft's overview, from its name and the start of the request
+ * it was started for, and from the changes its preview lists (which
  * leave out the localizations Camox wrote): the default locale's changes field by field, before
  * and after; created entities by their main values, deleted ones by their label; a block that
  * only moved as moved; a path rename once. Hand edits in other locales are counted per locale.
@@ -207,7 +209,7 @@ function fitted(requestKeeping: (kept: number) => DraftOverviewRequest, most: nu
 export const overviewInput = Effect.fn("drafts.overviewInput")(function* (
   ctx: ServiceContext,
   scope: Scope,
-  draftName: string | null,
+  draft: { name: string | null; openingRequest: string | null },
   changes: readonly Change[],
   defaultLocale: string | null,
 ) {
@@ -216,9 +218,12 @@ export const overviewInput = Effect.fn("drafts.overviewInput")(function* (
   const described = yield* describeChanges(ctx, scope, changes.filter(inDefault));
   const localeEdits = localeEditsOf(changes.filter((change) => !inDefault(change)));
   const localePlaces = Math.max(0, ...localeEdits.map((edits) => edits.places.length));
+  const draftName = draft.name;
+  const openingRequest = draft.openingRequest?.slice(0, OPENING_REQUEST_MAX_LENGTH) ?? null;
   const listed = fitted(
     (kept) => ({
       draftName,
+      openingRequest,
       changes: described,
       localeEdits: keepLocalePlaces(localeEdits, kept),
     }),
@@ -228,6 +233,7 @@ export const overviewInput = Effect.fn("drafts.overviewInput")(function* (
   const places = groupedByPlace(described);
   const grouped = (kept: number): DraftOverviewRequest => ({
     draftName,
+    openingRequest,
     places: keepPlaces(places, kept),
     localeEdits: keepLocalePlaces(localeEdits, kept),
   });

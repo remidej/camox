@@ -1,0 +1,1 @@
+ALTER TABLE `drafts` ADD `opening_request` text;

@@ -14,8 +14,7 @@ import { useDrafts } from "./DraftsControl";
 export const SETTLE_MS = 1500;
 
 /**
- * Asks what to do with the draft being viewed, once its edits settle: discard its changes or
- * publish them. `stacked` places it in the Preview toolbar's column, just above the toolbar;
+ * Asks what to do with the draft being viewed, once its edits settle: delete it or publish it. `stacked` places it in the Preview toolbar's column, just above the toolbar;
  * otherwise it floats at the bottom of the screen on its own.
  */
 export function DraftBar({ stacked = false }: { stacked?: boolean }) {
@@ -43,7 +42,7 @@ export function DraftBar({ stacked = false }: { stacked?: boolean }) {
           variant="outline"
           onClick={() => studioStore.send({ type: "openDeleteDraftDialog" })}
         >
-          Discard
+          Delete
         </Button>
         <Button
           type="button"

@@ -2085,6 +2085,7 @@ export class Thread extends DurableObject<Bindings> {
         threadId,
         liveThreadId: this.#threadId(),
         name,
+        openingRequest: entries.map(textOfEntry).filter(Boolean).join("\n\n"),
       }),
     );
     if (!open) throw new Error("The draft ended before it could start.");

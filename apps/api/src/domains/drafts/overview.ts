@@ -30,10 +30,9 @@ export type Overview =
   | { status: "pending" }
   /**
    * Written. A `stale` one describes an older version of the draft's changes: it's still shown
-   * while a new one is written. `name` is the short name AI suggests keeping the draft under,
-   * null for an overview written before overviews had one.
+   * while a new one is written.
    */
-  | { status: "ready"; name: string | null; headline: string; bullets: string[]; stale: boolean }
+  | { status: "ready"; headline: string; bullets: string[]; stale: boolean }
   /** The model gave up on the last attempt. */
   | { status: "failed" };
 
@@ -92,7 +91,6 @@ export function overviewOf(row: DraftRow, fingerprint: string | null): Overview 
   if (row.overviewHeadline !== null) {
     return {
       status: "ready",
-      name: row.overviewName,
       headline: row.overviewHeadline,
       bullets: row.overviewBullets ?? [],
       stale: row.overviewFingerprint !== fingerprint,
@@ -171,7 +169,6 @@ export function clearStatements(db: Database, draftId: string): overlay.BatchIte
     db
       .update(drafts)
       .set({
-        overviewName: null,
         overviewHeadline: null,
         overviewBullets: null,
         overviewRequestedAt: null,

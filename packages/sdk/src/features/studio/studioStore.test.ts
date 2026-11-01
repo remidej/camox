@@ -12,7 +12,7 @@ void test("asking the agent leaves the review for the chat, and asking the same 
   studioStore.trigger.takeAgentAsk();
   studioStore.trigger.askAgent({ text: "Fix the footer's link" });
 
-  assert.equal(context().reviewDraftSheet.open, false);
+  assert.equal(context().isReviewDraftSheetOpen, false);
   assert.equal(context().agentAsk?.text, "Fix the footer's link");
   assert.notEqual(context().agentAsk?.id, first?.id);
 });

@@ -74,8 +74,6 @@ async function fixture() {
   const list = (who: typeof ada = me) => call(router.drafts.list, { projectId }, as(who));
   const get = (draftId: string, who: typeof ada = me) =>
     call(router.drafts.get, { projectId }, as(who, inDraft(draftId)));
-  const rename = (draftId: string, name: string | null, who: typeof ada = me) =>
-    call(router.drafts.rename, { projectId, name }, as(who, inDraft(draftId)));
   const preview = (draftId: string) =>
     call(router.drafts.previewPublish, { projectId }, as(me, inDraft(draftId)));
   const publish = async (draftId: string, who: typeof ada = me) =>
@@ -96,7 +94,6 @@ async function fixture() {
     editBlock,
     list,
     get,
-    rename,
     preview,
     publish,
     deleteDraft,
@@ -228,58 +225,22 @@ describe("getting a draft", () => {
   });
 });
 
-describe("renaming a draft", () => {
-  it("lets any member rename any regular draft, for every member", async () => {
-    const { ada, me, createBlock, get, list, project, rename } = await fixture();
-    const draft = generateUuidv7();
-    await createBlock(me, startingDraft(draft));
-
-    await rename(draft, "  Spring campaign ", ada);
-
-    expect((await get(draft, me)).name).toBe("Spring campaign");
-    expect((await list(ada)).drafts.find((listed) => listed.id === draft)?.name).toBe(
-      "Spring campaign",
-    );
-    expect(refreshes(sentTo(project.id), null, [...queryKeys.drafts.list, project.id])).toBe(true);
-  });
-
-  it("clears the name back to the computed label when renamed to nothing", async () => {
-    const { me, createBlock, get, rename } = await fixture();
-    const draft = generateUuidv7();
-    await createBlock(me, startingDraft(draft));
-    await rename(draft, "Named");
-
-    await rename(draft, "   ");
-
-    expect((await get(draft)).name).toBeNull();
-  });
-});
-
 describe("creating a draft", () => {
-  it("creates an empty regular draft by the caller, named or not, listed for every member", async () => {
+  it("creates an empty regular draft by the caller, unnamed, listed for every member", async () => {
     const { ada, me, as, project, list, get } = await fixture();
     const before = Date.now();
 
-    const named = await call(
-      router.drafts.create,
-      { projectId: project.id, name: "  Spring campaign " },
-      as(ada),
-    );
-    const unnamed = await call(router.drafts.create, { projectId: project.id }, as(ada));
+    const created = await call(router.drafts.create, { projectId: project.id }, as(ada));
 
-    expect(named).toMatchObject({
-      name: "Spring campaign",
+    expect(created).toMatchObject({
+      name: null,
       createdBy: { id: ada.id, name: "Ada" },
       changeCount: 0,
       lastChangedAt: null,
     });
-    expect(named.createdAt).toBeGreaterThanOrEqual(before);
-    expect(unnamed.name).toBeNull();
-    expect(unnamed.id).not.toBe(named.id);
-    expect(await get(named.id, me)).toEqual(named);
-    expect((await list(me)).drafts.map((draft) => draft.id)).toEqual(
-      expect.arrayContaining([named.id, unnamed.id]),
-    );
+    expect(created.createdAt).toBeGreaterThanOrEqual(before);
+    expect(await get(created.id, me)).toEqual(created);
+    expect((await list(me)).drafts.map((draft) => draft.id)).toEqual([created.id]);
     expect(refreshes(sentTo(project.id), null, [...queryKeys.drafts.list, project.id])).toBe(true);
   });
 
@@ -287,7 +248,7 @@ describe("creating a draft", () => {
     const { outsiderUser, as, project, list } = await fixture();
 
     await expect(
-      call(router.drafts.create, { projectId: project.id, name: "Mine" }, as(outsiderUser)),
+      call(router.drafts.create, { projectId: project.id }, as(outsiderUser)),
     ).rejects.toMatchObject({ status: 403 });
     expect((await list()).drafts).toEqual([]);
   });

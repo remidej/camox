@@ -4,6 +4,7 @@ import { z } from "zod";
 
 import type { OpeningSender } from "../../durable-objects/thread";
 import { runService } from "../../lib/run-service";
+import { DRAFT_NAME_MAX_LENGTH, DRAFT_NAME_RULES } from "../drafts/name";
 import { startDraft } from "../drafts/service";
 import { draftThread } from "../threads/service";
 import { clientNamed, connectedAgentClientOf } from "./agents";
@@ -49,7 +50,14 @@ export function registerDraftTools(server: McpServer, call: ConnectedAgentCall) 
       description:
         "Starts a new draft of the website, where Camox's agent makes the change you ask for, and waits for its answer. Nothing reaches the live website until the member publishes the draft in the studio. Each new request gets its own draft.",
       inputSchema: {
-        name: z.string().trim().min(1).max(200).describe("A few words saying what it changes."),
+        name: z
+          .string()
+          .trim()
+          .min(1)
+          .max(DRAFT_NAME_MAX_LENGTH)
+          .describe(
+            `The draft's name, saying what it changes. ${DRAFT_NAME_RULES} Camox renames the draft once the name no longer fits it.`,
+          ),
         message: z.string().trim().min(1).describe(MESSAGE_DESCRIPTION),
       },
       scope: DRAFTS_SCOPE,
@@ -67,6 +75,7 @@ export function registerDraftTools(server: McpServer, call: ConnectedAgentCall) 
           createdBy: user.id,
           name,
           threadId,
+          openingRequest: message,
         }),
       );
       await call.env.THREAD.getByName(threadId).open({

@@ -5,6 +5,7 @@ import { outdent } from "outdent";
 import { z } from "zod";
 
 import type { AiPurpose } from "../domains/ai-usage/schema";
+import { DRAFT_NAME_RULES } from "../domains/drafts/name";
 import { readMetadataImage } from "../domains/files/metadata-image";
 import {
   AiModel,
@@ -147,6 +148,8 @@ export const openRouterModel = (apiKey: string, ledger: UsageLedger = noLedger) 
             abortController,
             ...metering,
             outputSchema: z.object({
+              // The verdict comes before the name, so the model judges the name before writing one.
+              nameVerdict: z.enum(["fits", "obsolete"]),
               name: z.string(),
               headline: z.string(),
               bullets: z.array(z.string()),
@@ -245,11 +248,12 @@ function translationPrompt(request: TranslationRequest) {
 function draftOverviewPrompt(request: DraftOverviewRequest) {
   return outdent`
     <instruction>
-      A draft is a set of changes to a website, reviewed by its editors before it's published. Describe what this draft does, for an editor about to review it.
+      A draft is a set of changes to a website, reviewed by its editors before it's published. Describe what this draft does, for an editor about to review it, and judge its name.
     </instruction>
 
     <constraints>
-      - "name": a name for the draft as a list of drafts shows it, 2 to 4 words and at most 30 characters, without ending punctuation, such as "New hero subtitle" or "Cheaper Pro plan"
+      - "nameVerdict": whether the draft's current name still fits it. It's "obsolete" only when it names something the draft no longer changes, or when the draft's main change is now something the name doesn't cover, so that someone picking the draft from a list by its name would be misled. A name that covers only part of the draft, that could be worded better, or that leaves out smaller changes made alongside, still "fits". A name given for the opening request also covers what the request asks that the draft doesn't change yet. Without a current name, it's "obsolete"
+      - "name": the current name, word for word, when it fits; otherwise a new one. ${DRAFT_NAME_RULES} In the language of the opening request, or else in English
       - "headline": one sentence about what the draft does as a whole, not a list of its changes
       - "bullets": one bullet per page or category of content, together covering every change
       - Group many similar changes into one bullet with a count ("12 blog posts get new SEO") rather than dropping any
@@ -266,6 +270,7 @@ function draftOverviewPrompt(request: DraftOverviewRequest) {
 
     <draft>
       <name>${request.draftName ?? ""}</name>
+      <openingRequest>${request.openingRequest ?? ""}</openingRequest>
       ${"changes" in request ? `<changes>${JSON.stringify(request.changes)}</changes>` : `<places>${JSON.stringify(request.places)}</places>`}
       <localeEdits>${JSON.stringify(request.localeEdits)}</localeEdits>
     </draft>

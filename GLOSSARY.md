@@ -257,7 +257,7 @@ The published state of the website, served to the public. Live only changes when
 _Avoid_: Production, production environment, main
 
 **Draft**:
-A named set of changes to the website's content and code, kept apart from Live until it is published or deleted, which ends it. Many drafts can be open at once, each started by an editor, Camox's agent, a Connected Agent, or Camox, and every member can see, edit, publish, or delete any of them. Editing while viewing Live always starts a new draft, unnamed until a member keeps it by naming it, publishes it, or discards it. Every other draft starts named.
+A named set of changes to the website's content and code, kept apart from Live until it is published or deleted, which ends it. Many drafts can be open at once, each started by an editor, Camox's agent, a Connected Agent, or Camox, and every member can see, edit, publish, or delete any of them. Camox names every draft, never a member: a draft started for a request or by a push starts named from it, one started by editing while viewing Live is named by its first Draft Overview, and a later Draft Overview renames it only once its name no longer fits. The drafts Camox opens itself keep their names.
 _Avoid_: Branch, environment, changeset, working copy
 
 **Revision**:
@@ -281,16 +281,12 @@ A draft Camox opens to translate what a release added to Live, and publishes by 
 _Avoid_: Translation draft, system draft, bot draft
 
 **Draft Overview**:
-A headline and bullets AI writes about a draft's changes, shown at the top of its review, with a short name it suggests for keeping an unnamed draft. It describes the draft rather than its content, so it is not a Summary or a Generated Value: it is never published to Live, never a change or a conflict, and has no hand-written override.
+A headline and bullets AI writes about a draft's changes, shown at the top of its review. Writing it names a draft that has no name, and renames one whose name is obsolete: one naming what the draft no longer changes, or missing its main change, judged against the request the draft was started for. It describes the draft rather than its content, so it is not a Summary or a Generated Value: it is never published to Live, never a change or a conflict, and has no hand-written override.
 _Avoid_: Draft summary, changelog, description
 
 **Delete**:
 Ending a draft without publishing it, so its changes are lost.
-_Avoid_: Revert, undo
-
-**Discard**:
-Deleting a draft nobody has named yet: the changes an editor made while viewing Live, before anyone kept them as a draft.
-_Avoid_: Delete (for an unnamed draft), revert, undo
+_Avoid_: Discard, revert, undo
 
 **Blocker**:
 A problem in a draft that prevents publishing it until it is fixed in the draft, such as a duplicate path, an empty required reference, code that doesn't build or type check, or code that doesn't merge with Live's.

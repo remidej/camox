@@ -50,6 +50,8 @@ export const startDraft = Effect.fn("startDraft")(function* (
     name: string | null;
     threadId?: string | null;
     liveThreadId?: string | null;
+    /** What someone asked for in starting the draft, which its overview judges its name by. */
+    openingRequest?: string | null;
     /** What Camox opens the draft for, when it does. */
     purpose?: CamoxDraftPurpose;
   },
@@ -58,8 +60,8 @@ export const startDraft = Effect.fn("startDraft")(function* (
   // The insert skips an ended draft's id in the same statement, so it can't race an ending.
   const inserted = yield* Effect.promise(() =>
     db.run(sql`
-      insert into ${drafts} (id, project_id, name, created_by, created_at, thread_id, live_thread_id, purpose)
-      select ${draft.id}, ${draft.projectId}, ${draft.name}, ${draft.createdBy}, ${Date.now()}, ${draft.threadId ?? null}, ${draft.liveThreadId ?? null}, ${draft.purpose ?? null}
+      insert into ${drafts} (id, project_id, name, created_by, created_at, thread_id, live_thread_id, opening_request, purpose)
+      select ${draft.id}, ${draft.projectId}, ${draft.name}, ${draft.createdBy}, ${Date.now()}, ${draft.threadId ?? null}, ${draft.liveThreadId ?? null}, ${draft.openingRequest ?? null}, ${draft.purpose ?? null}
       where not exists (select 1 from ${endedDrafts} where ${endedDrafts.id} = ${draft.id})
       on conflict do nothing`),
   );
