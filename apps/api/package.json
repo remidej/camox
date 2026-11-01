@@ -9,7 +9,7 @@
   "type": "module",
   "scripts": {
     "dev": "node scripts/dev.mjs",
-    "deploy": "pnpm run db:migrate:remote && pnpm run deploy:sandbox && pnpm run deploy:release-sandbox && wrangler deploy --minify",
+    "deploy": "pnpm run db:migrate:remote && pnpm run deploy:sandbox && pnpm run deploy:release-sandbox && wrangler deploy",
     "deploy:sandbox": "wrangler deploy --config sandbox/wrangler.jsonc --minify",
     "deploy:release-sandbox": "node release-sandbox/fetch-template.mjs && wrangler deploy --config release-sandbox/wrangler.jsonc --minify",
     "cf-typegen": "wrangler types --env-interface CloudflareBindings",

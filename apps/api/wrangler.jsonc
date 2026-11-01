@@ -4,6 +4,9 @@
   "main": "src/worker.ts",
   "compatibility_date": "2026-03-28",
   "compatibility_flags": ["nodejs_compat"],
+  // Never minified: Browser Run's Playwright shields the functions it runs in the page from
+  // esbuild's `__name` helper by that name, and minifying renames it, so they throw there.
+  "minify": false,
   // Markdown imports are their text: the platform's skills (src/domains/code/platform-skills.ts).
   "rules": [{ "type": "Text", "globs": ["**/*.md"], "fallthrough": true }],
   "routes": [{ "pattern": "api.camox.ai", "custom_domain": true }],
