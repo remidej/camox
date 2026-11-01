@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.70.0](https://github.com/remidej/camox/compare/camox-v0.69.0...camox-v0.70.0) (2026-11-01)
+
+
+### Changes
+
+* **api:** count a draft's code as one of its pending changes ([#798](https://github.com/remidej/camox/issues/798)) ([f39baa9](https://github.com/remidej/camox/commit/f39baa99293c36dc64fc9c485b2c59ee634f7863))
+* **api:** stop minifying the API so the agent's look can capture one block ([#796](https://github.com/remidej/camox/issues/796)) ([b527995](https://github.com/remidej/camox/commit/b527995f5cf13f3f99d5732f5bb7745aa62d83a0))
+
 ## [0.69.0](https://github.com/remidej/camox/compare/camox-v0.68.0...camox-v0.69.0) (2026-10-31)
 
 
