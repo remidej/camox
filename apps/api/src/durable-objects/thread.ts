@@ -162,6 +162,7 @@ import {
 } from "../domains/threads/usage";
 import { type WebToolCall, webTools } from "../domains/threads/web-tools";
 import { type AiAttribution, attributionColumns, d1Ledger } from "../lib/ai-usage";
+import { record } from "../lib/journal";
 import type { MemoryFs } from "../lib/memory-fs";
 import { runService } from "../lib/run-service";
 import { serialQueue } from "../lib/serial-queue";
@@ -1008,6 +1009,8 @@ export class Thread extends DurableObject<Bindings> {
             });
             if (!(yield* Effect.promise(() => hasCode(draft.id)))) {
               yield* Effect.promise(() => startCode(draft.id));
+              // Its code is one more of the draft's changes, which the drafts list counts.
+              yield* record(db, { kind: "drafts", projectId: actor.projectId });
             }
             return draft.id;
           }),
