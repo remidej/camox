@@ -9,6 +9,7 @@ import { useThread } from "../../../lib/use-thread";
 import { cn } from "../../../lib/utils";
 import { useNavigate } from "../../navigation/navigation";
 import { BOTTOM_CARD_EDGES, CARD_BODY_EDGES } from "../../preview/components/SidebarStack";
+import { useAgentRunToast } from "../agentRunToast";
 import { EditorWhereContext } from "../editorWhereContext";
 import { FollowAgentContext } from "../followAgentContext";
 import { studioStore } from "../studioStore";
@@ -104,6 +105,7 @@ function Thread({
   const { view, sending, send, stop, error, touched } = useThread(apiUrl, projectId, draftId, {
     onEnterDraft,
   });
+  useAgentRunToast(view, draftId);
   // The studio follows what its runs touch.
   const follow = React.use(FollowAgentContext);
   const followTouched = React.useEffectEvent((batch: TouchedBatch) => follow?.receive(batch));
