@@ -75,6 +75,14 @@ jobs:
       - if: ${{ matrix.suite == 'workspace' }}
         run: pnpm nx run-many -t test --all --exclude=@camox/api
 
+      # The SDK's real-browser tests run in Playwright's Chromium headless shell, at the build that
+      # its pinned `playwright-core` expects.
+      - if: ${{ matrix.suite == 'workspace' }}
+        run: pnpm --filter camox exec playwright-core install --with-deps chromium-headless-shell
+
+      - if: ${{ matrix.suite == 'workspace' }}
+        run: pnpm --filter camox test:browser
+
       - if: ${{ matrix.suite == 'workspace' }}
         run: pnpm --filter @camox/template-default test:production
 
